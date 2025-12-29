@@ -14,7 +14,8 @@
       "Bash(do grep \"^namespace\\\\|^public class\\\\|^public interface\\\\|^public struct\\\\|^public enum\\\\|^public record\" $file)",
       "Bash(done)",
       "Bash(for solver in Bisection Newton NewtonSafe Ridder FalsePosition Secant)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(chmod:*)"
     ]
   }
 }
