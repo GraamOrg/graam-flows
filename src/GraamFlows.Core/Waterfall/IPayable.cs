@@ -21,6 +21,7 @@ public interface IPayable
     void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
+    void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec);
     double BeginBalance(DateTime cfDate);
     double CurrentBalance(DateTime cfDate);
     bool IsLockedOut(DateTime cfDate);

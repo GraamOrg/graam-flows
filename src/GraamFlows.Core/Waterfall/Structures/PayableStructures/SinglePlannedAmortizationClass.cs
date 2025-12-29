@@ -32,6 +32,11 @@ public class SinglePlannedAmortizationClass : BasePayable
         PayPayable(Spac, prin, (payable, amt) => payable.PayRp(this, cfDate, amt, payRuleExec), payRuleExec);
     }
 
+    public override void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)
+    {
+        PayPayable(Spac, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+    }
+
     public override double CurrentBalance(DateTime cfDate)
     {
         var currBal = Spac.Leafs().Sum(leaf => leaf.CurrentBalance(cfDate));

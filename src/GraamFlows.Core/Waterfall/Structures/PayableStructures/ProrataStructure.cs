@@ -32,6 +32,12 @@ public class ProrataStructure : BasePayable
             payRuleExec);
     }
 
+    public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
+    {
+        PayPayables(parent, _payables, cfDate, amount,
+            (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+    }
+
     private void PayPayables(IPayable parent, IList<IPayable> payables, DateTime cfDate, double prin,
         Action<IPayable, double> pay, Action payRuleExec, bool ignoreLockout = false)
     {

@@ -45,6 +45,11 @@ public class EnhancementCapStructure : BasePayable
         PayPayables(cfDate, prin, (p, a) => p.PayRp(this, cfDate, a, payRuleExec), payRuleExec);
     }
 
+    public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
+    {
+        PayPayables(cfDate, amount, (p, a) => p.PayWritedown(this, cfDate, a, payRuleExec), payRuleExec);
+    }
+
     private void PayPayables(DateTime cfDate, double prin, Action<IPayable, double> payFunc, Action payRuleExec)
     {
         var currSenBal = Seniors.Leafs().Sum(leaf => leaf.CurrentBalance(cfDate));

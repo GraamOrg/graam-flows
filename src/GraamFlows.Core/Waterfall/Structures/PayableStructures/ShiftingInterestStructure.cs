@@ -44,6 +44,11 @@ public class ShiftingInterestStructure : BasePayable
         PayPayables(cfDate, prin, (p, a) => p.PayRp(this, cfDate, a, payRuleExec), payRuleExec);
     }
 
+    public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
+    {
+        PayPayables(cfDate, amount, (p, a) => p.PayWritedown(this, cfDate, a, payRuleExec), payRuleExec);
+    }
+
     private void PayPayables(DateTime cfDate, double prin, Action<IPayable, double> payFunc, Action payRuleExec)
     {
         if (Math.Abs(prin) < .01)

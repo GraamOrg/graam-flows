@@ -30,6 +30,11 @@ public class ForcedPaydownStructure : BasePayable
         PayPayables(cfDate, prin, (payable, amt) => payable.PayRp(this, cfDate, amt, payRuleExec), payRuleExec);
     }
 
+    public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
+    {
+        PayPayables(cfDate, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+    }
+
     public override string Describe(int level)
     {
         var tabs = string.Concat(Enumerable.Repeat("\t", level));

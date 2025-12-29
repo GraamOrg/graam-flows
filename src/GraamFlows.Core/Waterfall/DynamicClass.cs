@@ -58,6 +58,11 @@ public class DynamicClass : IPayable
         PayUsp(caller, cfDate, prin, payRuleExec);
     }
 
+    public void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)
+    {
+        Writedown(cfDate, amount);
+    }
+
     public virtual double BeginBalance(DateTime cfDate)
     {
         var cashflow = GetCashflow(cfDate);

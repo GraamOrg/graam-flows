@@ -7,6 +7,7 @@ public abstract class BasePayable : IPayable
     public abstract void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     public abstract void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     public abstract void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
+    public abstract void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec);
     public abstract string Describe(int level);
     public abstract XElement DescribeXml();
     public abstract HashSet<IPayable> Leafs();
