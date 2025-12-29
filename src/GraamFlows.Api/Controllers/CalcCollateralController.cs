@@ -22,15 +22,7 @@ public class CalcCollateralController : ControllerBase
 
             // Create assumptions
             var anchorAbsT = DateUtil.CalcAbsT(request.ProjectionDate);
-            var assumps = DealLevelAssumptions.CreateConstAssumptions(
-                request.ProjectionDate,
-                anchorAbsT,
-                request.Assumptions.Cpr,
-                request.Assumptions.Cdr,
-                request.Assumptions.Severity,
-                request.Assumptions.Delinquency,
-                request.Assumptions.Advancing
-            );
+            var assumps = CreateAssumptions(request.ProjectionDate, anchorAbsT, request.Assumptions);
 
             // Create a simple rate provider (for ARMs)
             var rateProvider = new ConstantRateProvider(5.0); // Default 5% rate for ARMs
@@ -52,6 +44,34 @@ public class CalcCollateralController : ControllerBase
         {
             return BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
         }
+    }
+
+    private static DealLevelAssumptions CreateAssumptions(DateTime projectionDate, int anchorAbsT, AssumptionsDto dto)
+    {
+        // Check if any vector strings are provided
+        var hasVectors = !string.IsNullOrEmpty(dto.CprVector) ||
+                         !string.IsNullOrEmpty(dto.CdrVector) ||
+                         !string.IsNullOrEmpty(dto.SeverityVector) ||
+                         !string.IsNullOrEmpty(dto.DelinquencyVector) ||
+                         !string.IsNullOrEmpty(dto.AdvancingVector);
+
+        if (hasVectors)
+        {
+            // Use vector strings (fall back to scalar as string if vector not provided)
+            var vprStr = dto.CprVector ?? dto.Cpr.ToString();
+            var cdrStr = dto.CdrVector ?? dto.Cdr.ToString();
+            var sevStr = dto.SeverityVector ?? dto.Severity.ToString();
+            var dqStr = dto.DelinquencyVector ?? dto.Delinquency.ToString();
+            var advStr = dto.AdvancingVector ?? dto.Advancing.ToString();
+
+            return DealLevelAssumptions.CreateConstAssumptions(
+                projectionDate, anchorAbsT, vprStr, cdrStr, sevStr, dqStr, advStr);
+        }
+
+        // Use scalar values
+        return DealLevelAssumptions.CreateConstAssumptions(
+            projectionDate, anchorAbsT,
+            dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, dto.Advancing);
     }
 
     private static IAsset ConvertToAsset(AssetDto dto)

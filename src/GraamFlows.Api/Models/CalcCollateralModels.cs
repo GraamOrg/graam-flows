@@ -47,11 +47,20 @@ public class AssetDto
 
 public class AssumptionsDto
 {
+    // Scalar values (used if vector strings are not provided)
     public double Cpr { get; set; } = 6.0; // Annual CPR %
     public double Cdr { get; set; } = 0.5; // Annual CDR %
     public double Severity { get; set; } = 40.0; // Loss severity %
     public double Delinquency { get; set; } = 0.0; // Delinquency rate %
     public double Advancing { get; set; } = 100.0; // Advancing rate %
+
+    // Vector strings (PolyPaths format: "6.0", "1.0R12,6.0", "6.0/12", "202301,1.0R12,6.0")
+    // If provided, these override the scalar values above
+    public string? CprVector { get; set; }
+    public string? CdrVector { get; set; }
+    public string? SeverityVector { get; set; }
+    public string? DelinquencyVector { get; set; }
+    public string? AdvancingVector { get; set; }
 }
 
 // ============== Response Models ==============

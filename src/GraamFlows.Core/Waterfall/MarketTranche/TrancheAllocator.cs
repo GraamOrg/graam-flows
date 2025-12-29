@@ -180,6 +180,12 @@ namespace GraamFlows.Waterfall.MarketTranche
 
                     if (payFromAllocator.Any(p => p.Tranche.TrancheName == dynTran.Tranche.TrancheName))
                         continue;
+
+                    // Skip tranches with zero original balance (e.g., OC certificates, residuals)
+                    // These are handled by the waterfall structure, not pro-rata allocation
+                    if (Math.Abs(classCf.Tranche.OriginalBalance) < double.Epsilon)
+                        continue;
+
                     if (Math.Abs(dynTran.Balance) < double.Epsilon)
                     {
                         // special case when bonds come back from the dead. This will happen if excess interest writes up a tranche from 0. In this case, use original balance

@@ -196,16 +196,13 @@ public class UnifiedStructure : BaseStructure
         var cfAlloc = BeginPeriod(deal, dynGroup, adjPeriodCf);
         var ocClass = dynGroup.ClassByName("OC" + adjPeriodCf.GroupNum);
 
-        // 1. INTEREST - via InterestPayable structure
-        PayInterestViaStructure(dynGroup, rateProvider, adjPeriodCf, triggerValues);
-
-        // 2. PRINCIPAL - via existing payable structures
+        // 1. PRINCIPAL - via existing payable structures
         PayPrincipalViaStructures(deal, dynGroup, adjPeriodCf, cfAlloc, ocClass, triggerValues, payRuleExecutor);
 
-        // 3. WRITEDOWNS - via WritedownPayable structure
+        // 2. WRITEDOWNS - via WritedownPayable structure
         PayWritedownsViaStructure(dynGroup, adjPeriodCf, cfAlloc.Writedown);
 
-        // 4. EXCESS - via ExcessPayable structure (if defined)
+        // 3. EXCESS - via ExcessPayable structure (if defined)
         // For OC/residual tranches, excess spread ACCRETES (increases balance)
         if (dynGroup.ExcessPayable != null)
         {
@@ -225,25 +222,6 @@ public class UnifiedStructure : BaseStructure
             PayAccrualStructures(dynGroup, rateProvider, adjPeriodCf, triggerValues, accrualStructures);
             ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf);
         }
-    }
-
-    /// <summary>
-    ///     Pays interest via the InterestPayable structure.
-    ///     Each leaf node (DynamicClass) receives interest allocation based on structure type.
-    /// </summary>
-    private void PayInterestViaStructure(DynamicGroup dynGroup, IRateProvider rateProvider, PeriodCashflows periodCf,
-        List<TriggerValue> triggerValues)
-    {
-        // Interest is paid via TrancheAllocator which handles coupon calculations
-        // The InterestPayable structure defines the PRIORITY order for interest payments
-        // When a class doesn't receive full interest, it creates an interest shortfall
-
-        // For UnifiedStructure, InterestPayable is used to validate that INTEREST step exists
-        // Actual interest payment is still handled by TrancheAllocator in the main loop
-        // This maintains compatibility with existing coupon calculation logic
-
-        // Future enhancement: Could implement interest priority via InterestPayable
-        // by calling PaySp with available net interest and letting structure distribute
     }
 
     /// <summary>
