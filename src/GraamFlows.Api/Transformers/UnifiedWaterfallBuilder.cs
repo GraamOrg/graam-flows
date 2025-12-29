@@ -109,9 +109,19 @@ public static class UnifiedWaterfallBuilder
                     break;
 
                 case "EXCESS":
-                    // EXCESS step is handled by TrancheAllocator which redirects remaining
-                    // interest/principal to the Modeling (OC) tranche. No pay rule needed.
-                    // The EXCESS step in the waterfall is purely declarative.
+                    // EXCESS step defines where excess spread accretes (typically OC/residual tranche)
+                    if (step.Structure != null)
+                    {
+                        var dsl = WaterfallBuilder.BuildStructureDsl(step.Structure);
+                        rules.Add(new PayRuleDto
+                        {
+                            RuleName = "ExcessStruct",
+                            ClassGroupName = groupName,
+                            Formula = $"SET_EXCESS_STRUCT({dsl})",
+                            Priority = priority++
+                        });
+                    }
+
                     break;
             }
 

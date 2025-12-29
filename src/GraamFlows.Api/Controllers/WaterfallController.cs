@@ -4,6 +4,7 @@ using GraamFlows.Assumptions;
 using GraamFlows.Domain;
 using GraamFlows.Factories;
 using GraamFlows.Objects.DataObjects;
+using GraamFlows.Objects.TypeEnum;
 using GraamFlows.Objects.Util;
 using GraamFlows.RulesEngine;
 using GraamFlows.Waterfall.MarketTranche;
@@ -276,16 +277,20 @@ public class WaterfallController : ControllerBase
         if (dto.Expenses != null && dto.Expenses.Any())
             foreach (var expDto in dto.Expenses)
             {
-                var expenseTranche = new Tranche
+                // Use Core Tranche which has settable enum properties (vs Domain.Tranche with computed)
+                var expenseTranche = new GraamFlows.Waterfall.Tranche(false)
                 {
                     TrancheName = expDto.ExpenseName,
                     DealName = dto.DealName,
                     OriginalBalance = 0,
                     Factor = 1.0,
                     CouponType = "Formula",
+                    CouponTypeEnum = CouponType.Formula, // Required for formula compilation
                     CashflowType = "Expense",
+                    CashflowTypeEnum = CashflowType.Expense, // Required for proper filtering
                     CouponFormula = expDto.Formula,
-                    TrancheType = "Modeling",
+                    TrancheType = "Reference",
+                    TrancheTypeEnum = TrancheTypeEnum.Reference,
                     ClassReference = expDto.ExpenseName,
                     PayFrequency = 12,
                     PayDelay = 0,
@@ -296,6 +301,17 @@ public class WaterfallController : ControllerBase
                     Deal = deal
                 };
                 deal.Tranches.Add(expenseTranche);
+
+                // Create DealStructure with PayFrom=Expense so it's picked up by ExpenseClasses
+                var expenseStructure = new DealStructure
+                {
+                    DealName = dto.DealName,
+                    ClassGroupName = expDto.ExpenseName,
+                    SubordinationOrder = 0, // Expenses paid first
+                    PayFrom = "Expense",
+                    GroupNum = expDto.GroupNum.ToString()
+                };
+                deal.DealStructures.Add(expenseStructure);
             }
 
         // Build exchange shares
@@ -406,6 +422,7 @@ public class WaterfallController : ControllerBase
                     UnscheduledPrincipal = cf.Value.UnscheduledPrincipal,
                     Interest = cf.Value.Interest,
                     Coupon = cf.Value.Coupon,
+                    Expense = cf.Value.Expense,
                     Writedown = cf.Value.Writedown,
                     CumWritedown = cf.Value.CumWritedown,
                     Factor = cf.Value.Factor,
@@ -424,6 +441,7 @@ public class WaterfallController : ControllerBase
             {
                 TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
                 TotalInterest = cashflowList.Sum(c => c.Interest),
+                TotalExpense = cashflowList.Sum(c => c.Expense),
                 TotalWritedown = cashflowList.Sum(c => c.Writedown),
                 FinalBalance = lastCf?.Balance ?? 0,
                 FinalFactor = lastCf?.Factor ?? 0

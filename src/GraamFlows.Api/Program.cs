@@ -41,5 +41,8 @@ app.UseSwaggerUI();
 app.UseCors();
 app.MapControllers();
 
+// Health check endpoint
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
 var port = Environment.GetEnvironmentVariable("PORT") ?? "5200";
 app.Run($"http://0.0.0.0:{port}");

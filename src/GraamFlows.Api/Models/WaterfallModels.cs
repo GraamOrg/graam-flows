@@ -310,6 +310,7 @@ public class TrancheCashflowDto
     public double UnscheduledPrincipal { get; set; }
     public double Interest { get; set; }
     public double Coupon { get; set; }
+    public double Expense { get; set; } // Expense amount for expense tranches
     public double Writedown { get; set; }
     public double CumWritedown { get; set; }
     public double Factor { get; set; }
@@ -338,6 +339,7 @@ public class TrancheSummaryDto
 {
     public double TotalPrincipal { get; set; }
     public double TotalInterest { get; set; }
+    public double TotalExpense { get; set; } // Total expense for expense tranches
     public double TotalWritedown { get; set; }
     public double FinalBalance { get; set; }
     public double FinalFactor { get; set; }

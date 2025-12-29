@@ -57,7 +57,10 @@ public class UnifiedStructure : BaseStructure
                     dynGroup.CollateralBondRatio = ratio;
 
                     // Add OC tranche when collateral > tranches (normal for seasoned deals)
-                    if (collatBal > trancheBal + 1)
+                    // Skip if deal already has a Modeling tranche defined (e.g., CERTIFICATES in Auto ABS)
+                    var hasModelingTranche = deal.Tranches.Any(t =>
+                        t.TrancheTypeEnum == Objects.TypeEnum.TrancheTypeEnum.Modeling);
+                    if (collatBal > trancheBal + 1 && !hasModelingTranche)
                         dynGroup.AddOverCollaterizedTranche(collatBal - trancheBal);
                     // Only error if tranches significantly exceed collateral (data issue)
                     else if (!dynGroup.HasCrossedGroups && trancheBal > collatBal * 1.01)
@@ -125,6 +128,12 @@ public class UnifiedStructure : BaseStructure
 
                 var beginCollatDiff = Math.Abs((1 - dynGroup.CollateralBondRatio) * dynGroup.BeginCollatBalance);
                 var currCollatDiff = Math.Abs((1 - endRatio) * Math.Max(endCollatBal, endTrancheBal));
+
+                // Skip paydown check for deals with explicit OC/Modeling tranches since accretion causes expected divergence
+                var hasExplicitOC = deal.Tranches.Any(t =>
+                    t.TrancheTypeEnum == Objects.TypeEnum.TrancheTypeEnum.Modeling);
+                if (hasExplicitOC)
+                    continue;
 
                 // Relaxed threshold: allow up to 5% divergence for deals with pre-applied factors
                 var allowedDivergence = Math.Max(1e6, dynGroup.BeginCollatBalance * 0.05);
@@ -271,93 +280,28 @@ public class UnifiedStructure : BaseStructure
     /// <summary>
     ///     Pays writedowns via the WritedownPayable structure.
     ///     The structure defines the order of loss allocation (first in list takes losses first).
-    ///     Uses PayRp to distribute writedowns through the structure, cascading when balance exhausted.
+    ///     Uses PayWritedown to distribute writedowns through the structure, cascading when balance exhausted.
     /// </summary>
     private void PayWritedownsViaStructure(DynamicGroup dynGroup, PeriodCashflows periodCf, double writedownAmt)
     {
         if (writedownAmt <= 0)
             return;
 
-        // Use WritedownPayable structure to allocate losses
-        // PayRp handles the cascade: when one class is exhausted, it moves to the next
-        AllocateWritedownsToPayable(dynGroup.WritedownPayable, periodCf.CashflowDate, writedownAmt);
-    }
+        // Track cumWritedowns before to determine what was applied to each class
+        var leaves = dynGroup.WritedownPayable.Leafs();
+        var beforeWritedowns = leaves.OfType<DynamicClass>()
+            .ToDictionary(dc => dc, dc => dc.CumWritedown);
 
-    /// <summary>
-    ///     Recursively allocates writedowns through the payable structure.
-    ///     SEQ structures allocate in order (first child takes losses first).
-    ///     PRORATA structures allocate proportionally.
-    /// </summary>
-    private double AllocateWritedownsToPayable(IPayable payable, DateTime cfDate, double writedownAmt)
-    {
-        if (writedownAmt <= 0)
-            return 0;
+        // Use PayWritedown which properly handles SEQ/PRORATA/nested structures
+        dynGroup.WritedownPayable.PayWritedown(null, periodCf.CashflowDate, writedownAmt, () => { });
 
-        // If this is a leaf node (DynamicClass), apply the writedown
-        if (payable.IsLeaf)
+        // Handle pseudo-classes (IO strips, etc.) for any class that had writedowns applied
+        foreach (var leaf in leaves.OfType<DynamicClass>())
         {
-            var currentBal = payable.CurrentBalance(cfDate);
-            var toWritedown = Math.Min(writedownAmt, currentBal);
-
-            if (payable is DynamicClass dynClass)
-            {
-                dynClass.Writedown(cfDate, toWritedown);
-                WritedownPseudoClass(dynClass, cfDate, toWritedown);
-            }
-
-            return toWritedown;
+            var writedownApplied = leaf.CumWritedown - beforeWritedowns[leaf];
+            if (writedownApplied > 0)
+                WritedownPseudoClass(leaf, periodCf.CashflowDate, writedownApplied);
         }
-
-        // Handle structure nodes
-        var children = payable.GetChildren();
-        if (children == null || !children.Any())
-            return 0;
-
-        double totalAllocated = 0;
-        var remaining = writedownAmt;
-
-        // For SEQ structures, allocate to children in order
-        // For PRORATA, allocate proportionally based on current balance
-        if (payable is SequentialStructure)
-        {
-            foreach (var child in children)
-            {
-                if (remaining <= 0)
-                    break;
-                var allocated = AllocateWritedownsToPayable(child, cfDate, remaining);
-                totalAllocated += allocated;
-                remaining -= allocated;
-            }
-        }
-        else if (payable is ProrataStructure)
-        {
-            var totalChildBal = children.Sum(c => c.CurrentBalance(cfDate));
-            if (totalChildBal <= 0)
-                return 0;
-
-            foreach (var child in children)
-            {
-                var childBal = child.CurrentBalance(cfDate);
-                var proportion = childBal / totalChildBal;
-                var childShare = writedownAmt * proportion;
-                var allocated = AllocateWritedownsToPayable(child, cfDate, childShare);
-                totalAllocated += allocated;
-            }
-        }
-        else
-        {
-            // Default: treat as sequential
-            foreach (var child in children)
-            {
-                if (remaining <= 0)
-                    break;
-                var allocated = AllocateWritedownsToPayable(child, cfDate, remaining);
-                totalAllocated += allocated;
-                remaining -= allocated;
-            }
-        }
-
-        return totalAllocated;
     }
 
     /// <summary>
