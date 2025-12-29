@@ -1,0 +1,1052 @@
+{
+  "$schema": "../Schemas/deal.schema.json",
+  "dealName": "STACR25DNA1",
+  "waterfallType": "MutableStructure",
+  "dealType": "AgencyCreditRisk",
+  "issuer": "Freddie Mac STACR REMIC Trust 2025-DNA1",
+  "trustee": "U.S. Bank National Association",
+  "interestTreatment": "Collateral",
+  "balanceAtIssuance": 18729669304.27,
+  "_extractionGuide_dealMetadata": {
+    "section": "Cover Page and Summary",
+    "searchTerms": [
+      "Cut-off Date Balance",
+      "Trust",
+      "Indenture Trustee",
+      "Reference Pool"
+    ],
+    "sampleLanguage": "'Cut-off Date Balance' means $18,729,669,304.27, which is the aggregate UPB of the Reference Obligations as of the Cut-off Date. 'Trust' means Freddie Mac STACR REMIC Trust 2025-DNA1, a Delaware statutory trust.",
+    "extractionRules": [
+      "Deal name from Trust name after 'STACR REMIC Trust'",
+      "Balance from 'Cut-off Date Balance' definition",
+      "Trustee from 'Indenture Trustee' means clause",
+      "Deal type: 'AgencyCreditRisk' for all STACR/CAS deals"
+    ]
+  },
+  "classGroups": [
+    {
+      "classGroupName": "AH",
+      "subordinationOrder": 0,
+      "groupNum": "1",
+      "payFrom": "Rule",
+      "classTag": "SEN"
+    },
+    {
+      "classGroupName": "A1",
+      "subordinationOrder": 1,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "A1"
+    },
+    {
+      "classGroupName": "A1H",
+      "subordinationOrder": 1,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "A1H"
+    },
+    {
+      "classGroupName": "M1",
+      "subordinationOrder": 2,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "MEZ"
+    },
+    {
+      "classGroupName": "M1H",
+      "subordinationOrder": 2,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "MEZH"
+    },
+    {
+      "classGroupName": "M2A",
+      "subordinationOrder": 4,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "MEZ"
+    },
+    {
+      "classGroupName": "M2AH",
+      "subordinationOrder": 4,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "MEZH"
+    },
+    {
+      "classGroupName": "M2B",
+      "subordinationOrder": 5,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "MEZ"
+    },
+    {
+      "classGroupName": "M2BH",
+      "subordinationOrder": 5,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "MEZH"
+    },
+    {
+      "classGroupName": "B1H",
+      "subordinationOrder": 7,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "SUBH"
+    },
+    {
+      "classGroupName": "B2H",
+      "subordinationOrder": 8,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "SUBH"
+    },
+    {
+      "classGroupName": "B3H",
+      "subordinationOrder": 9,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTag": "SUBH"
+    }
+  ],
+  "_extractionGuide_classGroups": {
+    "section": "Summary - Capital Structure / Table 1",
+    "searchTerms": [
+      "Reference Tranche",
+      "Original Class",
+      "Subordination",
+      "Class A-H",
+      "Class M-1",
+      "Class B-1H"
+    ],
+    "sampleLanguage": "'Mezzanine Reference Tranche' means each of the Class M-1, Class M-1H, Class M-2A, Class M-2AH, Class M-2B and Class M-2BH Reference Tranches. 'Junior Reference Tranche' means each of the Class B-1H, Class B-2H and Class B-3H Reference Tranches.",
+    "extractionRules": [
+      "AH is always subordinationOrder 0 for STACR (senior reference tranche)",
+      "Notes (A1, M1, M2A, M2B) and Reference tranches (A1H, M1H, etc.) share subordination",
+      "B classes are Reference-only (H suffix) in newer STACR deals",
+      "payFrom 'Rule' for AH indicates waterfall rules determine payment",
+      "Group similar classes by subordination order (M2A/M2AH share 4, M2B/M2BH share 5)"
+    ]
+  },
+  "tranches": [
+    {
+      "trancheName": "AH",
+      "originalBalance": 0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Reference",
+      "classReference": "AH",
+      "interestPriority": 0
+    },
+    {
+      "trancheName": "A1",
+      "originalBalance": 275500000,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 0.0095,
+      "couponFormula": "SOFR Rate + 0.95%",
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Offered",
+      "classReference": "A1",
+      "interestPriority": 1
+    },
+    {
+      "trancheName": "A1H",
+      "originalBalance": 14665740,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Reference",
+      "classReference": "A1H",
+      "interestPriority": 1
+    },
+    {
+      "trancheName": "M1",
+      "originalBalance": 284500000,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 0.0105,
+      "couponFormula": "SOFR Rate + 1.05%",
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Offered",
+      "classReference": "M1",
+      "interestPriority": 2
+    },
+    {
+      "trancheName": "M1H",
+      "originalBalance": 15144887,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Reference",
+      "classReference": "M1H",
+      "interestPriority": 2
+    },
+    {
+      "trancheName": "M2A",
+      "originalBalance": 57750000,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 0.0135,
+      "couponFormula": "SOFR Rate + 1.35%",
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Offered",
+      "classReference": "M2A",
+      "interestPriority": 3
+    },
+    {
+      "trancheName": "M2AH",
+      "originalBalance": 3073996,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Reference",
+      "classReference": "M2AH",
+      "interestPriority": 3
+    },
+    {
+      "trancheName": "M2B",
+      "originalBalance": 57750000,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 0.0135,
+      "couponFormula": "SOFR Rate + 1.35%",
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Offered",
+      "classReference": "M2B",
+      "interestPriority": 4
+    },
+    {
+      "trancheName": "M2BH",
+      "originalBalance": 3073995,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Reference",
+      "classReference": "M2BH",
+      "interestPriority": 4
+    },
+    {
+      "trancheName": "B1H",
+      "originalBalance": 243446313,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 0.02,
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Reference",
+      "classReference": "B1H",
+      "interestPriority": 5
+    },
+    {
+      "trancheName": "B2H",
+      "originalBalance": 426531047,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 0.05,
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Reference",
+      "classReference": "B2H",
+      "interestPriority": 6
+    },
+    {
+      "trancheName": "B3H",
+      "originalBalance": 60939349,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "legalMaturityDate": "2045-01-25",
+      "firstPayDate": "2025-02-25",
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "trancheType": "Reference",
+      "classReference": "B3H",
+      "interestPriority": 7
+    }
+  ],
+  "_extractionGuide_tranches": {
+    "section": "Table 1: Classes of Notes / Summary of Terms",
+    "searchTerms": [
+      "Original Class Principal Balance",
+      "Initial Class Coupon",
+      "Class Coupon Formula",
+      "SOFR Rate +",
+      "Maturity Date",
+      "First Payment Date"
+    ],
+    "sampleLanguage": "Table 1 - REMIC 2025-DNA1 Notes $675,500,000. A-1 Original Class Principal Balance $275,500,000, Initial Class Coupon 5.33548%, Class Coupon Formula SOFR Rate + 0.95%. M-1 $284,500,000, SOFR Rate + 1.05%. M-2A/M-2B $57,750,000 each, SOFR Rate + 1.35%.",
+    "extractionRules": [
+      "Original Balance: Look in 'Original Class Principal Balance' column in Table 1",
+      "Coupon Spread: Extract margin from 'Class Coupon Formula' (e.g., 'SOFR Rate + 0.95%' -> 0.0095)",
+      "Reference tranches (H suffix): Balance is notional, typically 5.05% ratio to corresponding Note",
+      "Legal Maturity: Often stated as 'Maturity Date' in summary, typically 20 years from closing",
+      "First Pay Date: One month after closing date",
+      "Day Count: 'Actual/360' standard for STACR floating rate notes",
+      "trancheType: 'Offered' for Notes, 'Reference' for H-suffix classes"
+    ]
+  },
+  "triggers": [
+    {
+      "triggerName": "MandatoryTermination",
+      "description": "Mandatory Termination Date",
+      "triggerType": "DATE_TERMINATION",
+      "triggerParam": "2045-01-25",
+      "isMandatory": true,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "OptionalTermination",
+      "description": "Optional Termination on or after the fifth anniversary",
+      "triggerType": "DATE_TERMINATION",
+      "triggerParam": "2030-01-25",
+      "isMandatory": false,
+      "possibleValues": "Y,N,*",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CleanUpCall",
+      "description": "Clean Up Call at 10% of reference pool balance",
+      "triggerType": "COLLATERAL_VALUE",
+      "triggerParam": "10",
+      "isMandatory": false,
+      "possibleValues": "Y,N,*",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "MinCeTest",
+      "description": "Minimum Credit Enhancement Test - Subordinate Percentage >= 4.20%",
+      "triggerType": "CREDIT_ENHANCEMENT",
+      "triggerParam": "0.0420",
+      "isMandatory": true,
+      "triggerReference": "A1",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CumNetLossTest",
+      "description": "Cumulative Net Loss Test - scheduled threshold based on payment date",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "ccl / ib + VAR('credit_event_factor') < VAR('CumNetLossSchedule')",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "A1CumNetLossTest",
+      "description": "Class A-1 Cumulative Net Loss Test - cumulative net loss <= 1.00%",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "ccl / ib < 0.01",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "DelinquencyTest",
+      "description": "Delinquency Test - 6-month rolling average distressed balance < 50% of subordinate percentage",
+      "triggerType": "DELINQ_TRIGGER_SUB_6",
+      "triggerParam": "DelinqTest",
+      "triggerReference": "AH",
+      "groupNum": "1"
+    }
+  ],
+  "_extractionGuide_triggers": {
+    "section": "Glossary of Terms / Description of the Notes",
+    "searchTerms": [
+      "Minimum Credit Enhancement Test",
+      "Cumulative Net Loss Test",
+      "Delinquency Test",
+      "Class A-1 Cumulative Net Loss Test",
+      "Clean-Up Call",
+      "Termination Date"
+    ],
+    "sampleLanguage": "'Minimum Credit Enhancement Test' with respect to any Payment Date, means a test that will be satisfied if the Subordinate Percentage is greater than or equal to 4.20%. 'Class A-1 Cumulative Net Loss Test' with respect to the Class A-1 Notes as of any Payment Date, means a test that will be satisfied if: (1) the Cumulative Net Loss Percentage does not exceed 1.00%; and (2) the condition stated in clause (1) above was satisfied with respect to each prior Payment Date, if any. 'Delinquency Test' with respect to any Payment Date, means a test that will be satisfied if: (a) the sum of the Distressed Principal Balance for the current Payment Date and each of the preceding five Payment Dates, divided by six... is less than (b) 50% of the amount by which (i) the product of (x) the Subordinate Percentage and (y) the aggregate UPB of the Reference Obligations...",
+    "extractionRules": [
+      "MinCeTest: Look for 'Minimum Credit Enhancement Test' definition with percentage threshold",
+      "CumNetLossTest: Look for 'Cumulative Net Loss Test' - uses scheduled variable lookup",
+      "A1CumNetLossTest: Specific to Class A-1, typically fixed 1.00% threshold, sticky (must pass all prior dates)",
+      "DelinquencyTest: Look for 'Delinquency Test' - uses rolling average of Distressed Principal Balance",
+      "DELINQ_TRIGGER_SUB_6 means 6-month rolling average compared to subordinate percentage",
+      "Optional Termination: Look for 'Early Termination Date' or 'optional termination' provisions",
+      "Clean-Up: Typically at 10% of original pool balance"
+    ]
+  },
+  "waterfall": {
+    "scheduledPrincipal": {
+      "default": {
+        "_comment": "When all triggers pass (MinCeTest, CumNetLossTest, DelinquencyTest, A1CumNetLossTest)",
+        "type": "CSCAP",
+        "capVariable": "SupplSubReduAmt",
+        "primary": {
+          "type": "SHIFTI",
+          "shiftVariable": "SenRedu",
+          "seniors": {
+            "type": "FIXED",
+            "fixedVariable": "FixedA1",
+            "primary": {
+              "type": "PRORATA",
+              "tranches": [
+                "A1",
+                "A1H"
+              ]
+            },
+            "overflow": {
+              "type": "SINGLE",
+              "tranche": "AH"
+            }
+          },
+          "subordinates": {
+            "type": "SEQ",
+            "children": [
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M1",
+                  "M1H"
+                ]
+              },
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M2A",
+                  "M2AH"
+                ]
+              },
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M2B",
+                  "M2BH"
+                ]
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B1H"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B2H"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B3H"
+              }
+            ]
+          }
+        },
+        "cap": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M1",
+                "M1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2A",
+                "M2AH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2B",
+                "M2BH"
+              ]
+            }
+          ]
+        }
+      },
+      "onTriggerFail": {
+        "triggers": [
+          "MinCeTest",
+          "CumNetLossTest",
+          "DelinquencyTest"
+        ],
+        "condition": "ANY",
+        "structure": {
+          "_comment": "Sequential paydown when any trigger fails",
+          "type": "CSCAP",
+          "capVariable": "SupplSubReduAmt",
+          "primary": {
+            "type": "SHIFTI",
+            "shiftVariable": "SenRedu",
+            "seniors": {
+              "type": "SINGLE",
+              "tranche": "AH"
+            },
+            "subordinates": {
+              "type": "SEQ",
+              "children": [
+                {
+                  "type": "PRORATA",
+                  "tranches": [
+                    "M1",
+                    "M1H"
+                  ]
+                },
+                {
+                  "type": "PRORATA",
+                  "tranches": [
+                    "M2A",
+                    "M2AH"
+                  ]
+                },
+                {
+                  "type": "PRORATA",
+                  "tranches": [
+                    "M2B",
+                    "M2BH"
+                  ]
+                },
+                {
+                  "type": "PRORATA",
+                  "tranches": [
+                    "A1",
+                    "A1H"
+                  ]
+                },
+                {
+                  "type": "SINGLE",
+                  "tranche": "B1H"
+                },
+                {
+                  "type": "SINGLE",
+                  "tranche": "B2H"
+                },
+                {
+                  "type": "SINGLE",
+                  "tranche": "B3H"
+                }
+              ]
+            }
+          },
+          "cap": {
+            "type": "SEQ",
+            "children": [
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M1",
+                  "M1H"
+                ]
+              },
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M2A",
+                  "M2AH"
+                ]
+              },
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M2B",
+                  "M2BH"
+                ]
+              },
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "A1",
+                  "A1H"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "unscheduledPrincipal": {
+      "default": {
+        "_comment": "Prepayments when triggers pass - A1 is last in subordinate sequence",
+        "type": "CSCAP",
+        "capVariable": "SupplSubReduAmt",
+        "primary": {
+          "type": "SHIFTI",
+          "shiftVariable": "SenRedu",
+          "seniors": {
+            "type": "SINGLE",
+            "tranche": "AH"
+          },
+          "subordinates": {
+            "type": "SEQ",
+            "children": [
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M1",
+                  "M1H"
+                ]
+              },
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M2A",
+                  "M2AH"
+                ]
+              },
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "M2B",
+                  "M2BH"
+                ]
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B1H"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B2H"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B3H"
+              },
+              {
+                "type": "PRORATA",
+                "tranches": [
+                  "A1",
+                  "A1H"
+                ]
+              }
+            ]
+          }
+        },
+        "cap": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M1",
+                "M1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2A",
+                "M2AH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2B",
+                "M2BH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "A1",
+                "A1H"
+              ]
+            }
+          ]
+        }
+      },
+      "onTriggerFail": {
+        "triggers": [
+          "MinCeTest",
+          "CumNetLossTest",
+          "DelinquencyTest"
+        ],
+        "condition": "ANY",
+        "structure": "same"
+      }
+    },
+    "recoveryPrincipal": {
+      "default": {
+        "_comment": "Recoveries - no shifting interest, just CSCAP with sequential",
+        "type": "CSCAP",
+        "capVariable": "SupplSubReduAmt",
+        "primary": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "SINGLE",
+              "tranche": "AH"
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M1",
+                "M1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2A",
+                "M2AH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2B",
+                "M2BH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "A1",
+                "A1H"
+              ]
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B1H"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B2H"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B3H"
+            }
+          ]
+        },
+        "cap": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M1",
+                "M1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2A",
+                "M2AH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2B",
+                "M2BH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "A1",
+                "A1H"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "_extractionGuide_waterfall": {
+    "section": "Description of the Notes - Allocation of Senior Reduction Amount / Allocation of Subordinate Reduction Amount",
+    "searchTerms": [
+      "Senior Reduction Amount",
+      "Subordinate Reduction Amount",
+      "Supplemental Reduction Amount",
+      "first,",
+      "second,",
+      "third,",
+      "pro rata"
+    ],
+    "sampleLanguage": "Allocation of Senior Reduction Amount: On each Payment Date prior to the Maturity Date... first, if and only if the Class A-1 Cumulative Net Loss Test is satisfied for such Payment Date, an amount up to the Class A-1 Reduction Amount to the Class A-1 and Class A-1H Reference Tranches, pro rata based on their Class Notional Amounts immediately prior to such Payment Date; second, to the Class A-H Reference Tranche; third, to the Class A-1 and Class A-1H Reference Tranches, pro rata... Allocation of Subordinate Reduction Amount: first, to the Class M-1 and Class M-1H Reference Tranches, pro rata; second, to the Class M-2A and Class M-2AH Reference Tranches, pro rata...",
+    "extractionRules": [
+      "STACR waterfalls use SHIFTI (Shifting Interest) - seniors get reduced percentage of prepays",
+      "CSCAP (Supplemental Subordinate Reduction Cap) limits how much can go to subordinates",
+      "Look for numbered priority lists (first, second, third...) to determine payment order",
+      "PRORATA when classes share subordination (e.g., 'M-1 and M-1H Reference Tranches, pro rata')",
+      "SINGLE when class paid alone (e.g., 'to the Class A-H Reference Tranche')",
+      "SEQ (Sequential) for ordered payment priority",
+      "FIXED structure used for Class A-1 fixed amounts in early periods",
+      "Note: Recovery principal typically flows straight sequential without shifting interest"
+    ]
+  },
+  "scheduledVariables": [
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2026-01-31",
+      "value": 0.001,
+      "description": "Cumulative Net Loss Test - Year 1 (0.10%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2026-02-01",
+      "endDate": "2027-01-31",
+      "value": 0.002,
+      "description": "Cumulative Net Loss Test - Year 2 (0.20%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2027-02-01",
+      "endDate": "2028-01-31",
+      "value": 0.003,
+      "description": "Cumulative Net Loss Test - Year 3 (0.30%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2028-02-01",
+      "endDate": "2029-01-31",
+      "value": 0.004,
+      "description": "Cumulative Net Loss Test - Year 4 (0.40%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2029-02-01",
+      "endDate": "2030-01-31",
+      "value": 0.005,
+      "description": "Cumulative Net Loss Test - Year 5 (0.50%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2030-02-01",
+      "endDate": "2031-01-31",
+      "value": 0.006,
+      "description": "Cumulative Net Loss Test - Year 6 (0.60%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2031-02-01",
+      "endDate": "2032-01-31",
+      "value": 0.007,
+      "description": "Cumulative Net Loss Test - Year 7 (0.70%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2032-02-01",
+      "endDate": "2033-01-31",
+      "value": 0.008,
+      "description": "Cumulative Net Loss Test - Year 8 (0.80%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2033-02-01",
+      "endDate": "2034-01-31",
+      "value": 0.009,
+      "description": "Cumulative Net Loss Test - Year 9 (0.90%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2034-02-01",
+      "endDate": "2035-01-31",
+      "value": 0.010,
+      "description": "Cumulative Net Loss Test - Year 10 (1.00%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2035-02-01",
+      "endDate": "2036-01-31",
+      "value": 0.011,
+      "description": "Cumulative Net Loss Test - Year 11 (1.10%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2036-02-01",
+      "endDate": "2037-01-31",
+      "value": 0.012,
+      "description": "Cumulative Net Loss Test - Year 12 (1.20%)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2037-02-01",
+      "endDate": "2125-01-31",
+      "value": 0.013,
+      "description": "Cumulative Net Loss Test - Year 13+ (1.30%)"
+    },
+    {
+      "variableName": "DelinqTest",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2125-01-31",
+      "value": 0.5,
+      "description": "Delinquency Test - 50% of subordinate percentage"
+    },
+    {
+      "variableName": "SupplSubReduAmt",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2125-01-31",
+      "value": 0.055,
+      "description": "Supplemental Subordinate Reduction Amount Cap - 5.50%"
+    },
+    {
+      "variableName": "A1TurboFlag",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2027-12-31",
+      "value": 0,
+      "description": "A1 Turbo Mode Off"
+    },
+    {
+      "variableName": "A1TurboFlag",
+      "groupNum": 1,
+      "beginDate": "2028-01-01",
+      "endDate": "2125-01-31",
+      "value": 1,
+      "description": "A1 Turbo Mode On - After 38th payment date"
+    },
+    {
+      "variableName": "FixedA1",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2025-02-28",
+      "value": 21764346.9,
+      "description": "Fixed A-1 Amount - Month 1"
+    },
+    {
+      "variableName": "FixedA1",
+      "groupNum": 1,
+      "beginDate": "2025-03-01",
+      "endDate": "2025-12-31",
+      "value": 10882173.45,
+      "description": "Fixed A-1 Amount - Months 2-11"
+    },
+    {
+      "variableName": "FixedA1",
+      "groupNum": 1,
+      "beginDate": "2026-01-01",
+      "endDate": "2028-01-31",
+      "value": 4352869.38,
+      "description": "Fixed A-1 Amount - Months 12-36"
+    },
+    {
+      "variableName": "FixedA1",
+      "groupNum": 1,
+      "beginDate": "2028-02-01",
+      "endDate": "2125-01-31",
+      "value": 0,
+      "description": "Fixed A-1 Amount - After Month 36"
+    }
+  ],
+  "_extractionGuide_scheduledVariables": {
+    "section": "Glossary - Cumulative Net Loss Test / Appendix G",
+    "searchTerms": [
+      "Cumulative Net Loss Test",
+      "Percentage",
+      "February 2025 to January 2026",
+      "Class A-1 Reduction Amount",
+      "Appendix G"
+    ],
+    "sampleLanguage": "'Cumulative Net Loss Test' with respect to any Payment Date, means a test that will be satisfied if the Cumulative Net Loss Percentage does not exceed the applicable percentage indicated below: February 2025 to January 2026: 0.10%, February 2026 to January 2027: 0.20%, February 2027 to January 2028: 0.30%, February 2028 to January 2029: 0.40%, February 2029 to January 2030: 0.50%, February 2030 to January 2031: 0.60%, February 2031 to January 2032: 0.70%, February 2032 to January 2033: 0.80%, February 2033 to January 2034: 0.90%, February 2034 to January 2035: 1.00%, February 2035 to January 2036: 1.10%, February 2036 to January 2037: 1.20%, February 2037 and thereafter: 1.30%.",
+    "extractionRules": [
+      "CumNetLossSchedule: Extract from 'Cumulative Net Loss Test' definition table",
+      "Convert percentages to decimals (0.10% -> 0.001)",
+      "Date ranges in prospectus are payment date periods, convert to begin/end dates",
+      "DelinqTest: Usually fixed at 0.5 (50%) for all STACR deals",
+      "SupplSubReduAmt: Look for 'Offered Reference Tranche Percentage' - typically 5.50%",
+      "FixedA1: Look in Appendix G for 'Class A-1 Reduction Amount' schedule",
+      "A1TurboFlag: Activates after 38th payment date (roughly 3 years from closing)"
+    ]
+  },
+  "variables": [
+    {
+      "variableName": "credit_event_factor",
+      "variableValue": "0",
+      "groupNum": "1",
+      "isForecastable": false,
+      "description": "Cumulative credit event adjustment factor"
+    },
+    {
+      "variableName": "SenRedu",
+      "variableValue": "0",
+      "groupNum": "1",
+      "isForecastable": false,
+      "description": "Senior Reduction percentage (1 - CE)"
+    },
+    {
+      "variableName": "SenReduRecov",
+      "variableValue": "1",
+      "groupNum": "1",
+      "isForecastable": false,
+      "description": "Senior Reduction for Recovery (always 100%)"
+    }
+  ],
+  "_extractionGuide_variables": {
+    "section": "PayRules / Runtime Variables",
+    "searchTerms": [
+      "Senior Percentage",
+      "Subordinate Percentage",
+      "Credit Enhancement"
+    ],
+    "sampleLanguage": "'Senior Percentage' with respect to any Payment Date, means the fraction (expressed as a percentage), the numerator of which is the aggregate Class Notional Amounts of the Class A-H, Class A-1 and Class A-1H Reference Tranches... 'Subordinate Percentage' with respect to any Payment Date, means the percentage equal to 100% minus the Senior Percentage for such Payment Date.",
+    "extractionRules": [
+      "SenRedu: Calculated at runtime as (1 - Credit Enhancement percentage)",
+      "When triggers pass: SenRedu = 1 - BEGIN_CREDIT_SUPPORT('A1')",
+      "When triggers fail: SenRedu = 1 (100% goes to seniors)",
+      "credit_event_factor: Tracks cumulative credit events for loss test adjustment",
+      "These are runtime variables, not extracted from prospectus"
+    ]
+  },
+  "expenses": [],
+  "_notes": {
+    "deal_type": "STACR (Structured Agency Credit Risk Transfer) - Freddie Mac",
+    "reference_pool": "Single-family residential mortgages purchased by Freddie Mac",
+    "closing_date": "2025-01-21",
+    "cut_off_date": "2024-11-30",
+    "total_notes_offered": "$675,500,000",
+    "key_features": [
+      "Reference tranches (H suffix) are notional - no actual bonds issued",
+      "Notes (A1, M1, M2A, M2B) correspond to reference tranches",
+      "MACR exchangeable notes allow M2 to be split into M2A + M2B",
+      "Four trigger tests: MinCeTest, CumNetLossTest, A1CumNetLossTest, DelinquencyTest",
+      "Class A-1 has fixed reduction amounts in first 35 payment periods",
+      "A1 Turbo mode activates after 38th payment date (Jan 2028)",
+      "5.50% Supplemental Subordinate Reduction Cap",
+      "Shifting Interest structure with CSCAP protection"
+    ]
+  }
+}

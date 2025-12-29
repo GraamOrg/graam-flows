@@ -1,0 +1,817 @@
+{
+  "$schema": "../Schemas/deal.schema.json",
+  "dealName": "JPMT1806",
+  "waterfallType": "MutableStructure",
+  "interestTreatment": "Collateral",
+  "balanceAtIssuance": 938152649,
+  "variables": [
+    {
+      "variableName": "origCreditSupport_B1",
+      "variableValue": "0.06",
+      "groupNum": "1",
+      "isForecastable": false
+    },
+    {
+      "variableName": "origCreditSupport_B2",
+      "variableValue": "0.0425",
+      "groupNum": "1",
+      "isForecastable": false
+    },
+    {
+      "variableName": "origCreditSupport_B3",
+      "variableValue": "0.0250",
+      "groupNum": "1",
+      "isForecastable": false
+    },
+    {
+      "variableName": "origCreditSupport_B4",
+      "variableValue": "0.0145",
+      "groupNum": "1",
+      "isForecastable": false
+    },
+    {
+      "variableName": "origCreditSupport_B5",
+      "variableValue": "0.0070",
+      "groupNum": "1",
+      "isForecastable": false
+    },
+    {
+      "variableName": "origCreditSupport_B6",
+      "variableValue": "0.0040",
+      "groupNum": "1",
+      "isForecastable": false
+    },
+    {
+      "variableName": "origSubBal",
+      "variableValue": "56289649",
+      "groupNum": "1",
+      "isForecastable": false
+    },
+    {
+      "variableName": "ShiftInterestSched",
+      "variableValue": "1",
+      "groupNum": "1",
+      "isForecastable": false
+    },
+    {
+      "variableName": "SubLockoutPct",
+      "variableValue": "0.0055",
+      "groupNum": "1",
+      "isForecastable": false
+    }
+  ],
+  "scheduledVariables": [
+    {
+      "variableName": "ShiftingInterestSchedule",
+      "groupNum": 1,
+      "beginDate": "2018-01-01",
+      "endDate": "2023-06-30",
+      "value": 1.0
+    },
+    {
+      "variableName": "ShiftingInterestSchedule",
+      "groupNum": 1,
+      "beginDate": "2023-07-01",
+      "endDate": "2024-06-30",
+      "value": 0.7
+    },
+    {
+      "variableName": "ShiftingInterestSchedule",
+      "groupNum": 1,
+      "beginDate": "2024-07-01",
+      "endDate": "2025-06-30",
+      "value": 0.6
+    },
+    {
+      "variableName": "ShiftingInterestSchedule",
+      "groupNum": 1,
+      "beginDate": "2025-07-01",
+      "endDate": "2026-06-30",
+      "value": 0.4
+    },
+    {
+      "variableName": "ShiftingInterestSchedule",
+      "groupNum": 1,
+      "beginDate": "2026-07-01",
+      "endDate": "2027-06-30",
+      "value": 0.2
+    },
+    {
+      "variableName": "ShiftingInterestSchedule",
+      "groupNum": 1,
+      "beginDate": "2027-07-01",
+      "endDate": "2100-06-30",
+      "value": 0.0
+    },
+    {
+      "variableName": "StepDownTest",
+      "groupNum": 1,
+      "beginDate": "2018-01-01",
+      "endDate": "2023-06-30",
+      "value": 1.0
+    },
+    {
+      "variableName": "StepDownTest",
+      "groupNum": 1,
+      "beginDate": "2023-07-01",
+      "endDate": "2024-06-30",
+      "value": 0.2
+    },
+    {
+      "variableName": "StepDownTest",
+      "groupNum": 1,
+      "beginDate": "2024-07-01",
+      "endDate": "2025-06-30",
+      "value": 0.25
+    },
+    {
+      "variableName": "StepDownTest",
+      "groupNum": 1,
+      "beginDate": "2025-07-01",
+      "endDate": "2026-06-30",
+      "value": 0.3
+    },
+    {
+      "variableName": "StepDownTest",
+      "groupNum": 1,
+      "beginDate": "2026-07-01",
+      "endDate": "2027-06-30",
+      "value": 0.35
+    },
+    {
+      "variableName": "StepDownTest",
+      "groupNum": 1,
+      "beginDate": "2027-07-01",
+      "endDate": "2100-06-30",
+      "value": 0.4
+    },
+    {
+      "variableName": "ReviewerFee",
+      "groupNum": 1,
+      "beginDate": "2018-01-01",
+      "endDate": "2024-12-31",
+      "value": 1875
+    },
+    {
+      "variableName": "ReviewerFee",
+      "groupNum": 1,
+      "beginDate": "2025-01-01",
+      "endDate": "2100-12-31",
+      "value": 1250
+    }
+  ],
+  "expenses": [
+    {
+      "expenseName": "MasterServicingFee",
+      "formula": "MAX(2500, begin_balance * .000115 / 12)",
+      "groupNum": 1
+    },
+    {
+      "expenseName": "DelawareTrustFee",
+      "formula": "MAX(1250, begin_balance * .000020 / 12)",
+      "groupNum": 1
+    },
+    {
+      "expenseName": "ReviewerFee",
+      "formula": "VAR('ReviewerFee')",
+      "groupNum": 1
+    }
+  ],
+  "classGroups": [
+    {
+      "classGroupName": "1A4",
+      "subordinationOrder": 0,
+      "groupNum": "1",
+      "payFrom": "ProRata",
+      "classTags": "SSEN_1"
+    },
+    {
+      "classGroupName": "1A5",
+      "subordinationOrder": 0,
+      "groupNum": "1",
+      "payFrom": "ProRata",
+      "classTags": "SSEN_1"
+    },
+    {
+      "classGroupName": "1A8",
+      "subordinationOrder": 0,
+      "groupNum": "1",
+      "payFrom": "ProRata",
+      "classTags": "SSEN_1"
+    },
+    {
+      "classGroupName": "1A9",
+      "subordinationOrder": 0,
+      "groupNum": "1",
+      "payFrom": "Accrual",
+      "classTags": "SSEN_1"
+    },
+    {
+      "classGroupName": "1A10",
+      "subordinationOrder": 1,
+      "groupNum": "1",
+      "payFrom": "ProRata",
+      "classTags": "SSUP_1"
+    },
+    {
+      "classGroupName": "2A2",
+      "subordinationOrder": 0,
+      "groupNum": "2",
+      "payFrom": "ProRata",
+      "classTags": "SSEN_2"
+    },
+    {
+      "classGroupName": "2A3",
+      "subordinationOrder": 1,
+      "groupNum": "2",
+      "payFrom": "ProRata",
+      "classTags": "SSUP_2"
+    },
+    {
+      "classGroupName": "B1",
+      "subordinationOrder": 4,
+      "groupNum": "0",
+      "payFrom": "ProRata",
+      "classTags": "SUB"
+    },
+    {
+      "classGroupName": "B2",
+      "subordinationOrder": 5,
+      "groupNum": "0",
+      "payFrom": "ProRata",
+      "classTags": "SUB"
+    },
+    {
+      "classGroupName": "B3",
+      "subordinationOrder": 6,
+      "groupNum": "0",
+      "payFrom": "ProRata",
+      "classTags": "SUB"
+    },
+    {
+      "classGroupName": "B4",
+      "subordinationOrder": 7,
+      "groupNum": "0",
+      "payFrom": "ProRata",
+      "classTags": "SUB"
+    },
+    {
+      "classGroupName": "B5",
+      "subordinationOrder": 8,
+      "groupNum": "0",
+      "payFrom": "ProRata",
+      "classTags": "SUB"
+    },
+    {
+      "classGroupName": "B6",
+      "subordinationOrder": 9,
+      "groupNum": "0",
+      "payFrom": "ProRata",
+      "classTags": "SUB"
+    },
+    {
+      "classGroupName": "AR",
+      "subordinationOrder": 100,
+      "groupNum": "1",
+      "payFrom": "Residual"
+    },
+    {
+      "classGroupName": "AIOS",
+      "subordinationOrder": 100,
+      "groupNum": "1",
+      "payFrom": "ExcessServicing"
+    }
+  ],
+  "triggers": [
+    {
+      "triggerName": "MinCeTestA",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "BALANCE('SUB') / bal_at_issuance > .0070 || BALANCE('SSEN,SSUP') < 1",
+      "isMandatory": false,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "MinCeTestB",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "BEGIN_CLASS_PCT('SUB') > .06 || BALANCE('SSEN,SSUP') < 1",
+      "isMandatory": false,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "MinCeTestB_Sticky",
+      "triggerType": "FORMULA_CONDITION_STICKY",
+      "triggerFormula": "BEGIN_CLASS_PCT('SUB') > .06 || BALANCE('SSEN,SSUP') < 1",
+      "isMandatory": false,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CredSuppDepletion",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "BALANCE('SUB') > .01",
+      "isMandatory": false,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "StepDownTest",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "ccl / VAR('origSubBal') < VAR('StepDownTest')",
+      "isMandatory": false,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CleanUp",
+      "triggerType": "COLLATERAL_VALUE",
+      "triggerParam": "10",
+      "isMandatory": false,
+      "possibleValues": "Y,N,*",
+      "groupNum": "1"
+    }
+  ],
+  "payRules": [
+    {
+      "ruleName": "ScheProRata_G1",
+      "classGroupName": "GROUP_1",
+      "formula": "if (PASSED('CredSuppDepletion')) SET_SCHED_STRUCT( PRORATA( PRORATA( SEQ('1A4,1A5,1A8,1A9'), PRORATA('1A10')), PRORATA('SUB' )))",
+      "priority": 0
+    },
+    {
+      "ruleName": "PpayShifti_G1",
+      "classGroupName": "GROUP_1",
+      "formula": "if (PASSED('CredSuppDepletion')) SET_PREPAY_STRUCT( SHIFTI('ShiftPct', SHIFTI('ShiftPctNAS', SEQ('1A4,1A5,1A8,1A9'), PRORATA('1A10')), PRORATA('SUB' )))",
+      "priority": 1
+    },
+    {
+      "ruleName": "RecovShifti_G1",
+      "classGroupName": "GROUP_1",
+      "formula": "if (PASSED('CredSuppDepletion')) SET_RECOV_STRUCT( SHIFTI('RecovShiftPct', PRORATA( SEQ('1A4,1A5,1A8,1A9'), PRORATA('1A10')), PRORATA('SUB' )))",
+      "priority": 2
+    },
+    {
+      "ruleName": "ScheProRata_G2",
+      "classGroupName": "GROUP_2",
+      "formula": "SET_SCHED_STRUCT(PRORATA('2A2', '2A3'))",
+      "priority": 3
+    },
+    {
+      "ruleName": "PpayShifti_G2",
+      "classGroupName": "GROUP_2",
+      "formula": "SET_PREPAY_STRUCT(PRORATA('2A2', '2A3'))",
+      "priority": 4
+    },
+    {
+      "ruleName": "RecovShifti_G2",
+      "classGroupName": "GROUP_2",
+      "formula": "SET_RECOV_STRUCT(PRORATA('2A2', '2A3'))",
+      "priority": 5
+    },
+    {
+      "ruleName": "ScheProRataFailed_G1",
+      "classGroupName": "GROUP_1",
+      "formula": "if (FAILED('CredSuppDepletion')) SET_SCHED_STRUCT( PRORATA(PRORATA( PRORATA('1A4,1A5,1A8,1A9'), PRORATA('1A10')), PRORATA('SUB' )))",
+      "priority": 6
+    },
+    {
+      "ruleName": "PpayShiftiFailed_G1",
+      "classGroupName": "GROUP_1",
+      "formula": "if (FAILED('CredSuppDepletion')) SET_PREPAY_STRUCT( SHIFTI('ShiftPct', SHIFTI('ShiftPctNAS', PRORATA('1A4,1A5,1A8,1A9'), PRORATA('1A10')), PRORATA('SUB' )))",
+      "priority": 7
+    },
+    {
+      "ruleName": "RecovShiftiFailed_G1",
+      "classGroupName": "GROUP_1",
+      "formula": "if (FAILED('CredSuppDepletion')) SET_RECOV_STRUCT( SHIFTI('RecovShiftPct', PRORATA( PRORATA('1A4,1A5,1A8,1A9'), PRORATA('1A10')), PRORATA('SUB' )))",
+      "priority": 8
+    },
+    {
+      "ruleName": "LockoutRuleB1",
+      "classGroupName": "B1",
+      "formula": "if(BEGIN_BALANCE('B1,B2,B3,B4,B5,B6') / bal_at_issuance < VAR('SubLockoutPct') && BALANCE('SSUP') > 0) LOCKOUT()",
+      "priority": 9
+    },
+    {
+      "ruleName": "LockoutRuleB2",
+      "classGroupName": "B2",
+      "formula": "if(BEGIN_BALANCE('B2,B3,B4,B5,B6') / bal_at_issuance < VAR('SubLockoutPct') && BALANCE('B1') > 0) LOCKOUT()",
+      "priority": 10
+    },
+    {
+      "ruleName": "LockoutRuleB3",
+      "classGroupName": "B3",
+      "formula": "if(BEGIN_BALANCE('B3,B4,B5,B6') / bal_at_issuance < VAR('SubLockoutPct') && BALANCE('B2') > 0) LOCKOUT()",
+      "priority": 11
+    },
+    {
+      "ruleName": "LockoutRuleB4",
+      "classGroupName": "B4",
+      "formula": "if(BEGIN_BALANCE('B4,B5,B6') / bal_at_issuance < VAR('SubLockoutPct') && BALANCE('B3') > 0) LOCKOUT()",
+      "priority": 12
+    },
+    {
+      "ruleName": "LockoutRuleB5",
+      "classGroupName": "B5",
+      "formula": "if(BEGIN_BALANCE('B5,B6') / bal_at_issuance < VAR('SubLockoutPct') && BALANCE('B4') > 0) LOCKOUT()",
+      "priority": 13
+    },
+    {
+      "ruleName": "LockoutRuleB6",
+      "classGroupName": "B6",
+      "formula": "if(BEGIN_BALANCE('B6') / bal_at_issuance < VAR('SubLockoutPct') && BALANCE('B5') > 0) LOCKOUT()",
+      "priority": 14
+    },
+    {
+      "ruleName": "LockoutRuleSUB",
+      "classGroupName": "SUB",
+      "formula": "if(FAILED('MinCeTestA,MinCeTestB') && BALANCE('SSUP') > 0) LOCKOUT()",
+      "priority": 15
+    },
+    {
+      "ruleName": "DefaultSUBLockoutB1",
+      "classGroupName": "B1",
+      "formula": "if (BEGIN_DETACH_POINT() < VAR('origCreditSupport_B1')) LOCKOUT()",
+      "priority": 16
+    },
+    {
+      "ruleName": "DefaultSUBLockoutB2",
+      "classGroupName": "B2",
+      "formula": "if (BEGIN_DETACH_POINT() < VAR('origCreditSupport_B2')) LOCKOUT()",
+      "priority": 17
+    },
+    {
+      "ruleName": "DefaultSUBLockoutB3",
+      "classGroupName": "B3",
+      "formula": "if (BEGIN_DETACH_POINT() < VAR('origCreditSupport_B3')) LOCKOUT()",
+      "priority": 18
+    },
+    {
+      "ruleName": "DefaultSUBLockoutB4",
+      "classGroupName": "B4",
+      "formula": "if (BEGIN_DETACH_POINT() < VAR('origCreditSupport_B4')) LOCKOUT()",
+      "priority": 19
+    },
+    {
+      "ruleName": "DefaultSUBLockoutB5",
+      "classGroupName": "B5",
+      "formula": "if (BEGIN_DETACH_POINT() < VAR('origCreditSupport_B5')) LOCKOUT()",
+      "priority": 20
+    },
+    {
+      "ruleName": "DefaultSUBLockoutB6",
+      "classGroupName": "B6",
+      "formula": "if (BEGIN_DETACH_POINT() < VAR('origCreditSupport_B6')) LOCKOUT()",
+      "priority": 21
+    },
+    {
+      "ruleName": "Accrual1A9_1A8",
+      "classGroupName": "1A9",
+      "formula": "SET_ACCRETION('1A8')",
+      "priority": 22
+    },
+    {
+      "ruleName": "FailedCSDepletion",
+      "classGroupName": "1A9",
+      "formula": "if (FAILED('CredSuppDepletion')) SET_PAYMENT_PHASE()",
+      "priority": 23
+    },
+    {
+      "ruleName": "SetShiftPrinSched",
+      "classGroupName": "GROUP_1",
+      "formula": "if (PASSED('StepDownTest')) SET_VAR('ShiftInterestSched', VAR('ShiftingInterestSchedule'))",
+      "priority": 24
+    },
+    {
+      "ruleName": "ShiftPct",
+      "classGroupName": "GROUP_1",
+      "formula": "if(PASSED('MinCeTestA,MinCeTestB_Sticky')) SET_VAR('ShiftPct', BEGIN_CLASS_PCT('SSEN,SSUP') + VAR('ShiftInterestSched') * (1 - BEGIN_CLASS_PCT('SSEN,SSUP'))); else SET_VAR('ShiftPct', 1);",
+      "priority": 25
+    },
+    {
+      "ruleName": "ShiftPct_NAS",
+      "classGroupName": "GROUP_1",
+      "formula": "SET_VAR('ShiftPctNAS', 1 - (1 - VAR('ShiftingInterestSchedule')) * BEGIN_BALANCE('SSUP') / BEGIN_BALANCE('SSEN,SSUP'))",
+      "priority": 26
+    },
+    {
+      "ruleName": "RecoveryShiftiPct",
+      "classGroupName": "GROUP_1",
+      "formula": "SET_VAR('RecovShiftPct', MIN(1, VAR('ShiftPct') * dp / rp))",
+      "priority": 27
+    }
+  ],
+  "tranches": [
+    {
+      "trancheName": "1A4",
+      "originalBalance": 362000000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "MIN(eff_wac,3.5)",
+      "subordinationOrder": 0,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "1A4",
+      "groupNum": "1",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 0
+    },
+    {
+      "trancheName": "1A5",
+      "originalBalance": 175000000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "MIN(eff_wac,3.5)",
+      "subordinationOrder": 0,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "1A5",
+      "groupNum": "1",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 0
+    },
+    {
+      "trancheName": "1A8",
+      "originalBalance": 120000000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "MIN(eff_wac,3.5)",
+      "subordinationOrder": 0,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "1A8",
+      "groupNum": "1",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 0
+    },
+    {
+      "trancheName": "1A9",
+      "originalBalance": 40000000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "MIN(eff_wac,3.5)",
+      "subordinationOrder": 0,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "1A9",
+      "groupNum": "1",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 0
+    },
+    {
+      "trancheName": "1A10",
+      "originalBalance": 68000000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "MIN(eff_wac,3.5)",
+      "subordinationOrder": 1,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "1A10",
+      "groupNum": "1",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 0
+    },
+    {
+      "trancheName": "2A2",
+      "originalBalance": 85000000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "MIN(eff_wac,3.5)",
+      "subordinationOrder": 0,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "2A2",
+      "groupNum": "2",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 0
+    },
+    {
+      "trancheName": "2A3",
+      "originalBalance": 31863000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "MIN(eff_wac,3.5)",
+      "subordinationOrder": 1,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "2A3",
+      "groupNum": "2",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 0
+    },
+    {
+      "trancheName": "B1",
+      "originalBalance": 16445000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "eff_wac",
+      "subordinationOrder": 4,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "B1",
+      "groupNum": "0",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 1
+    },
+    {
+      "trancheName": "B2",
+      "originalBalance": 16445000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "eff_wac",
+      "subordinationOrder": 5,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "B2",
+      "groupNum": "0",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 2
+    },
+    {
+      "trancheName": "B3",
+      "originalBalance": 9867000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "eff_wac",
+      "subordinationOrder": 6,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "B3",
+      "groupNum": "0",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 3
+    },
+    {
+      "trancheName": "B4",
+      "originalBalance": 7044000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "eff_wac",
+      "subordinationOrder": 7,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "B4",
+      "groupNum": "0",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 4
+    },
+    {
+      "trancheName": "B5",
+      "originalBalance": 2822000,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "eff_wac",
+      "subordinationOrder": 8,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "B5",
+      "groupNum": "0",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 5
+    },
+    {
+      "trancheName": "B6",
+      "originalBalance": 3666649,
+      "factor": 1.0,
+      "couponType": "Formula",
+      "couponFormula": "eff_wac",
+      "subordinationOrder": 9,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "B6",
+      "groupNum": "0",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 6
+    },
+    {
+      "trancheName": "AR",
+      "originalBalance": 0,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.0,
+      "subordinationOrder": 100,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "AR",
+      "groupNum": "1",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 100
+    },
+    {
+      "trancheName": "AIOS",
+      "originalBalance": 0,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.0019,
+      "subordinationOrder": 100,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "IO",
+      "trancheType": "Offered",
+      "classReference": "AIOS",
+      "groupNum": "1",
+      "firstPayDate": "2018-04-25",
+      "statedMaturityDate": "2048-10-25",
+      "legalMaturityDate": "2048-10-25",
+      "interestPriority": 100
+    }
+  ]
+}

@@ -1,0 +1,264 @@
+{
+  "$schema": "../Schemas/deal.schema.json",
+  "dealName": "AOAK_STYLE",
+  "waterfallType": "MutableStructure",
+  "interestTreatment": "Collateral",
+  "balanceAtIssuance": 100000000,
+  "variables": [
+    {
+      "variableName": "credit_event_factor",
+      "variableValue": "0",
+      "groupNum": "1",
+      "isForecastable": false
+    }
+  ],
+  "scheduledVariables": [
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2025-01-01",
+      "endDate": "2028-05-31",
+      "value": 0.02
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2028-06-01",
+      "endDate": "2030-05-31",
+      "value": 0.04
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2030-06-01",
+      "endDate": "2100-05-31",
+      "value": 0.08
+    },
+    {
+      "variableName": "DelinqTest",
+      "groupNum": 1,
+      "beginDate": "2025-01-01",
+      "endDate": "2028-05-31",
+      "value": 0.20
+    },
+    {
+      "variableName": "DelinqTest",
+      "groupNum": 1,
+      "beginDate": "2028-06-01",
+      "endDate": "2030-05-31",
+      "value": 0.25
+    },
+    {
+      "variableName": "DelinqTest",
+      "groupNum": 1,
+      "beginDate": "2030-06-01",
+      "endDate": "2100-05-31",
+      "value": 0.30
+    }
+  ],
+  "expenses": [
+    {
+      "expenseName": "TrusteeFee",
+      "formula": "2000",
+      "groupNum": 1
+    },
+    {
+      "expenseName": "ServicingFee",
+      "formula": "begin_balance * .00025 / 12",
+      "groupNum": 1
+    }
+  ],
+  "classGroups": [
+    {
+      "classGroupName": "A1",
+      "subordinationOrder": 0,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTags": "SEN"
+    },
+    {
+      "classGroupName": "A2",
+      "subordinationOrder": 1,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTags": "SEN"
+    },
+    {
+      "classGroupName": "M1",
+      "subordinationOrder": 2,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTags": "MEZ"
+    },
+    {
+      "classGroupName": "B1",
+      "subordinationOrder": 3,
+      "groupNum": "1",
+      "payFrom": "Sequential",
+      "classTags": "SUB"
+    },
+    {
+      "classGroupName": "R",
+      "subordinationOrder": 100,
+      "groupNum": "1",
+      "payFrom": "Residual"
+    }
+  ],
+  "triggers": [
+    {
+      "triggerName": "CleanUp",
+      "triggerType": "COLLATERAL_VALUE",
+      "triggerParam": "10",
+      "isMandatory": false,
+      "possibleValues": "Y,N,*",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CumNetLossTest",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "ccl / ib < VAR('CumNetLossSchedule')",
+      "isMandatory": false,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "DelinquencyTest",
+      "triggerType": "DELINQ_TRIGGER_SUB_1",
+      "triggerParam": "DelinqTest",
+      "isMandatory": false,
+      "groupNum": "1"
+    }
+  ],
+  "payRules": [
+    {
+      "ruleName": "SchedPrinPass",
+      "classGroupName": "GROUP_1",
+      "formula": "if (PASSED('CumNetLossTest,DelinquencyTest')) SET_SCHED_STRUCT(SEQ(PRORATA('A1','A2'), SINGLE('M1'), SINGLE('B1')))",
+      "priority": 0
+    },
+    {
+      "ruleName": "SchedPrinFail",
+      "classGroupName": "GROUP_1",
+      "formula": "if (FAILED('CumNetLossTest,DelinquencyTest')) SET_SCHED_STRUCT(SEQ(SINGLE('A1'), SINGLE('A2'), SINGLE('M1'), SINGLE('B1')))",
+      "priority": 1
+    },
+    {
+      "ruleName": "PrepayStruct",
+      "classGroupName": "GROUP_1",
+      "formula": "SET_PREPAY_STRUCT(SEQ(PRORATA('A1','A2'), SINGLE('M1'), SINGLE('B1')))",
+      "priority": 2
+    },
+    {
+      "ruleName": "RecovStruct",
+      "classGroupName": "GROUP_1",
+      "formula": "SET_RECOV_STRUCT(SEQ(PRORATA('A1','A2'), SINGLE('M1'), SINGLE('B1')))",
+      "priority": 3
+    }
+  ],
+  "tranches": [
+    {
+      "trancheName": "A1",
+      "originalBalance": 50000000,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.045,
+      "subordinationOrder": 0,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "A1",
+      "groupNum": "1",
+      "firstPayDate": "2025-02-25",
+      "statedMaturityDate": "2065-01-25",
+      "legalMaturityDate": "2065-01-25",
+      "interestPriority": 1
+    },
+    {
+      "trancheName": "A2",
+      "originalBalance": 25000000,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.050,
+      "subordinationOrder": 1,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "A2",
+      "groupNum": "1",
+      "firstPayDate": "2025-02-25",
+      "statedMaturityDate": "2065-01-25",
+      "legalMaturityDate": "2065-01-25",
+      "interestPriority": 1
+    },
+    {
+      "trancheName": "M1",
+      "originalBalance": 15000000,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.055,
+      "subordinationOrder": 2,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "M1",
+      "groupNum": "1",
+      "firstPayDate": "2025-02-25",
+      "statedMaturityDate": "2065-01-25",
+      "legalMaturityDate": "2065-01-25",
+      "interestPriority": 2
+    },
+    {
+      "trancheName": "B1",
+      "originalBalance": 10000000,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.065,
+      "subordinationOrder": 3,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "B1",
+      "groupNum": "1",
+      "firstPayDate": "2025-02-25",
+      "statedMaturityDate": "2065-01-25",
+      "legalMaturityDate": "2065-01-25",
+      "interestPriority": 3
+    },
+    {
+      "trancheName": "R",
+      "originalBalance": 0,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.0,
+      "subordinationOrder": 100,
+      "payFrequency": 12,
+      "payDelay": 24,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "R",
+      "groupNum": "1",
+      "firstPayDate": "2025-02-25",
+      "statedMaturityDate": "2065-01-25",
+      "legalMaturityDate": "2065-01-25",
+      "interestPriority": 100
+    }
+  ]
+}

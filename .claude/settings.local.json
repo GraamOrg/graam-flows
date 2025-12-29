@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(tree:*)",
+      "Bash(cat:*)",
+      "Bash(xargs:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet --list-sdks:*)",
+      "Bash(source ~/.zshrc)",
+      "Bash(dotnet --version:*)",
+      "Bash(while read file)",
+      "Bash(do grep \"^namespace\\\\|^public class\\\\|^public interface\\\\|^public struct\\\\|^public enum\\\\|^public record\" $file)",
+      "Bash(done)",
+      "Bash(for solver in Bisection Newton NewtonSafe Ridder FalsePosition Secant)",
+      "Bash(curl:*)"
+    ]
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "$schema": "../Schemas/deal.schema.json",
+  "dealName": "SimpleSequential",
+  "waterfallType": "SequentialStructure",
+  "interestTreatment": "Guaranteed",
+  "tranches": [
+    {
+      "trancheName": "A",
+      "originalBalance": 80000000,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.05,
+      "subordinationOrder": 0,
+      "payFrequency": 12,
+      "payDelay": 0,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "A",
+      "groupNum": "1",
+      "firstPayDate": "2025-02-25",
+      "statedMaturityDate": "2055-01-25",
+      "legalMaturityDate": "2057-01-25"
+    },
+    {
+      "trancheName": "B",
+      "originalBalance": 15000000,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.06,
+      "subordinationOrder": 1,
+      "payFrequency": 12,
+      "payDelay": 0,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "B",
+      "groupNum": "1",
+      "firstPayDate": "2025-02-25",
+      "statedMaturityDate": "2055-01-25",
+      "legalMaturityDate": "2057-01-25"
+    },
+    {
+      "trancheName": "R",
+      "originalBalance": 5000000,
+      "factor": 1.0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0.0,
+      "subordinationOrder": 2,
+      "payFrequency": 12,
+      "payDelay": 0,
+      "payDay": 25,
+      "dayCount": "30/360",
+      "businessDayConvention": "Following",
+      "cashflowType": "PI",
+      "trancheType": "Offered",
+      "classReference": "R",
+      "groupNum": "1",
+      "firstPayDate": "2025-02-25",
+      "statedMaturityDate": "2055-01-25",
+      "legalMaturityDate": "2057-01-25"
+    }
+  ],
+  "classGroups": [
+    {
+      "classGroupName": "A",
+      "subordinationOrder": 0,
+      "payFrom": "Sequential",
+      "groupNum": "1"
+    },
+    {
+      "classGroupName": "B",
+      "subordinationOrder": 1,
+      "payFrom": "Sequential",
+      "groupNum": "1"
+    },
+    {
+      "classGroupName": "R",
+      "subordinationOrder": 2,
+      "payFrom": "Sequential",
+      "groupNum": "1"
+    }
+  ]
+}

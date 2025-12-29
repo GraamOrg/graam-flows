@@ -1,0 +1,382 @@
+{
+  "$schema": "../Schemas/deal.schema.json",
+  "dealName": "COLT1804",
+  "dealType": "Sequential",
+  "issuer": "Caliber Home Loans",
+  "trustee": "US Bank",
+  "interestTreatment": "Collateral",
+  "balanceAtIssuance": 354493121.00,
+  "_note": "This is the unified waterfall format - no classGroups needed. All cashflow distribution is explicit in the steps array. Subordination is inferred from WRITEDOWN step order.",
+  "tranches": [
+    {
+      "trancheName": "A1",
+      "originalBalance": 243005000,
+      "couponType": "Formula",
+      "couponFormula": "MIN(4.006, eff_wac)",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Offered"
+    },
+    {
+      "trancheName": "A2",
+      "originalBalance": 34385000,
+      "couponType": "Formula",
+      "couponFormula": "MIN(4.108, eff_wac)",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Offered"
+    },
+    {
+      "trancheName": "A3",
+      "originalBalance": 26056000,
+      "couponType": "Formula",
+      "couponFormula": "MIN(4.210, eff_wac)",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Offered"
+    },
+    {
+      "trancheName": "M1",
+      "originalBalance": 18079000,
+      "couponType": "Formula",
+      "couponFormula": "MIN(4.716, eff_wac)",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Offered"
+    },
+    {
+      "trancheName": "M2",
+      "originalBalance": 3013000,
+      "couponType": "Formula",
+      "couponFormula": "MIN(4.916, eff_wac)",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Offered"
+    },
+    {
+      "trancheName": "B1",
+      "originalBalance": 10280000,
+      "couponType": "Formula",
+      "couponFormula": "MIN(5.415, eff_wac)",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Offered"
+    },
+    {
+      "trancheName": "B2",
+      "originalBalance": 5000000,
+      "couponType": "Formula",
+      "couponFormula": "eff_wac",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Offered"
+    },
+    {
+      "trancheName": "B3",
+      "originalBalance": 14675121,
+      "couponType": "Formula",
+      "couponFormula": "eff_wac",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Offered"
+    },
+    {
+      "trancheName": "X",
+      "originalBalance": 0,
+      "couponType": "ResidualInterest",
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "CapFundsReserve",
+      "cashflowType": "IO"
+    },
+    {
+      "trancheName": "R",
+      "originalBalance": 0,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "legalMaturityDate": "2048-10-26",
+      "firstPayDate": "2018-10-25",
+      "dayCount": "30/360",
+      "payDelay": 24,
+      "trancheType": "Residual"
+    }
+  ],
+  "triggers": [
+    {
+      "triggerName": "CleanUp",
+      "description": "Clean Up Call at 30%",
+      "triggerType": "COLLATERAL_VALUE",
+      "triggerParam": "30",
+      "isMandatory": false,
+      "possibleValues": "Y,N,*",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "Optional Termination",
+      "description": "Optional Termination",
+      "triggerType": "DATE_TERMINATION",
+      "triggerParam": "2020-11-01",
+      "isMandatory": false,
+      "possibleValues": "Y,N,*",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CreditEnhancementTest",
+      "description": "Credit Enhancement Trigger Event (p.105) - CE falls below 50% of original",
+      "triggerType": "CREDIT_ENHANCEMENT",
+      "triggerParam": "50",
+      "triggerParam2": "A1",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CumNetLossTest",
+      "description": "Cumulative Net Loss Test (p.105)",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "ccl / ib + VAR('cum_loss_pct') < VAR('CumNetLossSchedule')",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "DelinquencyTest",
+      "description": "Delinquency Test (p.105-106)",
+      "triggerType": "DELINQ_TRIGGER_SUB_1",
+      "triggerParam": "DelinqTest",
+      "groupNum": "1"
+    }
+  ],
+  "unifiedWaterfall": {
+    "steps": [
+      {
+        "type": "INTEREST",
+        "structure": {
+          "type": "SEQ",
+          "tranches": [
+            "A1",
+            "A2",
+            "A3",
+            "M1",
+            "M2",
+            "B1",
+            "B2",
+            "B3"
+          ]
+        }
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "scheduled",
+        "default": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "A1",
+                "A2",
+                "A3"
+              ]
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "M1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "M2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B3"
+            }
+          ]
+        },
+        "onTriggerFail": {
+          "triggers": [
+            "CreditEnhancementTest",
+            "CumNetLossTest",
+            "DelinquencyTest"
+          ],
+          "condition": "ANY",
+          "structure": {
+            "type": "SEQ",
+            "children": [
+              {
+                "type": "SINGLE",
+                "tranche": "A1"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "A2"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "A3"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "M1"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "M2"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B1"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B2"
+              },
+              {
+                "type": "SINGLE",
+                "tranche": "B3"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "unscheduled",
+        "useStructure": "scheduled"
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "recovery",
+        "useStructure": "scheduled"
+      },
+      {
+        "type": "WRITEDOWN",
+        "structure": {
+          "type": "SEQ",
+          "tranches": [
+            "B3",
+            "B2",
+            "B1",
+            "M2",
+            "M1",
+            "A3",
+            "A2",
+            "A1"
+          ]
+        }
+      },
+      {
+        "type": "EXCESS",
+        "structure": {
+          "type": "SEQ",
+          "tranches": [
+            "X",
+            "R"
+          ]
+        }
+      }
+    ]
+  },
+  "scheduledVariables": [
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2018-12-01",
+      "endDate": "2019-11-30",
+      "value": 0.02,
+      "description": "Cum default test (p. 105)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2019-12-01",
+      "endDate": "2020-11-30",
+      "value": 0.03,
+      "description": "Cum default test (p. 105)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2020-12-01",
+      "endDate": "2022-11-30",
+      "value": 0.055,
+      "description": "Cum default test (p. 105)"
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2022-12-01",
+      "endDate": "2100-11-30",
+      "value": 0.10,
+      "description": "Cum default test (p. 105)"
+    },
+    {
+      "variableName": "DelinqTest",
+      "groupNum": 1,
+      "beginDate": "2018-12-01",
+      "endDate": "2021-11-30",
+      "value": 0.20,
+      "description": "Delinquency Test (p. 106)"
+    },
+    {
+      "variableName": "DelinqTest",
+      "groupNum": 1,
+      "beginDate": "2021-12-01",
+      "endDate": "2023-11-30",
+      "value": 0.25,
+      "description": "Delinquency Test (p. 106)"
+    },
+    {
+      "variableName": "DelinqTest",
+      "groupNum": 1,
+      "beginDate": "2023-12-01",
+      "endDate": "2100-11-30",
+      "value": 0.30,
+      "description": "Delinquency Test (p. 106)"
+    }
+  ],
+  "variables": [
+    {
+      "variableName": "cum_loss_pct",
+      "variableValue": "0",
+      "groupNum": "1",
+      "isForecastable": false
+    }
+  ],
+  "expenses": [
+    {
+      "expenseName": "TrusteeFee",
+      "description": "Trustee Fee",
+      "formula": "1250",
+      "groupNum": 1
+    },
+    {
+      "expenseName": "MasterServicingFee",
+      "description": "Master Servicing Fee (p. 25)",
+      "formula": "MAX(3500, begin_balance * .00029 / 12)",
+      "groupNum": 1
+    }
+  ]
+}

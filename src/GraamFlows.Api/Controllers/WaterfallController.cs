@@ -1,0 +1,459 @@
+using GraamFlows.Api.Models;
+using GraamFlows.Api.Transformers;
+using GraamFlows.Assumptions;
+using GraamFlows.Domain;
+using GraamFlows.Factories;
+using GraamFlows.Objects.DataObjects;
+using GraamFlows.Objects.Util;
+using GraamFlows.RulesEngine;
+using GraamFlows.Waterfall.MarketTranche;
+using Microsoft.AspNetCore.Mvc;
+
+namespace GraamFlows.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class WaterfallController : ControllerBase
+{
+    [HttpPost]
+    public ActionResult<WaterfallResponse> Execute([FromBody] WaterfallRequest request)
+    {
+        try
+        {
+            // Build deal from DTO, applying factors if provided
+            var deal = BuildDeal(request.Deal, request.ProjectionDate, request.Factors);
+
+            // Convert collateral cashflows
+            var collateralCashflows = ConvertCollateralCashflows(request.CollateralCashflows);
+
+            // Create rate provider
+            var rateProvider = BuildRateProvider(request.MarketRates);
+
+            // Create assumptions
+            var anchorAbsT = DateUtil.CalcAbsT(request.ProjectionDate);
+            var assumps = DealLevelAssumptions.CreateConstAssumptions(request.ProjectionDate, anchorAbsT, 0, 0, 0);
+
+            // Add trigger forecasts if provided
+            if (request.TriggerForecasts != null)
+                foreach (var tf in request.TriggerForecasts)
+                    assumps.AddTriggerForecast(tf.TriggerName, tf.GroupNum.ToString(), tf.AlwaysTrigger);
+
+            // Get waterfall engine
+            var waterfallEngine = WaterfallFactory.GetWaterfall(deal.CashflowEngine);
+
+            // Execute waterfall
+            var firstProjDate = collateralCashflows.PeriodCashflows.FirstOrDefault()?.CashflowDate ??
+                                request.ProjectionDate;
+            var dealCashflows = waterfallEngine.Waterfall(deal, rateProvider, firstProjDate, collateralCashflows,
+                assumps, new TrancheAllocator());
+
+            // Convert to response
+            var response = ConvertToResponse(dealCashflows);
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
+        }
+    }
+
+    private static IDeal BuildDeal(DealDto dto, DateTime factorDate, Dictionary<string, FactorEntry>? factors = null)
+    {
+        var deal = new Deal(dto.DealName, factorDate);
+        deal.CashflowEngine = dto.WaterfallType;
+        deal.InterestTreatment = dto.InterestTreatment ?? "Guaranteed";
+
+        // Handle alias: use ClassGroups if DealStructures is null
+        var dealStructures = dto.DealStructures ?? dto.ClassGroups;
+        // Handle alias: use Variables if DealVariables is null
+        var dealVariables = dto.DealVariables ?? dto.Variables;
+
+        // Build tranches
+        foreach (var trancheDto in dto.Tranches)
+        {
+            // Determine factor and balance from request.Factors if provided
+            var effectiveFactor = trancheDto.Factor;
+            var effectiveOriginalBalance = trancheDto.OriginalBalance;
+
+            if (factors != null && factors.TryGetValue(trancheDto.TrancheName, out var factorEntry))
+            {
+                if (factorEntry.Balance.HasValue)
+                {
+                    // For OC/Modeling tranches: use explicit balance, set factor to 1
+                    // The "original" balance becomes the current balance for projection purposes
+                    effectiveOriginalBalance = factorEntry.Balance.Value;
+                    effectiveFactor = 1.0;
+                }
+                else if (factorEntry.Factor.HasValue)
+                {
+                    // For regular tranches: apply factor to original balance
+                    effectiveFactor = factorEntry.Factor.Value;
+                }
+            }
+
+            var tranche = new Tranche
+            {
+                TrancheName = trancheDto.TrancheName,
+                DealName = dto.DealName,
+                OriginalBalance = effectiveOriginalBalance,
+                Factor = effectiveFactor,
+                CouponType = trancheDto.CouponType,
+                FixedCoupon = trancheDto.FixedCoupon,
+                FloaterSpread = trancheDto.FloaterSpread,
+                FloaterIndex = trancheDto.FloaterIndex,
+                Cap = trancheDto.Cap,
+                Floor = trancheDto.Floor,
+                PayFrequency = trancheDto.PayFrequency,
+                PayDelay = trancheDto.PayDelay,
+                PayDay = trancheDto.PayDay,
+                DayCount = trancheDto.DayCount,
+                BusinessDayConvention = trancheDto.BusinessDayConvention,
+                CashflowType = trancheDto.CashflowType,
+                TrancheType = trancheDto.TrancheType,
+                ClassReference = trancheDto.ClassReference ?? trancheDto.TrancheName,
+                FirstPayDate = trancheDto.FirstPayDate,
+                StatedMaturityDate = trancheDto.StatedMaturityDate,
+                LegalMaturityDate = trancheDto.LegalMaturityDate != default
+                    ? trancheDto.LegalMaturityDate
+                    : trancheDto.StatedMaturityDate.AddYears(2),
+                // For seasoned deals, FirstSettleDate should be before FirstPayDate
+                // Default to one month before FirstPayDate for monthly deals
+                FirstSettleDate = trancheDto.FirstPayDate != default
+                    ? trancheDto.FirstPayDate.AddMonths(-1)
+                    : factorDate,
+                HolidayCalendar = "Settlement",
+                CouponFormula = trancheDto.CouponFormula,
+                Deal = deal
+            };
+            deal.Tranches.Add(tranche);
+        }
+
+        // Build deal structures (supports classGroups alias)
+        if (dealStructures != null && dealStructures.Any())
+            foreach (var dsDto in dealStructures)
+            {
+                var ds = new DealStructure
+                {
+                    DealName = dto.DealName,
+                    ClassGroupName = dsDto.ClassGroupName,
+                    SubordinationOrder = dsDto.SubordinationOrder,
+                    PayFrom = dsDto.PayFrom,
+                    GroupNum = dsDto.GroupNum,
+                    ExchangableTranche = dsDto.ExchangableTranche,
+                    ClassTags = dsDto.ClassTags
+                };
+                deal.DealStructures.Add(ds);
+            }
+        else
+            // Auto-generate deal structures from tranches
+            foreach (var trancheDto in dto.Tranches.OrderBy(t => t.SubordinationOrder))
+            {
+                var ds = new DealStructure
+                {
+                    DealName = dto.DealName,
+                    ClassGroupName = trancheDto.ClassReference ?? trancheDto.TrancheName,
+                    SubordinationOrder = trancheDto.SubordinationOrder,
+                    PayFrom = "Sequential",
+                    GroupNum = trancheDto.GroupNum
+                };
+                deal.DealStructures.Add(ds);
+            }
+
+        // Build triggers
+        if (dto.Triggers != null && dto.Triggers.Any())
+            foreach (var triggerDto in dto.Triggers)
+            {
+                var trigger = new DealTrigger
+                {
+                    DealName = dto.DealName,
+                    TriggerName = triggerDto.TriggerName,
+                    TriggerType = triggerDto.TriggerType,
+                    TriggerFormula = triggerDto.TriggerFormula,
+                    TriggerParam = triggerDto.TriggerParam,
+                    TriggerParam2 = triggerDto.TriggerParam2,
+                    IsMandatory = triggerDto.IsMandatory,
+                    PossibleValues = triggerDto.PossibleValues,
+                    GroupNum = triggerDto.GroupNum
+                };
+                deal.DealTriggers.Add(trigger);
+            }
+
+        // Build pay rules - either from structured waterfall or direct DSL
+        var payRuleDtos = dto.PayRules ?? new List<PayRuleDto>();
+
+        // If structured waterfall is provided, generate PayRules from it
+        if (dto.Waterfall != null)
+        {
+            var generatedRules = WaterfallBuilder.BuildPayRules(dto.Waterfall);
+            payRuleDtos = payRuleDtos.Concat(generatedRules).ToList();
+        }
+
+        // If unified waterfall is provided, auto-generate DealStructures and PayRules
+        if (dto.UnifiedWaterfall != null)
+        {
+            // Validate required steps
+            UnifiedWaterfallBuilder.ValidateSteps(dto.UnifiedWaterfall, dto.DealName);
+
+            // Set waterfall type to UnifiedStructure
+            deal.CashflowEngine = "UnifiedStructure";
+
+            // Auto-generate DealStructures from tranches + writedown order
+            // If no explicit structures provided, clear auto-generated ones and regenerate correctly
+            if (dealStructures == null || !dealStructures.Any())
+            {
+                deal.DealStructures.Clear(); // Clear auto-generated from tranches
+                var generatedStructures =
+                    UnifiedWaterfallBuilder.BuildDealStructures(dto.UnifiedWaterfall, dto.Tranches);
+                foreach (var dsDto in generatedStructures)
+                {
+                    var ds = new DealStructure
+                    {
+                        DealName = dto.DealName,
+                        ClassGroupName = dsDto.ClassGroupName,
+                        SubordinationOrder = dsDto.SubordinationOrder,
+                        PayFrom = dsDto.PayFrom,
+                        GroupNum = dsDto.GroupNum
+                    };
+                    deal.DealStructures.Add(ds);
+                }
+            }
+
+            // Generate PayRules from unified waterfall
+            var unifiedRules = UnifiedWaterfallBuilder.BuildPayRules(dto.UnifiedWaterfall);
+            payRuleDtos = payRuleDtos.Concat(unifiedRules).ToList();
+        }
+
+        if (payRuleDtos.Any())
+        {
+            var order = 0;
+            foreach (var ruleDto in payRuleDtos.OrderBy(r => r.Priority))
+            {
+                var rule = new PayRule
+                {
+                    DealName = dto.DealName,
+                    RuleName = ruleDto.RuleName,
+                    ClassGroupName = ruleDto.ClassGroupName,
+                    Formula = ruleDto.Formula,
+                    RuleExecutionOrder = order++
+                };
+                deal.PayRules.Add(rule);
+            }
+        }
+
+        // Build deal variables (supports variables alias)
+        if (dealVariables != null && dealVariables.Any())
+            foreach (var varDto in dealVariables)
+            {
+                var variable = new DealVariables
+                {
+                    DealName = dto.DealName,
+                    VariableName = varDto.VariableName,
+                    VariableValue = varDto.VariableValue,
+                    VariableValue2 = varDto.VariableValue2,
+                    GroupNum = varDto.GroupNum,
+                    IsForecastable = varDto.IsForecastable
+                };
+                deal.DealVariables.Add(variable);
+            }
+
+        // Build scheduled variables
+        if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())
+            foreach (var schedDto in dto.ScheduledVariables)
+            {
+                var schedVar = new ScheduledVariable
+                {
+                    DealName = dto.DealName,
+                    ScheduleVariableName = schedDto.VariableName,
+                    BeginDate = schedDto.BeginDate,
+                    EndDate = schedDto.EndDate,
+                    ValueNum = schedDto.Value,
+                    GroupNum = schedDto.GroupNum.ToString()
+                };
+                deal.ScheduledVariables.Add(schedVar);
+            }
+
+        // Build expenses as tranches with CashflowType=Expense
+        if (dto.Expenses != null && dto.Expenses.Any())
+            foreach (var expDto in dto.Expenses)
+            {
+                var expenseTranche = new Tranche
+                {
+                    TrancheName = expDto.ExpenseName,
+                    DealName = dto.DealName,
+                    OriginalBalance = 0,
+                    Factor = 1.0,
+                    CouponType = "Formula",
+                    CashflowType = "Expense",
+                    CouponFormula = expDto.Formula,
+                    TrancheType = "Modeling",
+                    ClassReference = expDto.ExpenseName,
+                    PayFrequency = 12,
+                    PayDelay = 0,
+                    PayDay = 25,
+                    DayCount = "30/360",
+                    BusinessDayConvention = "Following",
+                    HolidayCalendar = "Settlement",
+                    Deal = deal
+                };
+                deal.Tranches.Add(expenseTranche);
+            }
+
+        // Build exchange shares
+        if (dto.ExchangeShares != null && dto.ExchangeShares.Any())
+            foreach (var exDto in dto.ExchangeShares)
+            foreach (var share in exDto.Shares)
+            {
+                var exchShare = new ExchShare
+                {
+                    DealName = dto.DealName,
+                    ClassGroupName = exDto.ExchangeTranche,
+                    TrancheName = share.TrancheName,
+                    Quantity = share.ShareAmount
+                };
+                deal.ExchShares.Add(exchShare);
+            }
+
+        // Calculate balance at issuance (use provided value or sum from tranches)
+        deal.BalanceAtIssuance = dto.BalanceAtIssuance ?? deal.Tranches.Sum(t => t.OriginalBalance);
+
+        // Always compile rules - GenericExecutor requires RulesHost class with Reset() method
+        // Even simple waterfalls need the base RulesHost infrastructure
+        deal.RuleAssembly = RulesBuilder.CompileRules(deal);
+
+        return deal;
+    }
+
+    private static CollateralCashflows ConvertCollateralCashflows(List<PeriodCashflowDto> dtos)
+    {
+        var periodCashflows = new List<PeriodCashflows>();
+
+        foreach (var dto in dtos)
+        {
+            var cf = new PeriodCashflows
+            {
+                CashflowDate = dto.CashflowDate,
+                GroupNum = dto.GroupNum,
+                BeginBalance = dto.BeginBalance,
+                Balance = dto.Balance,
+                ScheduledPrincipal = dto.ScheduledPrincipal,
+                UnscheduledPrincipal = dto.UnscheduledPrincipal,
+                Interest = dto.Interest,
+                NetInterest = dto.NetInterest,
+                ServiceFee = dto.ServiceFee,
+                DefaultedPrincipal = dto.DefaultedPrincipal,
+                RecoveryPrincipal = dto.RecoveryPrincipal,
+                CollateralLoss = dto.CollateralLoss,
+                DelinqBalance = dto.DelinqBalance,
+                ForbearanceRecovery = dto.ForbearanceRecovery,
+                ForbearanceLiquidated = dto.ForbearanceLiquidated,
+                WAC = dto.Wac,
+                WAM = dto.Wam,
+                WALA = dto.Wala,
+                VPR = dto.Vpr,
+                CDR = dto.Cdr,
+                SEV = dto.Sev,
+                DQ = dto.Dq,
+                CumDefaultedPrincipal = dto.CumDefaultedPrincipal,
+                CumCollateralLoss = dto.CumCollateralLoss
+            };
+            periodCashflows.Add(cf);
+        }
+
+        return new CollateralCashflows(periodCashflows);
+    }
+
+    private static IRateProvider BuildRateProvider(Dictionary<string, List<double[]>>? marketRates)
+    {
+        if (marketRates == null || !marketRates.Any()) return new ConstantRateProvider(5.0); // Default 5% rate
+
+        // For now, use constant rate provider with first rate found
+        // TODO: Implement full rate curve provider
+        var firstRate = marketRates.Values.FirstOrDefault()?.FirstOrDefault();
+        if (firstRate != null && firstRate.Length > 1) return new ConstantRateProvider(firstRate[1]);
+
+        return new ConstantRateProvider(5.0);
+    }
+
+    private static WaterfallResponse ConvertToResponse(DealCashflows dealCashflows)
+    {
+        var response = new WaterfallResponse
+        {
+            TrancheCashflows = new Dictionary<string, List<TrancheCashflowDto>>(),
+            TriggerResults = new List<TriggerResultDto>(),
+            Summary = new WaterfallSummaryDto
+            {
+                TranchesSummary = new Dictionary<string, TrancheSummaryDto>()
+            }
+        };
+
+        // Convert tranche cashflows
+        foreach (var trancheCf in dealCashflows.TrancheCashflows)
+        {
+            var trancheName = trancheCf.Key.TrancheName;
+            var cashflowList = new List<TrancheCashflowDto>();
+            var period = 0;
+
+            foreach (var cf in trancheCf.Value.Cashflows.OrderBy(c => c.Key))
+            {
+                period++;
+                cashflowList.Add(new TrancheCashflowDto
+                {
+                    Period = period,
+                    CashflowDate = cf.Value.CashflowDate,
+                    BeginBalance = cf.Value.BeginBalance,
+                    Balance = cf.Value.Balance,
+                    ScheduledPrincipal = cf.Value.ScheduledPrincipal,
+                    UnscheduledPrincipal = cf.Value.UnscheduledPrincipal,
+                    Interest = cf.Value.Interest,
+                    Coupon = cf.Value.Coupon,
+                    Writedown = cf.Value.Writedown,
+                    CumWritedown = cf.Value.CumWritedown,
+                    Factor = cf.Value.Factor,
+                    CreditSupport = cf.Value.CreditSupport,
+                    InterestShortfall = cf.Value.InterestShortfall,
+                    AccumInterestShortfall = cf.Value.AccumInterestShortfall,
+                    IndexValue = cf.Value.IndexValue
+                });
+            }
+
+            response.TrancheCashflows[trancheName] = cashflowList;
+
+            // Calculate summary
+            var lastCf = cashflowList.LastOrDefault();
+            response.Summary.TranchesSummary[trancheName] = new TrancheSummaryDto
+            {
+                TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
+                TotalInterest = cashflowList.Sum(c => c.Interest),
+                TotalWritedown = cashflowList.Sum(c => c.Writedown),
+                FinalBalance = lastCf?.Balance ?? 0,
+                FinalFactor = lastCf?.Factor ?? 0
+            };
+        }
+
+        response.Summary.TotalPeriods = response.TrancheCashflows.Values.FirstOrDefault()?.Count ?? 0;
+
+        // Convert trigger results
+        if (dealCashflows.TriggerResults != null)
+        {
+            var period = 0;
+            foreach (var tr in dealCashflows.TriggerResults)
+            {
+                period++;
+                response.TriggerResults.Add(new TriggerResultDto
+                {
+                    Period = period,
+                    CashflowDate = tr.CashflowDate,
+                    TriggerName = tr.TriggerName,
+                    Triggered = tr.Passed,
+                    Value = tr.ActualValue
+                });
+            }
+        }
+
+        // Get earliest termination date
+        if (dealCashflows.EarliestTerminationDates.Any())
+            response.TerminationDate = dealCashflows.EarliestTerminationDates.Values.Min();
+
+        return response;
+    }
+}

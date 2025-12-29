@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0"/>
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\GraamFlows.Core\GraamFlows.Core.csproj"/>
+        <ProjectReference Include="..\GraamFlows.Domain\GraamFlows.Domain.csproj"/>
+        <ProjectReference Include="..\GraamFlows.Objects\GraamFlows.Objects.csproj"/>
+        <ProjectReference Include="..\GraamFlows.Util\GraamFlows.Util.csproj"/>
+    </ItemGroup>
+</Project>

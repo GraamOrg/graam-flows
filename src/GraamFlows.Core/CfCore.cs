@@ -1,0 +1,203 @@
+using GraamFlows.AssetCashflowEngine;
+using GraamFlows.Factories;
+using GraamFlows.Objects.DataObjects;
+using GraamFlows.Objects.Functions;
+using GraamFlows.Objects.TypeEnum;
+using GraamFlows.Objects.Util;
+using GraamFlows.RulesEngine;
+using GraamFlows.Util;
+using GraamFlows.Waterfall.MarketTranche;
+using GraamFlows.Waterfall.Structures;
+using Task = System.Threading.Tasks.Task;
+
+namespace GraamFlows;
+
+public class CfCore
+{
+    public CfCore(DateTime firstProjectionDate, IDeal deal)
+    {
+        FirstProjectionDate = firstProjectionDate;
+        Deal = deal;
+        CashflowEngine = WaterfallFactory.GetWaterfall(deal.CashflowEngine);
+    }
+
+    public IWaterfall CashflowEngine { get; }
+
+    public IDeal Deal { get; }
+    public DateTime FirstProjectionDate { get; }
+
+    public CollateralCashflows GenerateAssetCashflows(IRateProvider rateProvider, IAssumptionMill assumps)
+    {
+        var dealCashflows = GenerateAssetCashflows(Deal.Assets, FirstProjectionDate,
+            g => Deal.DealTriggers.EarliestMandatoryDateRedemption(g),
+            assumps.GetAssumptionsForAsset, rateProvider, assumps.Threads, assumps.DisplayAssetCashflows);
+
+        // check if the deal pay rules have been compiled
+        Task ruleCompileTask = null;
+        if (Deal.RuleAssembly == null)
+            lock (Deal)
+            {
+                if (Deal.RuleAssembly == null) ruleCompileTask = Task.Factory.StartNew(() => CompileRules(Deal));
+            }
+
+        ruleCompileTask?.Wait();
+        return dealCashflows;
+    }
+
+    public static CollateralCashflows GenerateAssetCashflows(IList<IAsset> assets, DateTime firstProjDate,
+        Func<string, DateTime> redempDateFunc,
+        Func<IAsset, IAssetAssumptions> assumpFunc, IRateProvider rateProvider, int threads = 1,
+        bool displayAssetCf = false)
+    {
+        var groupedAssets = assets.GroupBy(asset => asset.GroupNum);
+        var dealCashflows = new CollateralCashflows(displayAssetCf);
+        var startTime = DateUtil.CalcAbsT(firstProjDate);
+
+        foreach (var group in groupedAssets)
+        {
+            var groupNum = group.Key;
+            var groupAssets = group.ToList();
+            var endDate = redempDateFunc?.Invoke(groupNum) ?? firstProjDate.AddYears(50);
+            var endTime = DateUtil.CalcAbsT(endDate);
+            var maxPeriods = Math.Min(endTime - startTime + 1, 720);
+
+            // Convert assets to parallel arrays
+            var assetData = new AssetDataArrays(groupAssets);
+
+            // Get assumptions from first asset (assumes uniform assumptions per group)
+            var firstAssetAssumps = groupAssets.Count > 0 ? assumpFunc?.Invoke(groupAssets[0]) : null;
+
+            // Build assumption arrays
+            var smmTime = BuildAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, true);
+            var mdrTime = BuildAssumptionArray(firstAssetAssumps?.DefaultRate, maxPeriods, startTime, true);
+            var sevTime = BuildAssumptionArray(firstAssetAssumps?.Severity, maxPeriods, startTime, false, 100.0);
+            var delTime = BuildAssumptionArray(firstAssetAssumps?.DelinqRate, maxPeriods, startTime, false, 100.0);
+            var delAdvIntTime = BuildAssumptionArray(firstAssetAssumps?.DelinqAdvPctInt, maxPeriods, startTime, false,
+                1.0, 100.0);
+            var delAdvPrinTime = BuildAssumptionArray(firstAssetAssumps?.DelinqAdvPctPrin, maxPeriods, startTime, false,
+                1.0, 100.0);
+            var forbRecovPpayTime = BuildForbearanceArray(firstAssetAssumps?.ForbearanceRecoveryPrepay, maxPeriods,
+                startTime, -1.0);
+            var forbRecovMaturityTime = BuildForbearanceArray(firstAssetAssumps?.ForbearanceRecoveryMaturity,
+                maxPeriods, startTime, 1.0);
+            var forbRecovDefaultTime = BuildForbearanceArray(firstAssetAssumps?.ForbearanceRecoveryDefault, maxPeriods,
+                startTime, -1.0);
+
+            // Build market rate arrays
+            var allMarketRates = BuildMarketRateArrays(rateProvider, firstProjDate, maxPeriods);
+
+            // Run the high-performance cashflow generator
+            var results = Amortizer.GenerateCashflows(
+                assetData,
+                startTime,
+                endTime,
+                smmTime,
+                mdrTime,
+                sevTime,
+                delTime,
+                delAdvIntTime,
+                delAdvPrinTime,
+                forbRecovPpayTime,
+                forbRecovMaturityTime,
+                forbRecovDefaultTime,
+                allMarketRates);
+
+            // Convert results to PeriodCashflows and add to deal cashflows
+            var periodCashflows = results.ToPeriodCashflows(firstProjDate, groupNum);
+            foreach (var periodCf in periodCashflows) dealCashflows.AddPeriodCashflow(periodCf);
+        }
+
+        return dealCashflows;
+    }
+
+    /// <summary>
+    ///     Build assumption array from IAnchorableVector, converting annual rates to monthly if needed.
+    /// </summary>
+    private static double[] BuildAssumptionArray(IAnchorableVector vector, int maxPeriods, int startTime,
+        bool convertToMonthly, double divisor = 100.0, double defaultValue = 0.0)
+    {
+        var result = new double[maxPeriods];
+
+        for (var period = 0; period < maxPeriods; period++)
+        {
+            var value = vector?.ValueAt(period, startTime + period) ?? defaultValue;
+
+            if (convertToMonthly)
+                // Convert annual rate (CPR/CDR) to monthly rate (SMM/MDR)
+                result[period] = 1.0 - Math.Pow(1.0 - value / 100.0, 1.0 / 12.0);
+            else
+                result[period] = value / divisor;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Build forbearance recovery array with special default handling.
+    /// </summary>
+    private static double[] BuildForbearanceArray(IAnchorableVector vector, int maxPeriods, int startTime,
+        double defaultValue)
+    {
+        var result = new double[maxPeriods];
+
+        for (var period = 0; period < maxPeriods; period++)
+        {
+            var value = vector?.ValueAt(period, startTime + period) ?? -1.0;
+            result[period] = value > 0 ? value / 100.0 : defaultValue;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Build market rate arrays for all rate indices.
+    /// </summary>
+    private static double[][] BuildMarketRateArrays(IRateProvider rateProvider, DateTime firstProjDate, int maxPeriods)
+    {
+        if (rateProvider == null)
+            return null;
+
+        // 5 rate indices: None, Libor1M, Libor3M, Libor6M, Libor12M
+        var allRates = new double[5][];
+        var indexNames = new[]
+        {
+            MarketDataInstEnum.None, MarketDataInstEnum.Libor1M, MarketDataInstEnum.Libor3M,
+            MarketDataInstEnum.Libor6M, MarketDataInstEnum.Libor12M
+        };
+
+        for (var i = 0; i < 5; i++)
+        {
+            allRates[i] = new double[maxPeriods];
+            var indexName = indexNames[i];
+
+            for (var period = 0; period < maxPeriods; period++)
+            {
+                var date = firstProjDate.AddMonths(period);
+                allRates[i][period] = rateProvider.GetRate(indexName, date);
+            }
+        }
+
+        return allRates;
+    }
+
+    public DealCashflows GenerateTrancheCashflows(IAssumptionMill assumps, IRateProvider rateProvider)
+    {
+        var collatFlows = GenerateAssetCashflows(Deal.Assets, FirstProjectionDate,
+            g => Deal.DealTriggers.EarliestMandatoryDateRedemption(g), assumps.GetAssumptionsForAsset,
+            rateProvider);
+
+        return GenerateTrancheCashflows(collatFlows, rateProvider, assumps);
+    }
+
+    public DealCashflows GenerateTrancheCashflows(CollateralCashflows cashflows, IRateProvider rateProvider,
+        IAssumptionMill assumps)
+    {
+        return CashflowEngine.Waterfall(Deal, rateProvider, FirstProjectionDate, cashflows, assumps,
+            new TrancheAllocator());
+    }
+
+    public static void CompileRules(IDeal deal)
+    {
+        deal.RuleAssembly = RulesBuilder.CompileRules(deal);
+    }
+}
