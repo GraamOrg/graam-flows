@@ -136,6 +136,11 @@ public class EART231IntegrationTests
         var a1Cashflows = GetCashflows(dealCashflows, "A-1");
         var a2Cashflows = GetCashflows(dealCashflows, "A-2");
 
+        // FIRST: Verify principal is actually flowing (don't let 0 principal pass silently)
+        var a1PrincipalPaid = a1Cashflows.Sum(c => c.Value.TotalPrincipal());
+        a1PrincipalPaid.Should().BeGreaterThan(1_000_000,
+            "A-1 should receive at least $1M in principal over 12 periods");
+
         // Find the first period where A-1 is fully paid (balance = 0)
         var a1PaidOffPeriod = a1Cashflows
             .OrderBy(c => c.Key)
@@ -155,7 +160,6 @@ public class EART231IntegrationTests
         // Assert - Total principal paid should decrease balances appropriately
         var firstA1 = a1Cashflows.OrderBy(c => c.Key).First().Value;
         var lastA1 = a1Cashflows.OrderBy(c => c.Key).Last().Value;
-        var a1PrincipalPaid = a1Cashflows.Sum(c => c.Value.TotalPrincipal());
 
         (firstA1.BeginBalance - lastA1.Balance).Should().BeApproximately(a1PrincipalPaid, Tolerance,
             "A-1 balance reduction should equal total principal paid");
@@ -263,6 +267,9 @@ public class EART231IntegrationTests
         var collateral = CreateCollateralCashflows(6, 551650000);
         var (deal, dealCashflows) = RunWaterfall(collateral);
 
+        // Calculate total collateral principal available
+        var collateralPrincipal = collateral.PeriodCashflows.Sum(p => p.ScheduledPrincipal + p.UnscheduledPrincipal);
+
         // Get A-1 cashflows (should receive principal first as most senior)
         var a1Cashflows = GetCashflows(dealCashflows, "A-1");
         a1Cashflows.Should().NotBeEmpty("A-1 should have cashflows");
@@ -275,22 +282,14 @@ public class EART231IntegrationTests
         // Calculate total principal paid to A-1
         var a1TotalPrincipal = a1Cashflows.Sum(c => c.Value.TotalPrincipal());
 
+        // CRITICAL: Principal MUST flow. Collateral has principal, tranches must receive it.
+        a1TotalPrincipal.Should().BeGreaterThan(1_000_000,
+            $"A-1 should receive at least $1M in principal. Collateral had ${collateralPrincipal:N0} total.");
+
         // Assert - balance should decrease by amount of principal paid
         var balanceDecrease = firstPeriod.BeginBalance - lastPeriod.Balance;
-
-        // Either principal is being paid (and balance decreases), or no principal flows yet
-        // This validates the consistency of the engine's balance tracking
-        if (a1TotalPrincipal > 0)
-        {
-            balanceDecrease.Should().BeApproximately(a1TotalPrincipal, Tolerance,
-                "Balance decrease should equal total principal paid");
-        }
-        else
-        {
-            // If no principal paid, balances should remain stable
-            balanceDecrease.Should().BeApproximately(0, Tolerance,
-                "If no principal paid, balance should remain stable");
-        }
+        balanceDecrease.Should().BeApproximately(a1TotalPrincipal, Tolerance,
+            "Balance decrease should equal total principal paid");
 
         // Verify the first period has reasonable values
         firstPeriod.BeginBalance.Should().Be(63000000, "A-1 should start at original balance");

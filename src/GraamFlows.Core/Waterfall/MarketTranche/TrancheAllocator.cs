@@ -18,7 +18,9 @@ namespace GraamFlows.Waterfall.MarketTranche
             if (!dynGroups.Any())
                 return;
 
-            AllocatePrincipal(formulaExecutor, dynGroups, cfDate, triggerValues, periodCfs, payFromAllocator);
+            // Principal allocation now handled directly by DynamicClass.Pay() which allocates to child tranches.
+            // AllocatePrincipal is no longer needed and would cause double allocation.
+
             var deal = dynGroups.First().Deal;
             if (deal.InterestTreatmentEnum == InterestTreatmentEnum.Collateral)
                 AllocateCollateralInterest(dynGroups, rateProvider, cfDate, periodCfs);
@@ -150,88 +152,6 @@ namespace GraamFlows.Waterfall.MarketTranche
             {
                 var cfWritedown = dynTran.GetCashflow(cfDate);
                 dynTran.PayInterest(cfWritedown, rateProvider, null, allTrans);
-            }
-        }
-
-        private void AllocatePrincipal(IFormulaExecutor formulaExecutor, IList<DynamicGroup> dynGroups, DateTime cfDate,
-            List<TriggerValue> triggerValues, IList<PeriodCashflows> periodCfs, IList<DynamicClass> payFromAllocator)
-        {
-            var classHash = new HashSet<string>();
-
-            foreach (var dynGroup in dynGroups)
-            {
-                var allTrans = dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches).ToList();
-                foreach (var dynTran in allTrans)
-                {
-                    var periodCf = periodCfs.SingleOrDefault(p => p.GroupNum == dynGroup.GroupNum);
-                    if (periodCf == null)
-                        continue;
-
-                    var classRef = dynTran.ClassReference;
-                    var classCf = classRef.Cashflows[cfDate.Date];
-                    if (!classHash.Add(dynTran.Tranche.TrancheName))
-                        continue;
-
-                    formulaExecutor.Reset(new RulesResults(), triggerValues, dynGroup, periodCf,
-                        Enumerable.Repeat(dynTran, 1));
-                    var beginBal = classCf.BeginBalance;
-                    if (beginBal < .0001 && classCf.Balance < .0001)
-                        continue;
-
-                    if (payFromAllocator.Any(p => p.Tranche.TrancheName == dynTran.Tranche.TrancheName))
-                        continue;
-
-                    // Skip tranches with zero original balance (e.g., OC certificates, residuals)
-                    // These are handled by the waterfall structure, not pro-rata allocation
-                    if (Math.Abs(classCf.Tranche.OriginalBalance) < double.Epsilon)
-                        continue;
-
-                    if (Math.Abs(dynTran.Balance) < double.Epsilon)
-                    {
-                        // special case when bonds come back from the dead. This will happen if excess interest writes up a tranche from 0. In this case, use original balance
-                        var allocPct = dynTran.Tranche.OriginalBalance / classCf.Tranche.OriginalBalance;
-                        dynTran.Pay(cfDate, classCf.UnscheduledPrincipal * allocPct,
-                            classCf.ScheduledPrincipal * allocPct);
-                        dynTran.Writedown(cfDate, classCf.Writedown * allocPct);
-                    }
-                    else
-                    {
-                        var schedPrinPct = classCf.ScheduledPrincipal / beginBal;
-                        var unschedPrinPct = classCf.UnscheduledPrincipal / beginBal;
-                        var writedownPct = classCf.Writedown / beginBal;
-
-                        var unschedPrin = dynTran.Balance * unschedPrinPct;
-                        var schedPrin = dynTran.Balance * schedPrinPct;
-                        var writedown = dynTran.Balance * writedownPct;
-
-                        // pay
-                        dynTran.Pay(cfDate, unschedPrin, schedPrin);
-                        dynTran.Writedown(cfDate, writedown);
-                    }
-
-                    // check
-                    var classFactor = classCf.Balance / classCf.Tranche.OriginalBalance;
-                    Debug.Assert(Math.Abs(dynTran.Factor() - classFactor) < .0000001f);
-                }
-            }
-
-            if (payFromAllocator.Any())
-            {
-                var allTrans = dynGroups
-                    .SelectMany(dynGroup => dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches)).ToList();
-                foreach (var allocItem in payFromAllocator)
-                {
-                    var exchClasses = allocItem.DealStructure.ExchangableTranche.Split(",").Select(exchClass =>
-                            allTrans.SingleOrDefault(tran => tran.Tranche.TrancheName == exchClass.Trim()))
-                        .Where(dc => dc != null);
-                    foreach (var dynTran in allocItem.DynamicTranches)
-                    foreach (var exDynTran in exchClasses)
-                    {
-                        var exCashflow = exDynTran.GetCashflow(cfDate);
-                        dynTran.Pay(cfDate, exCashflow.UnscheduledPrincipal, exCashflow.ScheduledPrincipal);
-                        dynTran.Writedown(cfDate, exCashflow.Writedown);
-                    }
-                }
             }
         }
 

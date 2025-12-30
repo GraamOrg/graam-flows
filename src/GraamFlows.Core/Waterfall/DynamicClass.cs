@@ -244,6 +244,37 @@ public class DynamicClass : IPayable
         cashflow.Balance = Balance;
         cashflow.CumWritedown = CumWritedown;
         Cashflows[adjDate] = cashflow;
+
+        // Allocate principal to tranches proportionally
+        AllocatePrincipalToTranches(cashflowDate, unshedPrin, schedPrin, beginBal);
+    }
+
+    /// <summary>
+    /// Allocates principal payments to child tranches proportionally based on balance.
+    /// This eliminates the need for TrancheAllocator.AllocatePrincipal for principal distribution.
+    /// </summary>
+    private void AllocatePrincipalToTranches(DateTime cfDate, double unshedPrin, double schedPrin, double beginBal)
+    {
+        if (DynamicTranches == null || !DynamicTranches.Any())
+            return; // DynamicTranche has null DynamicTranches, so no recursion
+
+        foreach (var dynTran in DynamicTranches)
+        {
+            double allocPct;
+            if (Math.Abs(beginBal) < 0.01)
+            {
+                // Handle resurrection from zero balance - use original balance ratio
+                if (Math.Abs(Tranche.OriginalBalance) < double.Epsilon)
+                    continue;
+                allocPct = dynTran.Tranche.OriginalBalance / Tranche.OriginalBalance;
+            }
+            else
+            {
+                allocPct = dynTran.Balance / beginBal;
+            }
+
+            dynTran.Pay(cfDate, unshedPrin * allocPct, schedPrin * allocPct);
+        }
     }
 
     public TrancheCashflow Writeup(DateTime cashflowDate, double writeupAmt)
@@ -286,6 +317,7 @@ public class DynamicClass : IPayable
         Debug.Assert(Math.Abs(residual) < 10);
 
         var adjDate = AdjustedCashflowDate(cashflowDate);
+        var beginBal = Balance;
 
         if (!Cashflows.TryGetValue(adjDate, out var cashflow))
         {
@@ -309,7 +341,39 @@ public class DynamicClass : IPayable
         cashflow.Balance = Balance;
         cashflow.CumWritedown = CumWritedown;
         Cashflows[adjDate] = cashflow;
+
+        // Allocate writedown to tranches proportionally
+        AllocateWritedownToTranches(cashflowDate, totalWritedown, beginBal);
+
         return cashflow;
+    }
+
+    /// <summary>
+    /// Allocates writedowns to child tranches proportionally based on balance.
+    /// This eliminates the need for TrancheAllocator.AllocatePrincipal for writedown distribution.
+    /// </summary>
+    private void AllocateWritedownToTranches(DateTime cfDate, double writedownAmt, double beginBal)
+    {
+        if (DynamicTranches == null || !DynamicTranches.Any())
+            return; // DynamicTranche has null DynamicTranches, so no recursion
+
+        foreach (var dynTran in DynamicTranches)
+        {
+            double allocPct;
+            if (Math.Abs(beginBal) < 0.01)
+            {
+                // Handle zero balance - use original balance ratio
+                if (Math.Abs(Tranche.OriginalBalance) < double.Epsilon)
+                    continue;
+                allocPct = dynTran.Tranche.OriginalBalance / Tranche.OriginalBalance;
+            }
+            else
+            {
+                allocPct = dynTran.Balance / beginBal;
+            }
+
+            dynTran.Writedown(cfDate, writedownAmt * allocPct);
+        }
     }
 
     public void Lockout(DateTime cashflowDate)
