@@ -1,5 +1,7 @@
 ﻿using System.Xml.Linq;
+using GraamFlows.Objects.DataObjects;
 using GraamFlows.Util;
+using GraamFlows.Waterfall.MarketTranche;
 
 namespace GraamFlows.Waterfall.Structures.PayableStructures;
 
@@ -36,6 +38,43 @@ public class ProrataStructure : BasePayable
     {
         PayPayables(parent, _payables, cfDate, amount,
             (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+    }
+
+    public override double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        // Calculate interest due for each payable
+        var interestDueByPayable = _payables
+            .Where(p => !p.IsLockedOut(cfDate))
+            .ToDictionary(p => p, p => p.InterestDue(cfDate, rateProvider, allTranches));
+
+        var totalInterestDue = interestDueByPayable.Values.Sum();
+        if (totalInterestDue < 0.01)
+            return 0;
+
+        var interestPaid = 0.0;
+
+        // Distribute pro rata based on interest due
+        foreach (var (payable, interestDue) in interestDueByPayable)
+        {
+            if (interestDue < 0.01)
+                continue;
+
+            // Pro rata share based on interest due (not balance)
+            var share = interestDue / totalInterestDue;
+            var fundsForPayable = Math.Min(availableFunds * share, interestDue);
+
+            var paid = payable.PayInterest(this, cfDate, fundsForPayable, rateProvider, allTranches);
+            interestPaid += paid;
+        }
+
+        return interestPaid;
+    }
+
+    public override double InterestDue(DateTime cfDate, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        return _payables.Sum(p => p.InterestDue(cfDate, rateProvider, allTranches));
     }
 
     private void PayPayables(IPayable parent, IList<IPayable> payables, DateTime cfDate, double prin,

@@ -1,5 +1,7 @@
 ﻿using System.Xml.Linq;
+using GraamFlows.Objects.DataObjects;
 using GraamFlows.Util;
+using GraamFlows.Waterfall.MarketTranche;
 
 namespace GraamFlows.Waterfall.Structures.PayableStructures;
 
@@ -64,6 +66,26 @@ public class ProformaStructure : BasePayable
     public override void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)
     {
         PayPayables(cfDate, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+    }
+
+    public override double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        // Pay pro rata based on each payable's proforma share
+        var interestPaid = 0.0;
+        foreach (var (payable, share) in _proformaList)
+        {
+            var fundsForPayable = availableFunds * share;
+            var paid = payable.PayInterest(this, cfDate, fundsForPayable, rateProvider, allTranches);
+            interestPaid += paid;
+        }
+        return interestPaid;
+    }
+
+    public override double InterestDue(DateTime cfDate, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        return _proformaList.Sum(p => p.Item1.InterestDue(cfDate, rateProvider, allTranches));
     }
 
     public override string Describe(int level)

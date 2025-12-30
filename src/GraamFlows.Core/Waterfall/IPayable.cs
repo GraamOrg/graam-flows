@@ -1,4 +1,6 @@
 ﻿using System.Xml.Linq;
+using GraamFlows.Objects.DataObjects;
+using GraamFlows.Waterfall.MarketTranche;
 
 namespace GraamFlows.Waterfall;
 
@@ -22,6 +24,24 @@ public interface IPayable
     void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec);
+
+    /// <summary>
+    /// Pay interest through this payable structure.
+    /// </summary>
+    /// <param name="caller">Parent payable (null if top-level)</param>
+    /// <param name="cfDate">Cashflow date</param>
+    /// <param name="availableFunds">Funds available for interest payment</param>
+    /// <param name="rateProvider">Rate provider for floaters</param>
+    /// <param name="allTranches">All tranches for WAC calculations</param>
+    /// <returns>Amount of interest actually paid</returns>
+    double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches);
+
+    /// <summary>
+    /// Calculate total interest due for this payable structure without paying.
+    /// </summary>
+    double InterestDue(DateTime cfDate, IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches);
+
     double BeginBalance(DateTime cfDate);
     double CurrentBalance(DateTime cfDate);
     bool IsLockedOut(DateTime cfDate);

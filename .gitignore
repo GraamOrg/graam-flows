@@ -8,3 +8,5 @@
 /src/GraamFlows.Objects/obj
 /src/GraamFlows.Util/obj
 /src/GraamFlows.Util/bin
+/tests/GraamFlows.Tests/obj
+/tests/GraamFlows.Tests/bin

@@ -21,4 +21,15 @@ public interface IDeal : IPayRuleAssemblyStore
     InterestTreatmentEnum InterestTreatmentEnum { get; }
     double BalanceAtIssuance { get; }
     string EncodedRules { get; set; }
+
+    /// <summary>
+    /// Waterfall structure type (e.g., "UnifiedStructure", "ComposableStructure")
+    /// </summary>
+    string WaterfallType { get; }
+
+    /// <summary>
+    /// Waterfall execution order for ComposableStructure
+    /// (e.g., ["EXPENSE", "INTEREST", "PRINCIPAL_SCHEDULED", ...])
+    /// </summary>
+    IList<string> ExecutionOrder { get; }
 }

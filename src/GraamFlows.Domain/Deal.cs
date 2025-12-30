@@ -18,6 +18,7 @@ public class Deal : IDeal
         PayRules = new List<IPayRule>();
         ScheduledVariables = new List<IScheduledVariable>();
         ExchShares = new List<IExchShare>();
+        ExecutionOrder = new List<string>();
         DealName = name;
         FactorDate = factorDate;
     }
@@ -60,6 +61,9 @@ public class Deal : IDeal
     }
 
     [Database("Cashflow_Engine")] public string CashflowEngine { get; set; }
+
+    public string WaterfallType { get; set; }
+    public IList<string> ExecutionOrder { get; set; }
 
     public Assembly RuleAssembly { get; set; }
 }

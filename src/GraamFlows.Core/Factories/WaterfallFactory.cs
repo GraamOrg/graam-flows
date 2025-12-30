@@ -6,9 +6,12 @@ public static class WaterfallFactory
 {
     public static IWaterfall GetWaterfall(string cashflowEngineName)
     {
-        if (cashflowEngineName == "UnifiedStructure")
-            return new UnifiedStructure();
-
-        throw new ArgumentException($"{cashflowEngineName} is not supported. Only UnifiedStructure is available.");
+        return cashflowEngineName switch
+        {
+            "UnifiedStructure" => new UnifiedStructure(),
+            "ComposableStructure" => new ComposableStructure(),
+            _ => throw new ArgumentException(
+                $"{cashflowEngineName} is not supported. Available: UnifiedStructure, ComposableStructure.")
+        };
     }
 }

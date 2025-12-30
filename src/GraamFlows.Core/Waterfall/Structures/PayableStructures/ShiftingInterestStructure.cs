@@ -1,4 +1,6 @@
 ﻿using System.Xml.Linq;
+using GraamFlows.Objects.DataObjects;
+using GraamFlows.Waterfall.MarketTranche;
 
 namespace GraamFlows.Waterfall.Structures.PayableStructures;
 
@@ -47,6 +49,22 @@ public class ShiftingInterestStructure : BasePayable
     public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
     {
         PayPayables(cfDate, amount, (p, a) => p.PayWritedown(this, cfDate, a, payRuleExec), payRuleExec);
+    }
+
+    public override double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        // For SHIFTI, pay seniors first, then subordinates
+        var paid = Seniors.PayInterest(this, cfDate, availableFunds, rateProvider, allTranches);
+        paid += Subs.PayInterest(this, cfDate, availableFunds - paid, rateProvider, allTranches);
+        return paid;
+    }
+
+    public override double InterestDue(DateTime cfDate, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        return Seniors.InterestDue(cfDate, rateProvider, allTranches) +
+               Subs.InterestDue(cfDate, rateProvider, allTranches);
     }
 
     private void PayPayables(DateTime cfDate, double prin, Action<IPayable, double> payFunc, Action payRuleExec)

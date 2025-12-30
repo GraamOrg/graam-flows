@@ -1,5 +1,7 @@
 ﻿using System.Xml.Linq;
+using GraamFlows.Objects.DataObjects;
 using GraamFlows.Util;
+using GraamFlows.Waterfall.MarketTranche;
 
 namespace GraamFlows.Waterfall.Structures.PayableStructures;
 
@@ -32,6 +34,34 @@ public class SequentialStructure : BasePayable
     public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
     {
         PayPayables(cfDate, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+    }
+
+    public override double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        var interestPaid = 0.0;
+        var remaining = availableFunds;
+
+        foreach (var payable in _payables)
+        {
+            if (remaining < 0.01)
+                break;
+
+            if (payable.IsLockedOut(cfDate))
+                continue;
+
+            var paid = payable.PayInterest(this, cfDate, remaining, rateProvider, allTranches);
+            interestPaid += paid;
+            remaining -= paid;
+        }
+
+        return interestPaid;
+    }
+
+    public override double InterestDue(DateTime cfDate, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        return _payables.Sum(p => p.InterestDue(cfDate, rateProvider, allTranches));
     }
 
     public override string Describe(int level)

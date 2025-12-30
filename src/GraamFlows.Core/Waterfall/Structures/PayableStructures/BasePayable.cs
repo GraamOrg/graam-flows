@@ -1,4 +1,6 @@
 ﻿using System.Xml.Linq;
+using GraamFlows.Objects.DataObjects;
+using GraamFlows.Waterfall.MarketTranche;
 
 namespace GraamFlows.Waterfall.Structures.PayableStructures;
 
@@ -8,6 +10,13 @@ public abstract class BasePayable : IPayable
     public abstract void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     public abstract void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     public abstract void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec);
+
+    public abstract double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches);
+
+    public abstract double InterestDue(DateTime cfDate, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches);
+
     public abstract string Describe(int level);
     public abstract XElement DescribeXml();
     public abstract HashSet<IPayable> Leafs();

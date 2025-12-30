@@ -1,4 +1,6 @@
 ﻿using System.Xml.Linq;
+using GraamFlows.Objects.DataObjects;
+using GraamFlows.Waterfall.MarketTranche;
 
 namespace GraamFlows.Waterfall.Structures.PayableStructures;
 
@@ -35,6 +37,18 @@ public class SinglePlannedAmortizationClass : BasePayable
     public override void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)
     {
         PayPayable(Spac, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+    }
+
+    public override double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        return Spac.PayInterest(this, cfDate, availableFunds, rateProvider, allTranches);
+    }
+
+    public override double InterestDue(DateTime cfDate, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        return Spac.InterestDue(cfDate, rateProvider, allTranches);
     }
 
     public override double CurrentBalance(DateTime cfDate)

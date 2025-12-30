@@ -1,4 +1,6 @@
 ﻿using System.Xml.Linq;
+using GraamFlows.Objects.DataObjects;
+using GraamFlows.Waterfall.MarketTranche;
 
 namespace GraamFlows.Waterfall.Structures.PayableStructures;
 
@@ -33,6 +35,22 @@ public class ForcedPaydownStructure : BasePayable
     public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
     {
         PayPayables(cfDate, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+    }
+
+    public override double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        // Pay forced first, then support
+        var paid = Forced.PayInterest(this, cfDate, availableFunds, rateProvider, allTranches);
+        paid += Support.PayInterest(this, cfDate, availableFunds - paid, rateProvider, allTranches);
+        return paid;
+    }
+
+    public override double InterestDue(DateTime cfDate, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        return Forced.InterestDue(cfDate, rateProvider, allTranches) +
+               Support.InterestDue(cfDate, rateProvider, allTranches);
     }
 
     public override string Describe(int level)

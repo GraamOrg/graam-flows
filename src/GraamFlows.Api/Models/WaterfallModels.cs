@@ -251,6 +251,14 @@ public class PayableStructureDto
 public class UnifiedWaterfallDto
 {
     public List<WaterfallStepDto> Steps { get; set; } = new();
+
+    /// <summary>
+    /// Explicit execution order for ComposableStructure.
+    /// If not provided, order is inferred from Steps array.
+    /// Example: ["EXPENSE", "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED",
+    ///           "PRINCIPAL_RECOVERY", "RESERVE", "WRITEDOWN", "EXCESS"]
+    /// </summary>
+    public List<string>? ExecutionOrder { get; set; }
 }
 
 /// <summary>

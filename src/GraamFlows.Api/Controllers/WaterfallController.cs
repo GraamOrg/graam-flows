@@ -195,8 +195,18 @@ public class WaterfallController : ControllerBase
             // Validate required steps
             UnifiedWaterfallBuilder.ValidateSteps(dto.UnifiedWaterfall, dto.DealName);
 
-            // Set waterfall type to UnifiedStructure
-            deal.CashflowEngine = "UnifiedStructure";
+            // Determine waterfall type: ComposableStructure if explicitly set or ExecutionOrder provided
+            if (dto.WaterfallType == "ComposableStructure" || dto.UnifiedWaterfall.ExecutionOrder != null)
+            {
+                deal.CashflowEngine = "ComposableStructure";
+                deal.WaterfallType = "ComposableStructure";
+                deal.ExecutionOrder = dto.UnifiedWaterfall.ExecutionOrder ?? new List<string>();
+            }
+            else
+            {
+                // Default to UnifiedStructure for backward compatibility
+                deal.CashflowEngine = "UnifiedStructure";
+            }
 
             // Auto-generate DealStructures from tranches + writedown order
             // If no explicit structures provided, clear auto-generated ones and regenerate correctly

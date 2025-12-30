@@ -63,6 +63,38 @@ public class DynamicClass : IPayable
         Writedown(cfDate, amount);
     }
 
+    public double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        var interestPaid = 0.0;
+        var allTranchesList = allTranches?.ToList();
+
+        foreach (var dynTran in DynamicTranches)
+        {
+            var cf = dynTran.GetCashflow(cfDate);
+            var interestDue = dynTran.Interest(cf, rateProvider, allTranchesList) + cf.AccumInterestShortfall;
+            var toPay = Math.Min(interestDue, availableFunds - interestPaid);
+
+            if (toPay > 0)
+            {
+                dynTran.PayInterest(cf, rateProvider, null, allTranchesList, toPay);
+                interestPaid += toPay;
+            }
+        }
+
+        return interestPaid;
+    }
+
+    public double InterestDue(DateTime cfDate, IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        var allTranchesList = allTranches?.ToList();
+        return DynamicTranches.Sum(dynTran =>
+        {
+            var cf = dynTran.GetCashflow(cfDate);
+            return dynTran.Interest(cf, rateProvider, allTranchesList) + cf.AccumInterestShortfall;
+        });
+    }
+
     public virtual double BeginBalance(DateTime cfDate)
     {
         var cashflow = GetCashflow(cfDate);
