@@ -55,6 +55,8 @@ namespace GraamFlows.RulesEngine
         public double serv_fee_rate;
         public int curr_month;
         public int curr_year;
+        public double oc_amt;
+        public double oc_pct;
         public double collat_wac;
         public double collat_net_wac;
         public double libor_1m => _rateProvider.GetRate(MarketDataInstEnum.Libor1M, _cfDate);
@@ -103,7 +105,9 @@ namespace GraamFlows.RulesEngine
             serv_fee_rate = 1200 * periodCf.ServiceFee / periodCf.BeginBalance;
             curr_month = periodCf.CashflowDate.Month;
             curr_year = periodCf.CashflowDate.Year;
-
+            oc_amt = periodCf.Balance - dynGroup.Balance(); // assets minus liabilities
+            oc_pct = dynGroup.Balance() / periodCf.Balance;
+                
             /*// backwards compatibility
             if (dynGroup.GetType().GetMethods().Contains("CollateralWac"))
             {
@@ -657,9 +661,14 @@ namespace GraamFlows.RulesEngine
             DynamicGroup.WritedownPayable = payable;
         }
 
-        private void SET_EXCESS_STRUCT(IPayable payable)
+        private void SET_TURBO_STRUCT(IPayable payable)
         {
-            DynamicGroup.ExcessPayable = payable;
+            DynamicGroup.TurboPayable = payable;
+        }
+
+        private void SET_RELEASE_STRUCT(IPayable payable)
+        {
+            DynamicGroup.ReleasePayable = payable;
         }
 
         private double COUPON(params string[] trancheList)

@@ -36,8 +36,10 @@ public class ComposableStructure : BaseStructure
         var dynDeal = new DynamicDeal(deal);
         var cashflowsBeforeFirstPay = new Dictionary<string, List<PeriodCashflows>>();
 
-        // Get execution order from deal or use default
-        var executionOrder = deal.ExecutionOrder?.ToList() ?? GetDefaultExecutionOrder();
+        // Get execution order from deal or use default (handle both null and empty list)
+        var executionOrder = (deal.ExecutionOrder == null || !deal.ExecutionOrder.Any())
+            ? GetDefaultExecutionOrder()
+            : deal.ExecutionOrder.ToList();
 
         foreach (var period in periodCashflows.GroupBy(pc => pc.CashflowDate))
         {
@@ -65,16 +67,10 @@ public class ComposableStructure : BaseStructure
                     var ratio = trancheBal / collatBal;
                     dynGroup.CollateralBondRatio = ratio;
 
-                    // Add OC tranche when collateral > tranches (normal for seasoned deals)
-                    // Skip if deal already has a Modeling tranche defined (e.g., CERTIFICATES in Auto ABS)
-                    var hasModelingTranche = deal.Tranches.Any(t =>
-                        t.TrancheTypeEnum == Objects.TypeEnum.TrancheTypeEnum.Modeling);
-                    if (collatBal > trancheBal + 1 && !hasModelingTranche)
-                        dynGroup.AddOverCollaterizedTranche(collatBal - trancheBal);
-                    // Only error if tranches significantly exceed collateral (data issue)
-                    else if (!dynGroup.HasCrossedGroups && trancheBal > collatBal * 1.01)
-                        Exceptions.CollateralAndTrancheBalanceMistmatchException(deal.DealName, collatBal, trancheBal,
-                            dynGroup.DealClasses);
+                     
+                    // CHECK: WARN for now
+                    if (!dynGroup.HasCrossedGroups && trancheBal > collatBal * 1.01)
+                        Console.WriteLine("WARNING DEAL NOT AT SAME RATE");
 
                     triggerMap.Add(periodCf.GroupNum, triggerList);
                 }
@@ -171,7 +167,8 @@ public class ComposableStructure : BaseStructure
             "PRINCIPAL_RECOVERY",
             "RESERVE",
             "WRITEDOWN",
-            "EXCESS"
+            "EXCESS_TURBO",
+            "EXCESS_RELEASE"
         };
     }
 
@@ -245,18 +242,15 @@ public class ComposableStructure : BaseStructure
                     PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown);
                     break;
 
-                case "EXCESS":
-                    PayExcessStep(dynGroup, adjPeriodCf, availableInterest);
+                case "EXCESS_TURBO":
+                    availableInterest = PayExcessTurboStep(dynGroup, adjPeriodCf, availableInterest);
+                    break;
+
+                case "EXCESS_RELEASE":
+                    PayExcessReleaseStep(dynGroup, adjPeriodCf, availableInterest);
+                    availableInterest = 0;
                     break;
             }
-        }
-
-        // Accruals
-        var accrualStructures = dynGroup.AccrualStructures().ToList();
-        if (accrualStructures.Any())
-        {
-            PayAccrualStructures(dynGroup, rateProvider, adjPeriodCf, triggerValues, accrualStructures);
-            ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf);
         }
     }
 
@@ -392,33 +386,51 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
-    ///     Pay excess cashflow via ExcessPayable (accretes to OC/residual tranches).
+    ///     Pay Excess cashflows to Excess Structure
+    /// Two Routes:
+    /// Pay excess to notes up to OC shortfall amount (turbo paydown).
+    /// Returns remaining available interest after turbo payment.
     /// </summary>
-    private void PayExcessStep(DynamicGroup dynGroup, PeriodCashflows periodCf, double remainingInterest)
+    private double PayExcessTurboStep(DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double availableInterest)
     {
-        if (dynGroup.ExcessPayable == null || remainingInterest <= 0)
-            return;
+        if (dynGroup.TurboPayable == null || availableInterest <= 0)
+            return availableInterest;
 
-        // Excess spread accretes (increases balance) to OC/residual tranches
-        // Use negative principal to INCREASE balance
-        AccreteExcess(dynGroup.ExcessPayable, periodCf.CashflowDate, remainingInterest);
+        // Calculate OC
+        var poolBalance = periodCf.Balance;
+        var noteBalance = dynGroup.Balance();
+        var currentOc = poolBalance - noteBalance;
+
+        // Get target from deal variables
+        var targetPct = dynGroup.GetVariable("OC_TARGET_PCT");
+        var floorAmt = dynGroup.GetVariable("OC_FLOOR_AMT");
+        var targetOc = Math.Max(targetPct * poolBalance, floorAmt);
+
+        // Calculate turbo amount
+        var shortfall = Math.Max(0, targetOc - currentOc);
+        var turboAmount = Math.Min(availableInterest, shortfall);
+
+        if (turboAmount > 0)
+        {
+            // Pay down notes (positive principal reduces balance)
+            dynGroup.TurboPayable.PaySp(null, periodCf.CashflowDate, turboAmount, () => { });
+        }
+
+        return availableInterest - turboAmount;
     }
 
     /// <summary>
-    ///     Accretes excess spread to the target payable structure.
-    ///     This INCREASES the balance by using negative principal payments.
+    /// Release remaining excess to certificateholders.
     /// </summary>
-    private void AccreteExcess(IPayable excessPayable, DateTime cfDate, double excessAmount)
+    private void PayExcessReleaseStep(DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double availableInterest)
     {
-        var leaves = excessPayable.Leafs();
-        foreach (var leaf in leaves)
-        {
-            if (leaf is DynamicClass dynClass)
-            {
-                // Use negative scheduled principal to INCREASE balance
-                dynClass.Pay(cfDate, 0, -excessAmount);
-            }
-        }
+        if (dynGroup.ReleasePayable == null || availableInterest <= 0)
+            return;
+
+        // Release to certificates
+        dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, availableInterest, () => { });
     }
 
     public override List<InputField> GetInputs(IDeal deal)

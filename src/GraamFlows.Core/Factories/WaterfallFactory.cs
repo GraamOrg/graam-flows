@@ -8,10 +8,9 @@ public static class WaterfallFactory
     {
         return cashflowEngineName switch
         {
-            "UnifiedStructure" => new UnifiedStructure(),
             "ComposableStructure" => new ComposableStructure(),
             _ => throw new ArgumentException(
-                $"{cashflowEngineName} is not supported. Available: UnifiedStructure, ComposableStructure.")
+                $"{cashflowEngineName} is not supported. Available: ComposableStructure.")
         };
     }
 }

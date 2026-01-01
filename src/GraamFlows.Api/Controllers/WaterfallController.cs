@@ -200,7 +200,9 @@ public class WaterfallController : ControllerBase
             {
                 deal.CashflowEngine = "ComposableStructure";
                 deal.WaterfallType = "ComposableStructure";
-                deal.ExecutionOrder = dto.UnifiedWaterfall.ExecutionOrder ?? new List<string>();
+                // Only set ExecutionOrder if explicitly provided (engine uses default if null/empty)
+                if (dto.UnifiedWaterfall.ExecutionOrder != null && dto.UnifiedWaterfall.ExecutionOrder.Any())
+                    deal.ExecutionOrder = dto.UnifiedWaterfall.ExecutionOrder;
             }
             else
             {
@@ -266,6 +268,33 @@ public class WaterfallController : ControllerBase
                 };
                 deal.DealVariables.Add(variable);
             }
+
+        // Add OC target variables if OcTarget is provided on EXCESS_TURBO step
+        var ocTarget = dto.UnifiedWaterfall?.Steps
+            .FirstOrDefault(s => s.Type.Equals("EXCESS_TURBO", StringComparison.OrdinalIgnoreCase))?.OcTarget;
+        if (ocTarget != null)
+        {
+            deal.DealVariables.Add(new DealVariables
+            {
+                DealName = dto.DealName,
+                VariableName = "OC_TARGET_PCT",
+                VariableValue = ocTarget.TargetPct.ToString(),
+                GroupNum = "1"
+            });
+
+            // Calculate floor amount if not provided directly
+            var floorAmt = ocTarget.FloorAmt;
+            if (floorAmt == 0 && ocTarget.FloorPct.HasValue && ocTarget.CutoffBalance.HasValue)
+                floorAmt = ocTarget.FloorPct.Value * ocTarget.CutoffBalance.Value;
+
+            deal.DealVariables.Add(new DealVariables
+            {
+                DealName = dto.DealName,
+                VariableName = "OC_FLOOR_AMT",
+                VariableValue = floorAmt.ToString(),
+                GroupNum = "1"
+            });
+        }
 
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())

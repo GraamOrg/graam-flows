@@ -45,25 +45,3 @@ public class Tranche : ITranche
     public string Description { get; set; }
     public int InterestPriority { get; set; }
 }
-
-public class OverCollaterizedDealStructure : IDealStructure
-{
-    public string DealName { get; set; }
-    public string ClassGroupName { get; set; }
-    public int SubordinationOrder { get; set; }
-    public string ExchangableTranche { get; set; }
-    public string GroupNum { get; set; }
-    public string PayFrom { get; set; }
-    public string ClassTags { get; set; }
-    public PayFromEnum PayFromEnum { get; set; }
-}
-
-public class OverCollaterizedTranche : Tranche
-{
-    public OverCollaterizedTranche(OverCollaterizedDealStructure ocDealStruct) : base(false)
-    {
-        OverCollaterizedDealStructure = ocDealStruct;
-    }
-
-    public OverCollaterizedDealStructure OverCollaterizedDealStructure { get; }
-}

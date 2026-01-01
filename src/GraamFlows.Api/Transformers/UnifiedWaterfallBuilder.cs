@@ -123,6 +123,38 @@ public static class UnifiedWaterfallBuilder
                     }
 
                     break;
+
+                case "EXCESS_TURBO":
+                    // EXCESS_TURBO pays down notes up to OC shortfall
+                    if (step.Structure != null)
+                    {
+                        var dsl = WaterfallBuilder.BuildStructureDsl(step.Structure);
+                        rules.Add(new PayRuleDto
+                        {
+                            RuleName = "TurboStruct",
+                            ClassGroupName = groupName,
+                            Formula = $"SET_TURBO_STRUCT({dsl})",
+                            Priority = priority++
+                        });
+                    }
+
+                    break;
+
+                case "EXCESS_RELEASE":
+                    // EXCESS_RELEASE releases remainder to certificates
+                    if (step.Structure != null)
+                    {
+                        var dsl = WaterfallBuilder.BuildStructureDsl(step.Structure);
+                        rules.Add(new PayRuleDto
+                        {
+                            RuleName = "ReleaseStruct",
+                            ClassGroupName = groupName,
+                            Formula = $"SET_RELEASE_STRUCT({dsl})",
+                            Priority = priority++
+                        });
+                    }
+
+                    break;
             }
 
         return rules;

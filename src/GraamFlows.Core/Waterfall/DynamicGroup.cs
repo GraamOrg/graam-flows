@@ -129,6 +129,10 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     public IPayable WritedownPayable { get; set; }
     public IPayable ExcessPayable { get; set; }
 
+    // OC turbo payables
+    public IPayable TurboPayable { get; set; }
+    public IPayable ReleasePayable { get; set; }
+
     private void Initialize(DynamicGroup parentGroup)
     {
         foreach (var dealStructure in Deal.DealStructures.Where(ds => ds.GroupNum == GroupNum || ds.GroupNum == "0"))
@@ -284,38 +288,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             !d.Tranche.IsPseudo && !d.IsExchangable() && d.DealStructure.SubordinationOrder > subOrder &&
             d.DealStructure.ExchangableTranche == null).ToList();
     }
-
-    public void AddOverCollaterizedTranche(double ocBal)
-    {
-        var dealStruct = new OverCollaterizedDealStructure();
-        dealStruct.DealName = Deal.DealName;
-        dealStruct.PayFromEnum = PayFromEnum.Sequential;
-        dealStruct.PayFrom = dealStruct.PayFromEnum.ToString();
-        dealStruct.GroupNum = GroupNum;
-        dealStruct.SubordinationOrder = int.MaxValue;
-        dealStruct.ClassGroupName = "OC" + GroupNum;
-
-        var tranche = new OverCollaterizedTranche(dealStruct);
-        tranche.OriginalBalance = ocBal;
-        tranche.Factor = 1;
-        tranche.DealName = Deal.DealName;
-        tranche.CashflowTypeEnum = CashflowType.PrincipalOnly;
-        tranche.CashflowType = "PO";
-        tranche.HolidayCalendar = Deal.Tranches.First().HolidayCalendar;
-        tranche.BusinessDayConvention = Deal.Tranches.First().BusinessDayConvention;
-        tranche.DayCount = Deal.Tranches.First().DayCount;
-        tranche.PayDay = Deal.Tranches.First().PayDay;
-        tranche.TrancheName = dealStruct.ClassGroupName;
-        tranche.TrancheTypeEnum = TrancheTypeEnum.Modeling; // Excluded from interest calculations
-        tranche.TrancheType = TrancheTypeEnum.Modeling.ToString();
-        tranche.ClassReference = dealStruct.ClassGroupName;
-        tranche.Deal = Deal;
-
-        var dynTran = new DynamicTranche(FormulaExecutor, this, tranche, FirstProjectionDate);
-        var dc = new DynamicClass(this, tranche, Enumerable.Repeat(dynTran, 1).ToList());
-        _classByName.Add(dealStruct.ClassGroupName, dc);
-        DealClasses.Add(dc);
-    }
+    
 
     public IEnumerable<DynamicClass> SeniorSequentialClass()
     {

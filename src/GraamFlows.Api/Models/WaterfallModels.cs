@@ -84,6 +84,25 @@ public class DealDto
     public double? BalanceAtIssuance { get; set; }
 }
 
+/// <summary>
+/// OC target configuration for auto ABS turbo paydown.
+/// Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
+/// </summary>
+public class OcTargetDto
+{
+    /// <summary>Target OC as percentage of pool balance (e.g., 0.2335 = 23.35%)</summary>
+    public double TargetPct { get; set; }
+
+    /// <summary>Floor OC amount in dollars (e.g., 9058854)</summary>
+    public double FloorAmt { get; set; }
+
+    /// <summary>Optional: Floor as percentage of cutoff balance (e.g., 0.015 = 1.5%)</summary>
+    public double? FloorPct { get; set; }
+
+    /// <summary>Optional: Cutoff pool balance for floor calculation</summary>
+    public double? CutoffBalance { get; set; }
+}
+
 public class DealVariableDto
 {
     public string VariableName { get; set; } = "";
@@ -296,6 +315,12 @@ public class WaterfallStepDto
     ///     Reference to use another source's structure (e.g., "scheduled")
     /// </summary>
     public string? UseStructure { get; set; }
+
+    /// <summary>
+    ///     OC target for EXCESS_TURBO step.
+    ///     Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
+    /// </summary>
+    public OcTargetDto? OcTarget { get; set; }
 }
 
 // ============== Response Models ==============

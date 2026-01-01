@@ -15,11 +15,6 @@ public static class TrancheExtension
                 $"Cannot have more than one deal structures attached to a tranche! Tranche {tranche.TrancheName} has deal structures " +
                 $"{string.Join(",", dealStructures.Select(ds => ds.ClassGroupName))}");
 
-        if (!dealStructures.Any())
-            // check if its an OC tranche
-            if (tranche is OverCollaterizedTranche overCollaterizedTranche)
-                return overCollaterizedTranche.OverCollaterizedDealStructure;
-
         return dealStructures.SingleOrDefault();
     }
 
