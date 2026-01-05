@@ -5,29 +5,32 @@ namespace GraamFlows.Util;
 
 public static class DealExtensions
 {
-    public static ITranche TrancheByName(this IDeal deal, string trancheName)
+    extension(IDeal deal)
     {
-        return deal.Tranches.SingleOrDefault(tran => tran.TrancheName == trancheName);
-    }
+        public ITranche? TrancheByName(string trancheName)
+        {
+            return deal.Tranches.SingleOrDefault(tran => tran.TrancheName == trancheName);
+        }
 
-    public static IDealVariables DealVarByName(this IDeal deal, string varGroupName, string varName, string groupNum)
-    {
-        return deal.DealVariables.SingleOrDefault(dv =>
-            dv.VariableName.Equals(varName, StringComparison.InvariantCultureIgnoreCase) &&
-            dv.GroupNum == groupNum &&
-            dv.VariableGroupName.Equals(varGroupName, StringComparison.InvariantCultureIgnoreCase));
-    }
+        public IDealVariables? DealVarByName(string varGroupName, string varName, string groupNum)
+        {
+            return deal.DealVariables.SingleOrDefault(dv =>
+                dv.VariableName.Equals(varName, StringComparison.InvariantCultureIgnoreCase) &&
+                dv.GroupNum == groupNum &&
+                dv.VariableGroupName.Equals(varGroupName, StringComparison.InvariantCultureIgnoreCase));
+        }
 
-    public static IList<IDealVariables> DealVarByGroup(this IDeal deal, string varGroupName, string groupNum)
-    {
-        return deal.DealVariables.Where(dv =>
-            dv.GroupNum == groupNum &&
-            dv.VariableGroupName.Equals(varGroupName, StringComparison.InvariantCultureIgnoreCase)).ToList();
-    }
+        public IList<IDealVariables> DealVarByGroup(string varGroupName, string groupNum)
+        {
+            return deal.DealVariables.Where(dv =>
+                dv.GroupNum == groupNum &&
+                dv.VariableGroupName.Equals(varGroupName, StringComparison.InvariantCultureIgnoreCase)).ToList();
+        }
 
-    public static IDealFieldValue DealFieldFieldValueByName(this IDeal deal, string group, string fieldName)
-    {
-        return deal.DealFieldValues.SingleOrDefault(field => field.FieldName == fieldName && field.GroupNum == group);
+        public IDealFieldValue? DealFieldFieldValueByName(string group, string fieldName)
+        {
+            return deal.DealFieldValues.SingleOrDefault(field => field.FieldName == fieldName && field.GroupNum == group);
+        }
     }
 
     public static double GetDoubleVariableValue(this IEnumerable<IDealVariables> vars, string varName)

@@ -41,7 +41,7 @@ public class PayRuleExecutor : IPayRuleExecutor
                 Waterfall.PaySequentialClass(dynGroup, new[] { dynClass }, periodCf.CashflowDate, totalPmtNew, 0);
         /*else
                dynClass.Pay(periodCf.CashflowDate, totalPmtNew, 0);*/
-        return new CashflowAllocs(0, totalPmtNew, 0, 0);
+        return new CashflowAllocs(0, totalPmtNew, 0, 0, 0);
     }
 
     private void ExecuteRuleInternal(IFormulaExecutor formulaExecutor, IPayRule rule)

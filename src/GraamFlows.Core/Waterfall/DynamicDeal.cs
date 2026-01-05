@@ -27,7 +27,7 @@ public class DynamicDeal
         _dynGroups.Add(dynGroup.GroupNum, dynGroup);
     }
 
-    public DynamicGroup GetGroup(string groupNum)
+    public DynamicGroup? GetGroup(string groupNum)
     {
         _dynGroups.TryGetValue(groupNum, out var dynGroup);
         return dynGroup;

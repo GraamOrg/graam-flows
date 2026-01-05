@@ -269,31 +269,21 @@ public class WaterfallController : ControllerBase
                 deal.DealVariables.Add(variable);
             }
 
-        // Add OC target variables if OcTarget is provided on EXCESS_TURBO step
+        // Set OC target config directly on deal (if EXCESS_TURBO step has ocTarget)
         var ocTarget = dto.UnifiedWaterfall?.Steps
             .FirstOrDefault(s => s.Type.Equals("EXCESS_TURBO", StringComparison.OrdinalIgnoreCase))?.OcTarget;
         if (ocTarget != null)
         {
-            deal.DealVariables.Add(new DealVariables
-            {
-                DealName = dto.DealName,
-                VariableName = "OC_TARGET_PCT",
-                VariableValue = ocTarget.TargetPct.ToString(),
-                GroupNum = "1"
-            });
-
             // Calculate floor amount if not provided directly
             var floorAmt = ocTarget.FloorAmt;
             if (floorAmt == 0 && ocTarget.FloorPct.HasValue && ocTarget.CutoffBalance.HasValue)
                 floorAmt = ocTarget.FloorPct.Value * ocTarget.CutoffBalance.Value;
 
-            deal.DealVariables.Add(new DealVariables
+            deal.OcTargetConfig = new OcTargetConfig
             {
-                DealName = dto.DealName,
-                VariableName = "OC_FLOOR_AMT",
-                VariableValue = floorAmt.ToString(),
-                GroupNum = "1"
-            });
+                TargetPct = ocTarget.TargetPct,
+                FloorAmt = floorAmt
+            };
         }
 
         // Build scheduled variables
@@ -441,9 +431,13 @@ public class WaterfallController : ControllerBase
             }
         };
 
-        // Convert tranche cashflows
+        // Convert tranche cashflows (skip Certificate tranches - they're processed from ClassCashflows)
         foreach (var trancheCf in dealCashflows.TrancheCashflows)
         {
+            // Certificate tranches track balance in ClassCashflows, not TrancheCashflows
+            if (trancheCf.Key.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+                continue;
+
             var trancheName = trancheCf.Key.TrancheName;
             var cashflowList = new List<TrancheCashflowDto>();
             var period = 0;
@@ -461,14 +455,22 @@ public class WaterfallController : ControllerBase
                     UnscheduledPrincipal = cf.Value.UnscheduledPrincipal,
                     Interest = cf.Value.Interest,
                     Coupon = cf.Value.Coupon,
+                    EffectiveCoupon = cf.Value.EffectiveCoupon,
                     Expense = cf.Value.Expense,
+                    ExpenseShortfall = cf.Value.ExpenseShortfall,
                     Writedown = cf.Value.Writedown,
                     CumWritedown = cf.Value.CumWritedown,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
+                    BeginCreditSupport = cf.Value.BeginCreditSupport,
                     InterestShortfall = cf.Value.InterestShortfall,
                     AccumInterestShortfall = cf.Value.AccumInterestShortfall,
-                    IndexValue = cf.Value.IndexValue
+                    InterestShortfallPayback = cf.Value.InterestShortfallPayback,
+                    ExcessInterest = cf.Value.ExcessInterest,
+                    IndexValue = cf.Value.IndexValue,
+                    FloaterMargin = cf.Value.FloaterMargin,
+                    AccrualDays = cf.Value.AccrualDays,
+                    IsLockedOut = cf.Value.IsLockedOut
                 });
             }
 
@@ -488,6 +490,73 @@ public class WaterfallController : ControllerBase
         }
 
         response.Summary.TotalPeriods = response.TrancheCashflows.Values.FirstOrDefault()?.Count ?? 0;
+
+        // Convert class cashflows for tranches that don't have DynamicTranches (expenses, certificates)
+        foreach (var classCf in dealCashflows.ClassCashflows)
+        {
+            // Process expense tranches and certificate tranches (they only have DynamicClasses, not DynamicTranches)
+            if (classCf.Key.CashflowTypeEnum != CashflowType.Expense &&
+                classCf.Key.TrancheTypeEnum != TrancheTypeEnum.Certificate)
+                continue;
+
+            var trancheName = classCf.Key.TrancheName;
+            if (response.TrancheCashflows.ContainsKey(trancheName))
+                continue; // Skip if already added
+
+            var cashflowList = new List<TrancheCashflowDto>();
+            var period = 0;
+
+            foreach (var cf in classCf.Value.Cashflows.OrderBy(c => c.Key))
+            {
+                period++;
+                cashflowList.Add(new TrancheCashflowDto
+                {
+                    Period = period,
+                    CashflowDate = cf.Value.CashflowDate,
+                    BeginBalance = cf.Value.BeginBalance,
+                    Balance = cf.Value.Balance,
+                    ScheduledPrincipal = cf.Value.ScheduledPrincipal,
+                    UnscheduledPrincipal = cf.Value.UnscheduledPrincipal,
+                    Interest = cf.Value.Interest,
+                    Coupon = cf.Value.Coupon,
+                    EffectiveCoupon = cf.Value.EffectiveCoupon,
+                    Expense = cf.Value.Expense,
+                    ExpenseShortfall = cf.Value.ExpenseShortfall,
+                    Writedown = cf.Value.Writedown,
+                    CumWritedown = cf.Value.CumWritedown,
+                    Factor = cf.Value.Factor,
+                    CreditSupport = cf.Value.CreditSupport,
+                    BeginCreditSupport = cf.Value.BeginCreditSupport,
+                    InterestShortfall = cf.Value.InterestShortfall,
+                    AccumInterestShortfall = cf.Value.AccumInterestShortfall,
+                    InterestShortfallPayback = cf.Value.InterestShortfallPayback,
+                    ExcessInterest = cf.Value.ExcessInterest,
+                    IndexValue = cf.Value.IndexValue,
+                    FloaterMargin = cf.Value.FloaterMargin,
+                    AccrualDays = cf.Value.AccrualDays,
+                    IsLockedOut = cf.Value.IsLockedOut
+                });
+            }
+
+            // For Certificate tranches, always include even if no cashflows (to show balance tracking)
+            // For Expense tranches, only include if they have cashflows
+            if (cashflowList.Any() || classCf.Key.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+            {
+                response.TrancheCashflows[trancheName] = cashflowList;
+
+                // Calculate summary
+                var lastCf = cashflowList.LastOrDefault();
+                response.Summary.TranchesSummary[trancheName] = new TrancheSummaryDto
+                {
+                    TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
+                    TotalInterest = cashflowList.Sum(c => c.Interest),
+                    TotalExpense = cashflowList.Sum(c => c.Expense),
+                    TotalWritedown = cashflowList.Sum(c => c.Writedown),
+                    FinalBalance = lastCf?.Balance ?? 0,
+                    FinalFactor = lastCf?.Factor ?? 0
+                };
+            }
+        }
 
         // Convert trigger results
         if (dealCashflows.TriggerResults != null)

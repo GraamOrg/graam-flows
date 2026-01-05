@@ -32,4 +32,9 @@ public interface IDeal : IPayRuleAssemblyStore
     /// (e.g., ["EXPENSE", "INTEREST", "PRINCIPAL_SCHEDULED", ...])
     /// </summary>
     IList<string> ExecutionOrder { get; }
+
+    /// <summary>
+    /// Configuration for OC turbo paydown step (optional).
+    /// </summary>
+    OcTargetConfig? OcTargetConfig { get; }
 }

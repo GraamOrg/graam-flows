@@ -506,7 +506,7 @@ public abstract class BaseStructure : IWaterfall
     {
         var writedownAmt = WritedownAmt(deal, dynGroup, periodCf);
         var cfAlloc = new CashflowAllocs(periodCf.ScheduledPrincipal + periodCf.ForbearanceRecovery,
-            periodCf.UnscheduledPrincipal + periodCf.ForbearanceUnscheduled, periodCf.RecoveryPrincipal, writedownAmt);
+            periodCf.UnscheduledPrincipal + periodCf.ForbearanceUnscheduled, periodCf.RecoveryPrincipal, writedownAmt, periodCf.NetInterest);
         return cfAlloc;
     }
 

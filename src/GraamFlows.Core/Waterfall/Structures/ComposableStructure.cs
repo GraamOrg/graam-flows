@@ -57,21 +57,15 @@ public class ComposableStructure : BaseStructure
 
                 if (dynGroup == null)
                 {
+                    var collatBal = periodCf.BeginBalance + periodCf.AccumForbearance + periodCf.ForbearanceLiquidated;
                     dynGroup = new DynamicGroup(dynDeal.DynamicGroups.LastOrDefault(), formulaExecutor,
-                        firstProjectionDate, deal, periodCf.GroupNum);
+                        firstProjectionDate, deal, periodCf.GroupNum, collatBal);
                     dynDeal.AddGroup(dynGroup);
                     var triggerList = deal.DealTriggers.LoadTriggers(deal, assumps, dynGroup.GroupNum,
                         periodCashflows.Where(p => p.GroupNum == periodCf.GroupNum));
-                    var collatBal = periodCf.BeginBalance + periodCf.AccumForbearance + periodCf.ForbearanceLiquidated;
                     var trancheBal = dynGroup.Balance();
                     var ratio = trancheBal / collatBal;
                     dynGroup.CollateralBondRatio = ratio;
-
-                     
-                    // CHECK: WARN for now
-                    if (!dynGroup.HasCrossedGroups && trancheBal > collatBal * 1.01)
-                        Console.WriteLine("WARNING DEAL NOT AT SAME RATE");
-
                     triggerMap.Add(periodCf.GroupNum, triggerList);
                 }
 
@@ -111,35 +105,12 @@ public class ComposableStructure : BaseStructure
                 ValidateRequiredPayables(deal, dynGroup);
 
                 // Run composable waterfall period with step-based execution
-                RunComposablePeriod(deal, rateProvider, dynGroup, adjPeriodCf, triggerValues, formulaExecutor,
-                    payRuleExecutor, executionOrder);
+                RunComposablePeriod(deal, rateProvider, dynGroup, adjPeriodCf, triggerValues, formulaExecutor, payRuleExecutor, executionOrder);
 
                 dynGroup.Advance(adjPeriodCf.CashflowDate);
                 periodCf.EffectiveWac = adjPeriodCf.EffectiveWac;
                 triggerValueList.AddRange(triggerValues);
                 periodCfList.Add(adjPeriodCf);
-
-                // Verify collateral/tranches are paying down the same
-                var endCollatBal = periodCf.Balance + periodCf.AccumForbearance;
-                var endTrancheBal = dynGroup.Balance();
-                var endRatio = endTrancheBal / endCollatBal;
-
-                var beginCollatDiff = Math.Abs((1 - dynGroup.CollateralBondRatio) * dynGroup.BeginCollatBalance);
-                var currCollatDiff = Math.Abs((1 - endRatio) * Math.Max(endCollatBal, endTrancheBal));
-
-                // Skip paydown check for deals with explicit OC/Modeling tranches since accretion causes expected divergence
-                var hasExplicitOC = deal.Tranches.Any(t =>
-                    t.TrancheTypeEnum == Objects.TypeEnum.TrancheTypeEnum.Modeling);
-                if (hasExplicitOC)
-                    continue;
-
-                // Relaxed threshold: allow up to 5% divergence for deals with pre-applied factors
-                var allowedDivergence = Math.Max(1e6, dynGroup.BeginCollatBalance * 0.05);
-                if (endTrancheBal > 1000000 && Math.Abs(beginCollatDiff - currCollatDiff) > 100 &&
-                    currCollatDiff > beginCollatDiff * 2 &&
-                    beginCollatDiff + Math.Abs(endCollatBal - endTrancheBal) > allowedDivergence)
-                    Exceptions.PaydownException(dynGroup.Deal.DealName, periodCf.GroupNum, periodCf.CashflowDate,
-                        endCollatBal, endTrancheBal, dynGroup.BeginCollatBalance * (1 - dynGroup.CollateralBondRatio));
             }
 
             // Note: No exchangeables or TrancheAllocator in ComposableStructure
@@ -204,8 +175,18 @@ public class ComposableStructure : BaseStructure
         var cfAlloc = BeginPeriod(deal, dynGroup, adjPeriodCf);
 
         // Track available funds through the waterfall
-        var availableInterest = adjPeriodCf.NetInterest;
+        var availableInterest = cfAlloc.Interest;
+        var availableSchedPrin = cfAlloc.SchedPrin;
+        var availablePrepayPrin = cfAlloc.PrepayPrin;
+        var availableRecovPrin = cfAlloc.RecovPrin;
         var allTranches = dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches).ToList();
+
+        // Set collateral balance variables for use in steps (e.g., OC turbo calculation)
+        dynGroup.SetVariable("collat_balance", adjPeriodCf.Balance);
+        dynGroup.SetVariable("collat_begin_balance", adjPeriodCf.BeginBalance);
+
+        // Update Certificate tranche balance to reflect current OC (Pool - Notes)
+        dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
 
         // Execute steps in order
         foreach (var step in executionOrder)
@@ -223,19 +204,18 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "PRINCIPAL_SCHEDULED":
-                    PayScheduledPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc, triggerValues, payRuleExecutor);
+                    availableSchedPrin = PayScheduledPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc,
+                        triggerValues, payRuleExecutor, availableSchedPrin);
                     break;
 
                 case "PRINCIPAL_UNSCHEDULED":
-                    PayUnscheduledPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc, triggerValues, payRuleExecutor);
+                    availablePrepayPrin = PayUnscheduledPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc,
+                        triggerValues, payRuleExecutor, availablePrepayPrin);
                     break;
 
                 case "PRINCIPAL_RECOVERY":
-                    PayRecoveryPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc, triggerValues, payRuleExecutor);
-                    break;
-
-                case "RESERVE":
-                    PayReserveStep(deal, dynGroup, adjPeriodCf, cfAlloc, triggerValues, payRuleExecutor);
+                    availableRecovPrin = PayRecoveryPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc,
+                        triggerValues, payRuleExecutor, availableRecovPrin);
                     break;
 
                 case "WRITEDOWN":
@@ -243,7 +223,7 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "EXCESS_TURBO":
-                    availableInterest = PayExcessTurboStep(dynGroup, adjPeriodCf, availableInterest);
+                    availableInterest = PayExcessTurboStep(deal, dynGroup, adjPeriodCf, availableInterest);
                     break;
 
                 case "EXCESS_RELEASE":
@@ -310,54 +290,62 @@ public class ComposableStructure : BaseStructure
 
     /// <summary>
     ///     Pay scheduled principal via ScheduledPayable.
+    ///     Returns the remaining unallocated scheduled principal.
     /// </summary>
-    private void PayScheduledPrincipalStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
-        CashflowAllocs cfAlloc, List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor)
+    private double PayScheduledPrincipalStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
+        CashflowAllocs cfAlloc, List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor,
+        double availableSchedPrin)
     {
-        if (dynGroup.ScheduledPayable == null || cfAlloc.SchedPrin < 0.01)
-            return;
+        if (dynGroup.ScheduledPayable == null || availableSchedPrin < 0.01)
+            return availableSchedPrin;
 
-        dynGroup.ScheduledPayable.PaySp(null, adjPeriodCf.CashflowDate, cfAlloc.SchedPrin,
+        var noteBalanceBefore = dynGroup.NoteBalance();
+        dynGroup.ScheduledPayable.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
+        var noteBalanceAfter = dynGroup.NoteBalance();
+
+        var paidAmount = noteBalanceBefore - noteBalanceAfter;
+        return availableSchedPrin - paidAmount;
     }
 
     /// <summary>
     ///     Pay unscheduled (prepay) principal via PrepayPayable.
+    ///     Returns the remaining unallocated prepay principal.
     /// </summary>
-    private void PayUnscheduledPrincipalStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
-        CashflowAllocs cfAlloc, List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor)
+    private double PayUnscheduledPrincipalStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
+        CashflowAllocs cfAlloc, List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor,
+        double availablePrepayPrin)
     {
-        if (dynGroup.PrepayPayable == null || cfAlloc.PrepayPrin < 0.01)
-            return;
+        if (dynGroup.PrepayPayable == null || availablePrepayPrin < 0.01)
+            return availablePrepayPrin;
 
-        dynGroup.PrepayPayable.PayUsp(null, adjPeriodCf.CashflowDate, cfAlloc.PrepayPrin,
+        var noteBalanceBefore = dynGroup.NoteBalance();
+        dynGroup.PrepayPayable.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
+        var noteBalanceAfter = dynGroup.NoteBalance();
+
+        var paidAmount = noteBalanceBefore - noteBalanceAfter;
+        return availablePrepayPrin - paidAmount;
     }
 
     /// <summary>
     ///     Pay recovery principal via RecoveryPayable.
+    ///     Returns the remaining unallocated recovery principal.
     /// </summary>
-    private void PayRecoveryPrincipalStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
-        CashflowAllocs cfAlloc, List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor)
+    private double PayRecoveryPrincipalStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
+        CashflowAllocs cfAlloc, List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor,
+        double availableRecovPrin)
     {
-        if (dynGroup.RecoveryPayable == null || cfAlloc.RecovPrin < 0.01)
-            return;
+        if (dynGroup.RecoveryPayable == null || availableRecovPrin < 0.01)
+            return availableRecovPrin;
 
-        dynGroup.RecoveryPayable.PayRp(null, adjPeriodCf.CashflowDate, cfAlloc.RecovPrin,
+        var noteBalanceBefore = dynGroup.NoteBalance();
+        dynGroup.RecoveryPayable.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-    }
+        var noteBalanceAfter = dynGroup.NoteBalance();
 
-    /// <summary>
-    ///     Pay reserve principal via ReservePayable.
-    /// </summary>
-    private void PayReserveStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
-        CashflowAllocs cfAlloc, List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor)
-    {
-        if (dynGroup.ReservePayable == null || cfAlloc.ReservePrin < 0.01)
-            return;
-
-        dynGroup.ReservePayable.PayRp(null, adjPeriodCf.CashflowDate, cfAlloc.ReservePrin,
-            () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
+        var paidAmount = noteBalanceBefore - noteBalanceAfter;
+        return availableRecovPrin - paidAmount;
     }
 
     /// <summary>
@@ -391,21 +379,24 @@ public class ComposableStructure : BaseStructure
     /// Pay excess to notes up to OC shortfall amount (turbo paydown).
     /// Returns remaining available interest after turbo payment.
     /// </summary>
-    private double PayExcessTurboStep(DynamicGroup dynGroup, PeriodCashflows periodCf,
+    private double PayExcessTurboStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf,
         double availableInterest)
     {
         if (dynGroup.TurboPayable == null || availableInterest <= 0)
             return availableInterest;
 
-        // Calculate OC
-        var poolBalance = periodCf.Balance;
-        var noteBalance = dynGroup.Balance();
+        // Read OC config directly from deal
+        var ocConfig = deal.OcTargetConfig;
+        if (ocConfig == null)
+            return availableInterest; // No OC target configured
+
+        // Get pool and note balances (NoteBalance excludes Certificate tranches)
+        var poolBalance = dynGroup.GetVariable("collat_balance");
+        var noteBalance = dynGroup.NoteBalance();
         var currentOc = poolBalance - noteBalance;
 
-        // Get target from deal variables
-        var targetPct = dynGroup.GetVariable("OC_TARGET_PCT");
-        var floorAmt = dynGroup.GetVariable("OC_FLOOR_AMT");
-        var targetOc = Math.Max(targetPct * poolBalance, floorAmt);
+        // Calculate target OC = MAX(TargetPct * PoolBalance, FloorAmt)
+        var targetOc = Math.Max(ocConfig.TargetPct * poolBalance, ocConfig.FloorAmt);
 
         // Calculate turbo amount
         var shortfall = Math.Max(0, targetOc - currentOc);

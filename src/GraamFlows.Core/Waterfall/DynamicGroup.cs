@@ -16,13 +16,13 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     private readonly Dictionary<string, object> _ruleVars = new();
     private readonly Dictionary<ITranche, IList<DynamicClass>> _subordinateClassesCache = new();
 
-    public DynamicGroup(IFormulaExecutor formulaExecutor, DateTime firstProjDate, IDeal deal, string groupNum) :
-        this(null, formulaExecutor, firstProjDate, deal, groupNum)
+    public DynamicGroup(IFormulaExecutor formulaExecutor, DateTime firstProjDate, IDeal deal, string groupNum, double collatBalance) :
+        this(null, formulaExecutor, firstProjDate, deal, groupNum, collatBalance)
     {
     }
 
-    public DynamicGroup(DynamicGroup parentGroup, IFormulaExecutor formulaExecutor, DateTime firstProjDate, IDeal deal,
-        string groupNum)
+    public DynamicGroup(DynamicGroup? parentGroup, IFormulaExecutor formulaExecutor, DateTime firstProjDate, IDeal deal,
+        string groupNum, double collatBalance)
     {
         ExchPayables = new Dictionary<string, IPayable>();
         FormulaExecutor = formulaExecutor;
@@ -32,7 +32,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         GroupNum = groupNum;
         Deal = deal;
         EarliestTerminationDate = DateTime.MaxValue;
-        Initialize(parentGroup);
+        Initialize(parentGroup, collatBalance);
     }
 
     public DateTime FirstProjectionDate { get; }
@@ -44,7 +44,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     public IList<TriggerResult> TriggerResults { get; }
     public IFormulaExecutor FormulaExecutor { get; }
     public HashSet<string> FailedStickyTriggers { get; }
-    public DynamicFundsAccount FundsAccount { get; private set; }
+    public DynamicFundsAccount? FundsAccount { get; private set; }
     public double CollateralWac { get; set; }
     public double CollateralNetWac { get; set; }
     public double BeginCollatBalance { get; set; }
@@ -58,7 +58,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     /// <summary>
     ///     returns the classes which make up the group's balance
     /// </summary>
-    public IList<DynamicClass> DealClasses { get; private set; }
+    public IList<DynamicClass>? DealClasses { get; private set; }
 
 
     /// <summary>
@@ -74,7 +74,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         }
     }
 
-    public IPayable AccrualPayable { get; set; }
+    public IPayable? AccrualPayable { get; set; }
     public Dictionary<string, IPayable> ExchPayables { get; }
 
     public void SetVariable(string varName, object varValue)
@@ -119,21 +119,21 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         throw new Exception($"Variable {varName} is not numeric!");
     }
 
-    public IPayable ScheduledPayable { get; set; }
-    public IPayable PrepayPayable { get; set; }
-    public IPayable RecoveryPayable { get; set; }
-    public IPayable ReservePayable { get; set; }
+    public IPayable? ScheduledPayable { get; set; }
+    public IPayable? PrepayPayable { get; set; }
+    public IPayable? RecoveryPayable { get; set; }
+    public IPayable? ReservePayable { get; set; }
 
     // Unified waterfall payables
-    public IPayable InterestPayable { get; set; }
-    public IPayable WritedownPayable { get; set; }
-    public IPayable ExcessPayable { get; set; }
+    public IPayable? InterestPayable { get; set; }
+    public IPayable? WritedownPayable { get; set; }
+    public IPayable? ExcessPayable { get; set; }
 
     // OC turbo payables
-    public IPayable TurboPayable { get; set; }
-    public IPayable ReleasePayable { get; set; }
+    public IPayable? TurboPayable { get; set; }
+    public IPayable? ReleasePayable { get; set; }
 
-    private void Initialize(DynamicGroup parentGroup)
+    private void Initialize(DynamicGroup? parentGroup, double collatBalance = 0)
     {
         foreach (var dealStructure in Deal.DealStructures.Where(ds => ds.GroupNum == GroupNum || ds.GroupNum == "0"))
         {
@@ -174,13 +174,15 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             BalanceAtIssuance = Deal.Assets.Where(asset => asset.GroupNum == GroupNum)
                 .Sum(asset => asset.BalanceAtIssuance);
 
-        var collatBal = Deal.DealFieldFieldValueByName(GroupNum, "collat_balance");
-        if (collatBal != null)
-            BeginningBalance = collatBal.ValueNum;
+        var collatBalField = Deal.DealFieldFieldValueByName(GroupNum, "collat_balance");
+        if (collatBalField != null)
+            BeginningBalance = collatBalField.ValueNum;
+        else if (collatBalance > 0)
+            BeginningBalance = collatBalance;  // Use constructor parameter as fallback
         else
             BeginningBalance = Deal.Assets.Where(asset => asset.GroupNum == GroupNum)
                 .Sum(asset => asset.CurrentBalance);
-
+        
         // hash class tags
         _classesByTag.Clear();
         var classTags = Deal.DealStructures.Where(dc => dc.ClassTags != null).SelectMany(dc => dc.ClassTags.Split(','))
@@ -269,6 +271,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             }
 
             subClassList = DynamicClasses.Where(d => !d.Tranche.IsPseudo &&
+                                                     d.DealStructure != null &&
                                                      d.DealStructure.SubordinationOrder >
                                                      dealStructure.SubordinationOrder &&
                                                      !d.IsExchangable() &&
@@ -285,7 +288,10 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     public IList<DynamicClass> SubordinateClasses(int subOrder)
     {
         return DynamicClasses.Where(d =>
-            !d.Tranche.IsPseudo && !d.IsExchangable() && d.DealStructure.SubordinationOrder > subOrder &&
+            !d.Tranche.IsPseudo &&
+            d.DealStructure != null &&
+            !d.IsExchangable() &&
+            d.DealStructure.SubordinationOrder > subOrder &&
             d.DealStructure.ExchangableTranche == null).ToList();
     }
     
@@ -294,6 +300,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     {
         var seniorClasses = DynamicClasses.Where(dc =>
                 !dc.Tranche.IsPseudo &&
+                dc.DealStructure != null &&
                 dc.Balance > 0 &&
                 dc.DealStructure.PayFromEnum == PayFromEnum.Sequential)
             .OrderBy(dc => dc.DealStructure.SubordinationOrder)
@@ -310,6 +317,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
 
         var exchables = DynamicClasses.Where(p =>
                 !p.Tranche.IsPseudo &&
+                p.DealStructure != null &&
                 p.IsExchangable() &&
                 p.Balance > 0 &&
                 parents.Select(parent => parent.Tranche.TrancheName).Contains(p.DealStructure.ExchangableTranche))
@@ -327,7 +335,9 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     public IEnumerable<DynamicClass> AccrualStructures()
     {
         var accrualClasses = DynamicClasses.Where(dc =>
-            !dc.Tranche.IsPseudo && dc.Balance > 0 &&
+            !dc.Tranche.IsPseudo &&
+            dc.DealStructure != null &&
+            dc.Balance > 0 &&
             dc.DealStructure.PayFromEnum == PayFromEnum.Accrual &&
             !dc.IsInPaymentPhase &&
             dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.Exchanged);
@@ -339,6 +349,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     {
         var juniorClasses = DynamicClasses.Where(dc =>
                 !dc.Tranche.IsPseudo &&
+                dc.DealStructure != null &&
                 dc.Balance > 0 &&
                 !dc.IsExchangable() &&
                 (dc.Tranche.CashflowTypeEnum == CashflowType.PrincipalAndInterest ||
@@ -352,7 +363,11 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         var parents = juniorClasses.Where(dc =>
             dc.Balance > 0 && dc.DealStructure.SubordinationOrder == order && !dc.IsExchangable());
 
-        var exchables = DynamicClasses.Where(p => !p.Tranche.IsPseudo && p.IsExchangable() && p.Balance > 0)
+        var exchables = DynamicClasses.Where(p =>
+                !p.Tranche.IsPseudo &&
+                p.DealStructure != null &&
+                p.IsExchangable() &&
+                p.Balance > 0)
             .Where(exch => parents.Select(p => p.Tranche.TrancheName).Contains(exch.DealStructure.ExchangableTranche))
             .OrderByDescending(b => b.DealStructure.SubordinationOrder).ToList();
         if (exchables.Any())
@@ -399,7 +414,9 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     {
         var exchClasses = DynamicClasses
             .Where(dc =>
-                !dc.Tranche.IsPseudo && dc.Balance > 0 &&
+                !dc.Tranche.IsPseudo &&
+                dc.DealStructure != null &&
+                dc.Balance > 0 &&
                 dc.DealStructure.ExchangableTranche == dynamicClass.Tranche.TrancheName)
             .OrderBy(dc => dc.DealStructure.SubordinationOrder).ToList();
         if (exchClasses.Any())
@@ -415,7 +432,9 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     {
         var exchClasses = DynamicClasses
             .Where(dc =>
-                !dc.Tranche.IsPseudo && dc.Balance > 0 &&
+                !dc.Tranche.IsPseudo &&
+                dc.DealStructure != null &&
+                dc.Balance > 0 &&
                 dc.DealStructure.ExchangableTranche == dynamicClass.Tranche.TrancheName)
             .OrderByDescending(dc => dc.DealStructure.SubordinationOrder).ToList();
         if (exchClasses.Any())
@@ -433,11 +452,52 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         return balance;
     }
 
+    /// <summary>
+    /// Returns the sum of note balances (excludes Certificate tranches).
+    /// Use this for OC calculations where OC = Pool - Notes.
+    /// </summary>
+    public double NoteBalance()
+    {
+        return DealClasses
+            .Where(dc => dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.Certificate &&
+                         dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.ResidualInterest)
+            .Sum(dc => dc.Balance);
+    }
+
+    /// <summary>
+    /// Updates Certificate tranche balance to reflect current OC.
+    /// OC = Pool Balance - Note Balance
+    /// </summary>
+    public void UpdateCertificateBalance(double poolBalance, DateTime cashflowDate)
+    {
+        var certificateClasses = DynamicClasses
+            .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+            .ToList();
+
+        if (!certificateClasses.Any())
+            return;
+
+        var noteBalance = NoteBalance();
+        var ocBalance = Math.Max(0, poolBalance - noteBalance);
+
+        // Distribute OC balance to certificate tranches (typically just one)
+        foreach (var certClass in certificateClasses)
+        {
+            // Record the cashflow to track balance over time
+            var cf = certClass.GetCashflow(cashflowDate);
+            cf.BeginBalance = certClass.Balance;
+            certClass.SetBalance(ocBalance);
+            cf.Balance = ocBalance;
+        }
+    }
+
     public void Advance(DateTime cashflowDate)
     {
         foreach (var dynClass in DynamicClasses)
+        {
             if (dynClass.Balance > 0)
                 dynClass.Pay(cashflowDate, 0, 0);
+        }
     }
 
     public void Lockout(DateTime cashflowDate, string classOrTag)

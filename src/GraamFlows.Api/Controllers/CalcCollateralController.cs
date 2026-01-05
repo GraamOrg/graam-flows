@@ -145,6 +145,8 @@ public class CalcCollateralController : ControllerBase
                 DelinqBalance = cf.DelinqBalance,
                 ForbearanceRecovery = cf.ForbearanceRecovery,
                 ForbearanceLiquidated = cf.ForbearanceLiquidated,
+                ForbearanceUnscheduled = cf.ForbearanceUnscheduled,
+                AccumForbearance = cf.AccumForbearance,
                 Wac = cf.WAC,
                 Wam = cf.WAM,
                 Wala = cf.WALA,
@@ -153,7 +155,12 @@ public class CalcCollateralController : ControllerBase
                 Sev = cf.SEV,
                 Dq = cf.DQ,
                 CumDefaultedPrincipal = cf.CumDefaultedPrincipal,
-                CumCollateralLoss = cf.CumCollateralLoss
+                CumCollateralLoss = cf.CumCollateralLoss,
+                UnAdvancedPrincipal = cf.UnAdvancedPrincipal,
+                UnAdvancedInterest = cf.UnAdvancedInterest,
+                AdvancedPrincipal = cf.AdvancedPrincipal,
+                AdvancedInterest = cf.AdvancedInterest,
+                Expenses = cf.Expenses
             });
         }
 

@@ -64,7 +64,7 @@ namespace GraamFlows.Waterfall.MarketTranche
 
                 foreach (var crossDynTran in dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches).Where(dc =>
                              dc.DealStructure.GroupNum == "0" &&
-                             dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.Modeling)) dynTranCross.Add(crossDynTran);
+                             dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.Certificate)) dynTranCross.Add(crossDynTran);
 
                 foreach (var dynTran in dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches))
                     allTrans.Add(dynTran);
@@ -111,7 +111,7 @@ namespace GraamFlows.Waterfall.MarketTranche
                     {
                         // For Auto ABS deals, excess interest goes to the OC/Modeling tranche (balance writeup)
                         var modelingTranche =
-                            allTrans.SingleOrDefault(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Modeling);
+                            allTrans.SingleOrDefault(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate);
                         if (modelingTranche != null)
                         {
                             var tranCashflow = modelingTranche.GetCashflow(cfDate);

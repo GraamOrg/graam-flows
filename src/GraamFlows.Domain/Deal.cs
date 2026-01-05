@@ -64,6 +64,7 @@ public class Deal : IDeal
 
     public string WaterfallType { get; set; }
     public IList<string> ExecutionOrder { get; set; }
+    public OcTargetConfig? OcTargetConfig { get; set; }
 
     public Assembly RuleAssembly { get; set; }
 }

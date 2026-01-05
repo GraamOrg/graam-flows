@@ -89,6 +89,8 @@ public class PeriodCashflowDto
     public double DelinqBalance { get; set; }
     public double ForbearanceRecovery { get; set; }
     public double ForbearanceLiquidated { get; set; }
+    public double ForbearanceUnscheduled { get; set; }
+    public double AccumForbearance { get; set; }
     public double Wac { get; set; }
     public double Wam { get; set; }
     public double Wala { get; set; }
@@ -98,6 +100,11 @@ public class PeriodCashflowDto
     public double Dq { get; set; }
     public double CumDefaultedPrincipal { get; set; }
     public double CumCollateralLoss { get; set; }
+    public double UnAdvancedPrincipal { get; set; }
+    public double UnAdvancedInterest { get; set; }
+    public double AdvancedPrincipal { get; set; }
+    public double AdvancedInterest { get; set; }
+    public double Expenses { get; set; }
 }
 
 public class CollateralSummaryDto

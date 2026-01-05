@@ -343,14 +343,22 @@ public class TrancheCashflowDto
     public double UnscheduledPrincipal { get; set; }
     public double Interest { get; set; }
     public double Coupon { get; set; }
+    public double EffectiveCoupon { get; set; }
     public double Expense { get; set; } // Expense amount for expense tranches
+    public double ExpenseShortfall { get; set; }
     public double Writedown { get; set; }
     public double CumWritedown { get; set; }
     public double Factor { get; set; }
     public double CreditSupport { get; set; }
+    public double BeginCreditSupport { get; set; }
     public double InterestShortfall { get; set; }
     public double AccumInterestShortfall { get; set; }
+    public double InterestShortfallPayback { get; set; }
+    public double ExcessInterest { get; set; }
     public double? IndexValue { get; set; }
+    public double FloaterMargin { get; set; }
+    public int AccrualDays { get; set; }
+    public bool IsLockedOut { get; set; }
 }
 
 public class TriggerResultDto

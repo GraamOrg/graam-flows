@@ -5,7 +5,7 @@ public enum TrancheTypeEnum
     Exchanged,
     Offered,
     Reference,
-    Modeling,
+    Certificate,
     CapFundsReserve,
     OfferedCapFundsReserve,
     ResidualInterest
