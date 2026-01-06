@@ -491,12 +491,14 @@ public class WaterfallController : ControllerBase
 
         response.Summary.TotalPeriods = response.TrancheCashflows.Values.FirstOrDefault()?.Count ?? 0;
 
-        // Convert class cashflows for tranches that don't have DynamicTranches (expenses, certificates)
+        // Convert class cashflows for tranches that don't have DynamicTranches (expenses, certificates, reserves)
         foreach (var classCf in dealCashflows.ClassCashflows)
         {
-            // Process expense tranches and certificate tranches (they only have DynamicClasses, not DynamicTranches)
+            // Process expense, certificate, and reserve tranches (they only have DynamicClasses, not DynamicTranches)
             if (classCf.Key.CashflowTypeEnum != CashflowType.Expense &&
-                classCf.Key.TrancheTypeEnum != TrancheTypeEnum.Certificate)
+                classCf.Key.CashflowTypeEnum != CashflowType.Reserve &&
+                classCf.Key.TrancheTypeEnum != TrancheTypeEnum.Certificate &&
+                classCf.Key.TrancheTypeEnum != TrancheTypeEnum.CapFundsReserve)
                 continue;
 
             var trancheName = classCf.Key.TrancheName;

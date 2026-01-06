@@ -5,5 +5,6 @@ public enum CashflowType
     PrincipalAndInterest,
     InterestOnly,
     PrincipalOnly,
-    Expense
+    Expense,
+    Reserve
 }

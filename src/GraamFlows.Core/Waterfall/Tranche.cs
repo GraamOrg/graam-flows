@@ -44,4 +44,5 @@ public class Tranche : ITranche
     public string CouponFormula { get; set; }
     public string Description { get; set; }
     public int InterestPriority { get; set; }
+    public ReserveAccountConfig? ReserveConfig { get; set; }
 }

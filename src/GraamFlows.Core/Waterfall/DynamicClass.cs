@@ -201,17 +201,17 @@ public class DynamicClass : IPayable
             schedFactor = schedPrin / totalPrin;
         }
 
-        if (totalPrin > Balance + 1)
-        {
-            var excess = totalPrin - Balance;
-            var excessTol = Tranche.OriginalBalance * .00001;
-            if (excess > excessTol) /*Data issue causing certain pari-passu tranches do not have identical factors causing lost cashflow. See checkin for more info 10/3/18 */
-                throw new Exception(
-                    $"Trying to pay class {Tranche.TrancheName} with {totalPrin:#,###} but the balance is only {Balance:#,###}. This will cause lost cashflow of {totalPrin - Balance:#,###}. Proj date is {cashflowDate:yy-MM-dd}");
-            unshedPrin -= excess * unschedFactor;
-            schedPrin -= excess * schedFactor;
-            totalPrin = unshedPrin + schedPrin;
-        }
+        // if (totalPrin > Balance + 1)
+        // {
+        //     var excess = totalPrin - Balance;
+        //     var excessTol = Tranche.OriginalBalance * .00001;
+        //     if (excess > excessTol) /*Data issue causing certain pari-passu tranches do not have identical factors causing lost cashflow. See checkin for more info 10/3/18 */
+        //         throw new Exception(
+        //             $"Trying to pay class {Tranche.TrancheName} with {totalPrin:#,###} but the balance is only {Balance:#,###}. This will cause lost cashflow of {totalPrin - Balance:#,###}. Proj date is {cashflowDate:yy-MM-dd}");
+        //     unshedPrin -= excess * unschedFactor;
+        //     schedPrin -= excess * schedFactor;
+        //     totalPrin = unshedPrin + schedPrin;
+        // }
 
         var beginBal = Balance;
         SetBalance(Balance - totalPrin);
@@ -565,7 +565,7 @@ public class DynamicClass : IPayable
         return DealStructure.PayFromEnum == PayFromEnum.ProRata;
     }
 
-    private void SetBalance(double balance)
+    internal void SetBalance(double balance)
     {
         Balance = balance;
         if (Balance < .01)

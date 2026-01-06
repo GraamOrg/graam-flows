@@ -38,4 +38,5 @@ public interface ITranche
     string CouponFormula { get; }
     string Description { get; }
     int InterestPriority { get; }
+    ReserveAccountConfig? ReserveConfig { get; }
 }

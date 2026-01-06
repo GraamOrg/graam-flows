@@ -69,9 +69,6 @@ public class ComposableStructure : BaseStructure
                     triggerMap.Add(periodCf.GroupNum, triggerList);
                 }
 
-                if (dynGroup.Balance() <= 0)
-                    continue;
-
                 dynGroup.CollateralWac = collatWac;
                 dynGroup.CollateralNetWac = collatNetWac;
                 dynGroup.BeginCollatBalance = periodCf.BeginBalance;
@@ -169,9 +166,6 @@ public class ComposableStructure : BaseStructure
         PeriodCashflows adjPeriodCf, List<TriggerValue> triggerValues, IFormulaExecutor formulaExecutor,
         IPayRuleExecutor payRuleExecutor, List<string> executionOrder)
     {
-        if (dynGroup.Balance() < .001)
-            return;
-
         var cfAlloc = BeginPeriod(deal, dynGroup, adjPeriodCf);
 
         // Track available funds through the waterfall
@@ -184,6 +178,11 @@ public class ComposableStructure : BaseStructure
         // Set collateral balance variables for use in steps (e.g., OC turbo calculation)
         dynGroup.SetVariable("collat_balance", adjPeriodCf.Balance);
         dynGroup.SetVariable("collat_begin_balance", adjPeriodCf.BeginBalance);
+
+        // Start reserve period tracking at beginning of waterfall (before any draws)
+        dynGroup.FundsAccount?.StartPeriod();
+        if (adjPeriodCf.CashflowDate.Year == 2028 && adjPeriodCf.CashflowDate.Month == 11)
+            Console.WriteLine("STOP");
 
         // Update Certificate tranche balance to reflect current OC (Pool - Notes)
         dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
@@ -222,6 +221,10 @@ public class ComposableStructure : BaseStructure
                     PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown);
                     break;
 
+                case "RESERVE_DEPOSIT":
+                    availableInterest = PayReserveDepositStep(dynGroup, adjPeriodCf, availableInterest);
+                    break;
+
                 case "EXCESS_TURBO":
                     availableInterest = PayExcessTurboStep(deal, dynGroup, adjPeriodCf, availableInterest);
                     break;
@@ -235,7 +238,19 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
-    ///     Pay expenses from available interest, returning remaining funds.
+    /// Draw from reserve account to cover a shortfall.
+    /// Returns the amount actually drawn (may be less than shortfall if reserve insufficient).
+    /// </summary>
+    private double DrawFromReserve(DynamicGroup dynGroup, double shortfall)
+    {
+        if (shortfall <= 0) return 0;
+        var reserve = dynGroup.FundsAccount;
+        if (reserve == null) return 0;
+        return reserve.Debit(shortfall);
+    }
+
+    /// <summary>
+    ///     Pay expenses from available interest (and reserve if needed), returning remaining funds.
     /// </summary>
     private double PayExpensesStep(IFormulaExecutor formulaExecutor, DynamicGroup dynGroup,
         PeriodCashflows periodCf, List<TriggerValue> triggerValues, double availableInterest)
@@ -247,21 +262,22 @@ public class ComposableStructure : BaseStructure
             {
                 var functionName = RulesBuilder.GetTrancheCpnFormulaName(ec.Tranche);
                 formulaExecutor.Reset(null, triggerValues, dynGroup, periodCf, Enumerable.Repeat(ec, 1));
-                var expense = formulaExecutor.EvaluateDouble(functionName);
-                if (expense > netInterest)
-                {
-                    var shortfall = netInterest - expense;
-                    expense = netInterest;
-                    ec.PayExpense(periodCf.CashflowDate, netInterest, shortfall);
-                    netInterest = 0;
-                }
-                else
-                {
-                    ec.PayExpense(periodCf.CashflowDate, expense, 0);
-                    netInterest -= expense;
-                }
+                var expenseDue = formulaExecutor.EvaluateDouble(functionName);
 
-                return expense;
+                // Pay from available interest first
+                var paidFromInterest = Math.Min(expenseDue, netInterest);
+                netInterest -= paidFromInterest;
+
+                // Cover shortfall from reserve if needed
+                var shortfall = expenseDue - paidFromInterest;
+                var paidFromReserve = DrawFromReserve(dynGroup, shortfall);
+
+                var totalPaid = paidFromInterest + paidFromReserve;
+                var remainingShortfall = expenseDue - totalPaid;
+
+                ec.PayExpense(periodCf.CashflowDate, totalPaid, remainingShortfall);
+
+                return totalPaid;
             });
 
         // Compute effective WAC after expenses
@@ -274,7 +290,7 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
-    ///     Pay interest via InterestPayable, returning remaining funds.
+    ///     Pay interest via InterestPayable (with reserve draw for shortfalls), returning remaining funds.
     /// </summary>
     private double PayInterestStep(DynamicGroup dynGroup, IRateProvider rateProvider,
         PeriodCashflows periodCf, double availableInterest, List<DynamicTranche> allTranches)
@@ -282,10 +298,46 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.InterestPayable == null)
             return availableInterest;
 
-        var interestPaid = dynGroup.InterestPayable.PayInterest(null, periodCf.CashflowDate,
-            availableInterest, rateProvider, allTranches);
+        // Calculate total interest due
+        var interestDue = dynGroup.InterestPayable.InterestDue(periodCf.CashflowDate, rateProvider, allTranches);
 
-        return availableInterest - interestPaid;
+        // Pay from available interest first
+        var paidFromAvailable = Math.Min(availableInterest, interestDue);
+        var shortfall = interestDue - paidFromAvailable;
+
+        // Draw from reserve to cover shortfall
+        var paidFromReserve = DrawFromReserve(dynGroup, shortfall);
+
+        // Pay interest with augmented funds
+        var totalFundsForInterest = paidFromAvailable + paidFromReserve;
+        dynGroup.InterestPayable.PayInterest(null, periodCf.CashflowDate,
+            totalFundsForInterest, rateProvider, allTranches);
+
+        // Return remaining available interest (reserve draw doesn't add to remaining)
+        return availableInterest - paidFromAvailable;
+    }
+
+    /// <summary>
+    /// Cover note balance exceeding pool balance by drawing from reserve.
+    /// Per prospectus: reserve can cover "principal payments needed to prevent
+    /// aggregate principal amount of notes from exceeding Pool Balance"
+    /// </summary>
+    private void CoverNoteExcessFromReserve(DynamicGroup dynGroup, PeriodCashflows periodCf)
+    {
+        var poolBalance = dynGroup.GetVariable("collat_balance");
+        var noteBalance = dynGroup.Balance();
+
+        if (noteBalance <= poolBalance)
+            return;
+
+        var excess = noteBalance - poolBalance;
+        var reserveDraw = DrawFromReserve(dynGroup, excess);
+
+        if (reserveDraw > 0 && dynGroup.ScheduledPayable != null)
+        {
+            // Pay down notes with reserve funds (sequential)
+            dynGroup.ScheduledPayable.PaySp(null, periodCf.CashflowDate, reserveDraw, () => { });
+        }
     }
 
     /// <summary>
@@ -299,10 +351,13 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.ScheduledPayable == null || availableSchedPrin < 0.01)
             return availableSchedPrin;
 
-        var noteBalanceBefore = dynGroup.NoteBalance();
+        var noteBalanceBefore = dynGroup.Balance();
         dynGroup.ScheduledPayable.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.NoteBalance();
+        var noteBalanceAfter = dynGroup.Balance();
+
+        // After scheduled principal, check if reserve draw needed for note > pool
+        CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
 
         var paidAmount = noteBalanceBefore - noteBalanceAfter;
         return availableSchedPrin - paidAmount;
@@ -314,15 +369,18 @@ public class ComposableStructure : BaseStructure
     /// </summary>
     private double PayUnscheduledPrincipalStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
         CashflowAllocs cfAlloc, List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor,
-        double availablePrepayPrin)
+         double availablePrepayPrin)
     {
         if (dynGroup.PrepayPayable == null || availablePrepayPrin < 0.01)
             return availablePrepayPrin;
 
-        var noteBalanceBefore = dynGroup.NoteBalance();
+        var noteBalanceBefore = dynGroup.Balance();
         dynGroup.PrepayPayable.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.NoteBalance();
+        var noteBalanceAfter = dynGroup.Balance();
+
+        // After unscheduled principal, check if reserve draw needed for note > pool
+        CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
 
         var paidAmount = noteBalanceBefore - noteBalanceAfter;
         return availablePrepayPrin - paidAmount;
@@ -339,10 +397,13 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.RecoveryPayable == null || availableRecovPrin < 0.01)
             return availableRecovPrin;
 
-        var noteBalanceBefore = dynGroup.NoteBalance();
+        var noteBalanceBefore = dynGroup.Balance();
         dynGroup.RecoveryPayable.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.NoteBalance();
+        var noteBalanceAfter = dynGroup.Balance();
+
+        // After recovery principal, check if reserve draw needed for note > pool
+        CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
 
         var paidAmount = noteBalanceBefore - noteBalanceAfter;
         return availableRecovPrin - paidAmount;
@@ -392,7 +453,7 @@ public class ComposableStructure : BaseStructure
 
         // Get pool and note balances (NoteBalance excludes Certificate tranches)
         var poolBalance = dynGroup.GetVariable("collat_balance");
-        var noteBalance = dynGroup.NoteBalance();
+        var noteBalance = dynGroup.Balance();
         var currentOc = poolBalance - noteBalance;
 
         // Calculate target OC = MAX(TargetPct * PoolBalance, FloorAmt)
@@ -409,6 +470,42 @@ public class ComposableStructure : BaseStructure
         }
 
         return availableInterest - turboAmount;
+    }
+
+    /// <summary>
+    /// Deposit to reserve account to reach target amount.
+    /// Priority 18 in EART231 waterfall.
+    /// Returns remaining available funds after deposit.
+    /// </summary>
+    private double PayReserveDepositStep(DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double availableInterest)
+    {
+        var reserve = dynGroup.FundsAccount;
+        if (reserve == null)
+            return availableInterest;
+
+        var poolBalance = dynGroup.GetVariable("collat_balance");
+        var noteBalance = dynGroup.Balance();
+
+        // Calculate deposit needed to reach target
+        var depositNeeded = reserve.DepositNeeded(poolBalance, noteBalance);
+        var deposit = Math.Min(availableInterest, depositNeeded);
+
+        if (deposit > 0)
+            reserve.Credit(deposit);
+
+        // Release any excess above effective target back to available funds
+        var excess = reserve.ExcessBalance(poolBalance, noteBalance);
+        if (excess > 0)
+        {
+            reserve.Debit(excess);
+            availableInterest += excess;
+        }
+
+        // Record reserve cashflow for the period
+        reserve.RecordCashflow(periodCf.CashflowDate);
+
+        return availableInterest - deposit;
     }
 
     /// <summary>

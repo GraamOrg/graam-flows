@@ -17,6 +17,20 @@ public static class DynamicClassExtensions
         foreach (var dynGroup in dynamicGroups)
         {
             dealCashflows.EarliestTerminationDates.Add(dynGroup.GroupNum, dynGroup.EarliestTerminationDate);
+
+            // Add FundsAccount (reserve) cashflows if present
+            if (dynGroup.FundsAccount != null)
+            {
+                var reserve = dynGroup.FundsAccount;
+                var reserveDayCounter = reserve.Tranche.GetDayCounter();
+                var reserveStartAccPeriod = reserve.Cashflows.Any()
+                    ? reserve.Cashflows.First().Key.AddMonths(-1)
+                    : DateTime.MinValue;
+                var reserveCashFlows = new TrancheCashflows(reserve.Tranche, reserveDayCounter, assumps,
+                    reserve.Cashflows, reserveStartAccPeriod);
+                dealCashflows.ClassCashflows.Add(reserve.Tranche, reserveCashFlows);
+            }
+
             foreach (var dynClass in dynGroup.DynamicClasses)
             {
                 if (dealCashflows.ClassCashflows.ContainsKey(dynClass.Tranche))

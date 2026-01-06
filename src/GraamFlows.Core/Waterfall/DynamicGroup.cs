@@ -198,6 +198,8 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             !dc.IsExchangable() &&
             dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.Exchanged &&
             dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.CapFundsReserve &&
+            dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.ResidualInterest &&
+            dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.Certificate &&
             dc.DealStructure.PayFromEnum != PayFromEnum.ExcessServicing &&
             dc.DealStructure.PayFromEnum != PayFromEnum.Expense &&
             dc.DealStructure.PayFromEnum != PayFromEnum.Residual &&
@@ -451,19 +453,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         var balance = DealClasses.Sum(dc => dc.Balance);
         return balance;
     }
-
-    /// <summary>
-    /// Returns the sum of note balances (excludes Certificate tranches).
-    /// Use this for OC calculations where OC = Pool - Notes.
-    /// </summary>
-    public double NoteBalance()
-    {
-        return DealClasses
-            .Where(dc => dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.Certificate &&
-                         dc.Tranche.TrancheTypeEnum != TrancheTypeEnum.ResidualInterest)
-            .Sum(dc => dc.Balance);
-    }
-
+    
     /// <summary>
     /// Updates Certificate tranche balance to reflect current OC.
     /// OC = Pool Balance - Note Balance
@@ -477,7 +467,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         if (!certificateClasses.Any())
             return;
 
-        var noteBalance = NoteBalance();
+        var noteBalance = Balance();
         var ocBalance = Math.Max(0, poolBalance - noteBalance);
 
         // Distribute OC balance to certificate tranches (typically just one)

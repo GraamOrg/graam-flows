@@ -75,6 +75,8 @@ public class Tranche : ITranche
 
     [Database("Interest_Priority")] public int InterestPriority { get; set; }
 
+    public ReserveAccountConfig? ReserveConfig { get; set; }
+
     public CashflowType CashflowTypeEnum
     {
         get
@@ -91,6 +93,8 @@ public class Tranche : ITranche
                 case "exp":
                 case "fee":
                     return Objects.TypeEnum.CashflowType.Expense;
+                case "reserve":
+                    return Objects.TypeEnum.CashflowType.Reserve;
                 default:
                     throw new ArgumentException($"{CashflowType} is not a valid cashflow type");
             }

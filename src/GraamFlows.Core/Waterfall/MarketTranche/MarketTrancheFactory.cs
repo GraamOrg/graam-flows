@@ -19,6 +19,9 @@ public static class MarketTrancheFactory
                 return new PrincipalAndInterestMarketTranche(formulaExecutor, dynamicGroup, tranche, settleDate);
             case CashflowType.Expense:
                 return new ExpenseMarketTranche(formulaExecutor, dynamicGroup, tranche, settleDate);
+            case CashflowType.Reserve:
+                // Reserve tranches use DynamicFundsAccount for logic; use PI tranche as container
+                return new PrincipalAndInterestMarketTranche(formulaExecutor, dynamicGroup, tranche, settleDate);
             default:
                 throw new ArgumentException(
                     $"Deal {tranche.Deal.DealName}, Tranche {tranche.TrancheName} with cashflow type {tranche.CashflowType} does not have a market tranche!");
