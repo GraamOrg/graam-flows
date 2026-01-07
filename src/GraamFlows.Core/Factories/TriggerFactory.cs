@@ -15,6 +15,12 @@ public static class TriggerFactory
             return new DelinquencySubordinateTrigger(deal, dealTrigger, assumps, months, periodCashflows);
         }
 
+        // DELINQ_TRIGGER without sub-months defaults to 6 months
+        if (dealTrigger.TriggerType == "DELINQ_TRIGGER")
+        {
+            return new DelinquencySubordinateTrigger(deal, dealTrigger, assumps, 6, periodCashflows);
+        }
+
         switch (dealTrigger.TriggerType)
         {
             case "DATE_TERMINATION":

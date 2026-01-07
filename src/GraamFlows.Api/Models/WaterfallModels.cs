@@ -148,8 +148,8 @@ public class TrancheDto
     public double OriginalBalance { get; set; }
     public double Factor { get; set; } = 1.0;
     public string CouponType { get; set; } = "Fixed"; // Fixed, Floating, TrancheWac, None, ResidualInterest
-    public double FixedCoupon { get; set; }
-    public double FloaterSpread { get; set; }
+    public double? FixedCoupon { get; set; }
+    public double? FloaterSpread { get; set; }
     public string? FloaterIndex { get; set; } // Libor1M, Sofr30Avg, etc.
     public double Cap { get; set; } = 100.0;
     public double Floor { get; set; } = 0.0;

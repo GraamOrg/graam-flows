@@ -181,8 +181,6 @@ public class ComposableStructure : BaseStructure
 
         // Start reserve period tracking at beginning of waterfall (before any draws)
         dynGroup.FundsAccount?.StartPeriod();
-        if (adjPeriodCf.CashflowDate.Year == 2028 && adjPeriodCf.CashflowDate.Month == 11)
-            Console.WriteLine("STOP");
 
         // Update Certificate tranche balance to reflect current OC (Pool - Notes)
         dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
