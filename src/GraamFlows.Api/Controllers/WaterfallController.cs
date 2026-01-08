@@ -73,7 +73,8 @@ public class WaterfallController : ControllerBase
         foreach (var trancheDto in dto.Tranches)
         {
             // Determine factor and balance from request.Factors if provided
-            var effectiveFactor = trancheDto.Factor;
+            // If factors is null, default all tranches to factor 1.0
+            var effectiveFactor = factors == null ? 1.0 : trancheDto.Factor;
             var effectiveOriginalBalance = trancheDto.OriginalBalance;
 
             if (factors != null && factors.TryGetValue(trancheDto.TrancheName, out var factorEntry))
