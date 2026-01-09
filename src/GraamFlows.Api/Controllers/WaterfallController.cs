@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using GraamFlows.Api.Models;
 using GraamFlows.Api.Transformers;
 using GraamFlows.Assumptions;
@@ -16,9 +17,20 @@ namespace GraamFlows.Api.Controllers;
 [Route("api/[controller]")]
 public class WaterfallController : ControllerBase
 {
+    private readonly ILogger<WaterfallController> _logger;
+
+    public WaterfallController(ILogger<WaterfallController> logger)
+    {
+        _logger = logger;
+    }
+
     [HttpPost]
     public ActionResult<WaterfallResponse> Execute([FromBody] WaterfallRequest request)
     {
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("Waterfall: deal {DealName}, {TrancheCount} tranches, {CollateralCashflowCount} collateral cashflows, type {WaterfallType}",
+            request.Deal.DealName, request.Deal.Tranches.Count, request.CollateralCashflows.Count, request.Deal.WaterfallType);
+
         try
         {
             // Build deal from DTO, applying factors if provided
@@ -50,10 +62,18 @@ public class WaterfallController : ControllerBase
 
             // Convert to response
             var response = ConvertToResponse(dealCashflows);
+
+            stopwatch.Stop();
+            var totalTrancheCashflows = response.TrancheCashflows.Values.Sum(cfs => cfs.Count);
+            _logger.LogInformation("Waterfall completed: {TrancheCount} tranches output, {TotalCashflows} total cashflows, {TotalPeriods} periods, elapsed {ElapsedMs}ms",
+                response.TrancheCashflows.Count, totalTrancheCashflows, response.Summary.TotalPeriods, stopwatch.ElapsedMilliseconds);
+
             return Ok(response);
         }
         catch (Exception ex)
         {
+            stopwatch.Stop();
+            _logger.LogError(ex, "Waterfall failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
             return BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
         }
     }

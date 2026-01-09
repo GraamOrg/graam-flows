@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using GraamFlows.Api.Models;
 using GraamFlows.Objects.DataObjects;
 using GraamFlows.Objects.TypeEnum;
@@ -12,9 +13,20 @@ namespace GraamFlows.Api.Controllers;
 [Route("api/[controller]")]
 public class PricingController : ControllerBase
 {
+    private readonly ILogger<PricingController> _logger;
+
+    public PricingController(ILogger<PricingController> logger)
+    {
+        _logger = logger;
+    }
+
     [HttpPost]
     public ActionResult<PricingResponse> Stats([FromBody] PricingRequest request)
     {
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("Pricing: {CashflowCount} cashflows, input type {InputType}, value {InputValue}, balance {Balance:N0}",
+            request.Cashflows.Count, request.Params.InputType, request.Params.InputValue, request.Params.Balance);
+
         try
         {
             // 1. Build cashflow stream from DTOs
@@ -96,6 +108,10 @@ public class PricingController : ControllerBase
             var accrued = cf.AccruedAmount();
             var dirtyPrice = price + accrued;
 
+            stopwatch.Stop();
+            _logger.LogInformation("Pricing completed: price {Price:F4}, yield {Yield:F4}, WAL {Wal:F2}, elapsed {ElapsedMs}ms",
+                price, yield, wal, stopwatch.ElapsedMilliseconds);
+
             return Ok(new PricingResponse
             {
                 Price = price,
@@ -110,6 +126,8 @@ public class PricingController : ControllerBase
         }
         catch (Exception ex)
         {
+            stopwatch.Stop();
+            _logger.LogError(ex, "Pricing failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
             return BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
         }
     }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using GraamFlows.Api.Models;
 using GraamFlows.Assumptions;
 using GraamFlows.Domain;
@@ -12,9 +13,21 @@ namespace GraamFlows.Api.Controllers;
 [Route("api/[controller]")]
 public class CalcCollateralController : ControllerBase
 {
+    private readonly ILogger<CalcCollateralController> _logger;
+
+    public CalcCollateralController(ILogger<CalcCollateralController> logger)
+    {
+        _logger = logger;
+    }
+
     [HttpPost]
     public ActionResult<CalcCollateralResponse> Calculate([FromBody] CalcCollateralRequest request)
     {
+        var stopwatch = Stopwatch.StartNew();
+        var totalBalance = request.Assets.Sum(a => a.CurrentBalance);
+        _logger.LogInformation("CalcCollateral: {AssetCount} assets, total balance {TotalBalance:N0}, projection date {ProjectionDate:yyyy-MM-dd}",
+            request.Assets.Count, totalBalance, request.ProjectionDate);
+
         try
         {
             // Convert DTOs to IAsset objects
@@ -38,10 +51,17 @@ public class CalcCollateralController : ControllerBase
 
             // Convert to response
             var response = ConvertToResponse(collateralCashflows, assets);
+
+            stopwatch.Stop();
+            _logger.LogInformation("CalcCollateral completed: {CashflowCount} cashflows, {TotalPeriods} periods, elapsed {ElapsedMs}ms",
+                response.Cashflows.Count, response.Summary.TotalPeriods, stopwatch.ElapsedMilliseconds);
+
             return Ok(response);
         }
         catch (Exception ex)
         {
+            stopwatch.Stop();
+            _logger.LogError(ex, "CalcCollateral failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
             return BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
         }
     }
