@@ -86,6 +86,10 @@ public class WalScenariosSection
 
         foreach (var tranche in Tranches)
         {
+            // Skip tranches with null WAL data
+            if (tranche.WalToCall == null)
+                continue;
+
             for (var i = 0; i < AbsPercentages.Count && i < tranche.WalToCall.Count; i++)
             {
                 // Skip null WAL values (tranche doesn't exist at this ABS%)

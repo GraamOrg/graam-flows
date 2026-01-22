@@ -40,6 +40,9 @@ public class CollateralBuilder
             var wala = originalTerm - wam;
             var originationDate = pool.NextPaymentDate?.AddMonths(-wala) ?? firstPayDate.AddMonths(-wala);
 
+            // For pool stratification, use remaining term for amortization calculation.
+            // The aggregate balance represents the current pool balance, which should
+            // amortize over the remaining term, not the original term.
             var asset = new Asset
             {
                 AssetId = $"POOL_{pool.PoolNum}",
@@ -50,8 +53,8 @@ public class CollateralBuilder
                 OriginalBalance = pool.AggregateBalance,
                 CurrentInterestRate = pool.GrossApr,
                 OriginalInterestRate = pool.GrossApr,
-                OriginalAmortizationTerm = originalTerm,
-                OriginalDate = originationDate,
+                OriginalAmortizationTerm = wam, // Use remaining term for correct payment calculation
+                OriginalDate = firstPayDate, // Set to first pay date since we're using remaining term
                 ServiceFee = 0.0,
                 LoanStatus = "Current",
                 InterestRateType = InterestRateType.FRM,

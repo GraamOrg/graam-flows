@@ -199,7 +199,10 @@ public static class WalTestsCommand
 
         foreach (var tranche in dealModel.Deal.Tranches.OrderBy(t => t.SubordinationOrder))
         {
-            if (!result.TrancheCashflows.TryGetValue(tranche.TrancheName, out var cashflows) || cashflows.Count == 0)
+            if (tranche == null || string.IsNullOrEmpty(tranche.TrancheName))
+                continue;
+
+            if (!result.TrancheCashflows.TryGetValue(tranche.TrancheName, out var cashflows) || cashflows == null || cashflows.Count == 0)
                 continue;
 
             var totalPrincipal = cashflows.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
@@ -235,9 +238,9 @@ public static class WalTestsCommand
             return null;
 
         var trancheEntry = dealModel.WalScenarios.Tranches
-            .FirstOrDefault(t => t.TrancheName.Equals(trancheName, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(t => t.TrancheName?.Equals(trancheName, StringComparison.OrdinalIgnoreCase) == true);
 
-        if (trancheEntry == null)
+        if (trancheEntry?.WalToCall == null)
             return null;
 
         // Find the index for this ABS%

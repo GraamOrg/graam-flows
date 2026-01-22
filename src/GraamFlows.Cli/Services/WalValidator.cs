@@ -83,7 +83,7 @@ public class WalValidator
                 }
                 else
                 {
-                    computedWal = CalculateTrancheWal(result, trancheName);
+                    computedWal = CalculateTrancheWal(result, trancheName, dealModel, verbose);
                 }
 
                 var passed = Math.Abs(computedWal - scenario.ExpectedWal) <= threshold;
@@ -115,9 +115,33 @@ public class WalValidator
         return absPct;
     }
 
-    private static double CalculateTrancheWal(WaterfallResult result, string trancheName)
+    private static double CalculateTrancheWal(WaterfallResult result, string trancheName, DealModelFile? dealModel = null, bool verbose = false)
     {
-        if (!result.TrancheCashflows.TryGetValue(trancheName, out var cashflows) || cashflows.Count == 0)
+        // First try direct lookup
+        if (result.TrancheCashflows.TryGetValue(trancheName, out var cashflows) && cashflows.Count > 0)
+        {
+            return CalculateWalFromCashflows(cashflows);
+        }
+
+        // If not found, check if it's a combined class (e.g., "A2" for A2A+A2B)
+        if (dealModel != null)
+        {
+            var subTranches = FindSubTranches(trancheName, dealModel.Deal.Tranches);
+            if (subTranches.Count >= 2)
+            {
+                if (verbose)
+                    Console.WriteLine($"    (Combined class: {trancheName} -> {string.Join("+", subTranches.Select(t => t.TrancheName))})");
+
+                return CalculateCombinedTrancheWal(result, subTranches);
+            }
+        }
+
+        return 0;
+    }
+
+    private static double CalculateWalFromCashflows(List<TrancheCashflowDto> cashflows)
+    {
+        if (cashflows.Count == 0)
             return 0;
 
         var firstPayDate = cashflows.First().CashflowDate;
@@ -136,6 +160,40 @@ public class WalValidator
         return walNumerator / totalPrincipal;
     }
 
+    /// <summary>
+    /// Find sub-tranches for a combined class name.
+    /// E.g., "A2" matches "A2A", "A2B" but not "A2" itself.
+    /// </summary>
+    private static List<TrancheDto> FindSubTranches(string combinedName, List<TrancheDto> allTranches)
+    {
+        return allTranches
+            .Where(t => t.TrancheName.StartsWith(combinedName) && t.TrancheName.Length > combinedName.Length)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Calculate weighted average WAL for a combined class by combining sub-tranche cashflows.
+    /// </summary>
+    private static double CalculateCombinedTrancheWal(WaterfallResult result, List<TrancheDto> subTranches)
+    {
+        var totalBalance = 0.0;
+        var weightedWalNumerator = 0.0;
+
+        foreach (var tranche in subTranches)
+        {
+            if (!result.TrancheCashflows.TryGetValue(tranche.TrancheName, out var cashflows) || cashflows.Count == 0)
+                continue;
+
+            var trancheBalance = tranche.OriginalBalance;
+            var trancheWal = CalculateWalFromCashflows(cashflows);
+
+            totalBalance += trancheBalance;
+            weightedWalNumerator += trancheBalance * trancheWal;
+        }
+
+        return totalBalance > 0 ? weightedWalNumerator / totalBalance : 0;
+    }
+
     private static double CalculateAverageWal(WaterfallResult result, DealModelFile dealModel)
     {
         if (result.TrancheCashflows.Count == 0)
@@ -150,7 +208,7 @@ public class WalValidator
                 continue;
 
             var trancheBalance = tranche.OriginalBalance;
-            var trancheWal = CalculateTrancheWal(result, tranche.TrancheName);
+            var trancheWal = CalculateWalFromCashflows(cashflows);
 
             totalBalance += trancheBalance;
             weightedWal += trancheBalance * trancheWal;

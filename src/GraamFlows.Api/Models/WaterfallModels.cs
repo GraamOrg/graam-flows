@@ -168,6 +168,25 @@ public class TrancheDto
     public int SubordinationOrder { get; set; } // 0 = most senior
     public string GroupNum { get; set; } = "0";
     public int InterestPriority { get; set; } = 0;
+    public ReserveAccountConfigDto? ReserveConfig { get; set; }
+}
+
+/// <summary>
+/// Reserve account configuration DTO for JSON deserialization.
+/// </summary>
+public class ReserveAccountConfigDto
+{
+    /// <summary>Target reserve as percentage of base balance (e.g., 0.01 = 1.00%)</summary>
+    public double TargetPct { get; set; }
+
+    /// <summary>Base for target calculation: "CutoffPoolBalance" or "CurrentPoolBalance"</summary>
+    public string? TargetBase { get; set; }
+
+    /// <summary>Pool balance as of cutoff date</summary>
+    public double? CutoffPoolBalance { get; set; }
+
+    /// <summary>If true, reserve balance cannot exceed aggregate note principal</summary>
+    public bool? CapAtNoteBalance { get; set; }
 }
 
 public class DealStructureDto
