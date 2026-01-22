@@ -67,8 +67,14 @@ public class CfCore
             // Get assumptions from first asset (assumes uniform assumptions per group)
             var firstAssetAssumps = groupAssets.Count > 0 ? assumpFunc?.Invoke(groupAssets[0]) : null;
 
+            // Get prepayment type
+            var prepaymentType = firstAssetAssumps?.PrepaymentType ?? Objects.TypeEnum.PrepaymentTypeEnum.CPR;
+
             // Build assumption arrays
-            var smmTime = BuildAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, true);
+            // For ABS prepayment type, use time-varying ABS-to-SMM conversion
+            var smmTime = prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.ABS
+                ? BuildAbsAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime)
+                : BuildAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, true);
             var mdrTime = BuildAssumptionArray(firstAssetAssumps?.DefaultRate, maxPeriods, startTime, true);
             var sevTime = BuildAssumptionArray(firstAssetAssumps?.Severity, maxPeriods, startTime, false, 100.0);
             var delTime = BuildAssumptionArray(firstAssetAssumps?.DelinqRate, maxPeriods, startTime, false, 100.0);
@@ -127,6 +133,49 @@ public class CfCore
                 result[period] = 1.0 - Math.Pow(1.0 - value / 100.0, 1.0 / 12.0);
             else
                 result[period] = value / divisor;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Build assumption array for ABS prepayment type using the time-varying ABS-to-SMM conversion.
+    ///     Formula: SMM = 100 * ABS / (100 - ABS * (n - 1))
+    ///     where n is the period number (1-indexed).
+    /// </summary>
+    private static double[] BuildAbsAssumptionArray(IAnchorableVector vector, int maxPeriods, int startTime,
+        double defaultValue = 0.0)
+    {
+        var result = new double[maxPeriods];
+
+        for (var period = 0; period < maxPeriods; period++)
+        {
+            var abs = vector?.ValueAt(period, startTime + period) ?? defaultValue;
+
+            if (abs <= 0)
+            {
+                result[period] = 0;
+                continue;
+            }
+
+            // n is the period number (1-indexed)
+            var n = period + 1;
+
+            // Convert ABS to SMM using the time-varying formula
+            // SMM = 100 * ABS / (100 - ABS * (n - 1))
+            var denominator = 100.0 - abs * (n - 1);
+
+            if (denominator <= 0)
+            {
+                // At this point, the formula suggests 100% prepayment
+                result[period] = 1.0;
+            }
+            else
+            {
+                var smm = 100.0 * abs / denominator;
+                // Cap SMM at 100%
+                result[period] = Math.Min(smm / 100.0, 1.0);
+            }
         }
 
         return result;

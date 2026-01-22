@@ -10,3 +10,5 @@
 /src/GraamFlows.Util/bin
 /tests/GraamFlows.Tests/obj
 /tests/GraamFlows.Tests/bin
+/src/GraamFlows.Cli/bin
+/src/GraamFlows.Cli/obj

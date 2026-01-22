@@ -5,7 +5,8 @@ public enum PrepaymentTypeEnum
     CPR,
     PercentCPR,
     SMM,
-    PSA
+    PSA,
+    ABS  // Auto ABS - annual prepay rate as percentage of original balance
 }
 
 public enum DefaultTypeEnum
