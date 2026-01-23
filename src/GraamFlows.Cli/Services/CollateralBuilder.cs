@@ -6,8 +6,13 @@ namespace GraamFlows.Cli.Services;
 
 public class CollateralBuilder
 {
-    public List<IAsset> BuildAssets(DealModelFile dealModel)
+    public List<IAsset> BuildAssets(DealModelFile dealModel, bool useSinglePool = false)
     {
+        // For WAL validation, use single-pool model with weighted average characteristics
+        // The prospectus WAL tables use aggregate pool characteristics, not individual pools
+        if (useSinglePool && dealModel.PoolStratification != null)
+            return BuildFromPoolStratificationSummary(dealModel.PoolStratification, dealModel);
+
         // Priority 1: Use pool stratification if present
         if (dealModel.PoolStratification?.Pools != null && dealModel.PoolStratification.Pools.Count > 0)
             return BuildFromPoolStratification(dealModel.PoolStratification, dealModel);
@@ -43,6 +48,7 @@ public class CollateralBuilder
             // For pool stratification, use remaining term for amortization calculation.
             // The aggregate balance represents the current pool balance, which should
             // amortize over the remaining term, not the original term.
+            // This matches the prospectus convention of level amortization over WAM.
             var asset = new Asset
             {
                 AssetId = $"POOL_{pool.PoolNum}",
@@ -72,10 +78,11 @@ public class CollateralBuilder
     {
         var firstPayDate = GetFirstPayDate(dealModel);
         var wam = poolStrat.WeightedAverageRemainingTerm.HasValue ? (int)Math.Round(poolStrat.WeightedAverageRemainingTerm.Value) : 60;
-        var originalTerm = poolStrat.WeightedAverageTerm.HasValue ? (int)Math.Round(poolStrat.WeightedAverageTerm.Value) : wam + 12;
-        var wala = originalTerm - wam;
         var balance = poolStrat.TotalBalance ?? dealModel.Deal.Tranches.Sum(t => t.OriginalBalance);
 
+        // For WAL validation, model as a single pool with remaining term (same approach as individual pools).
+        // This ensures scheduled principal matches the prospectus assumption of level amortization
+        // over the weighted average remaining term.
         var asset = new Asset
         {
             AssetId = "POOL_SUMMARY",
@@ -86,8 +93,8 @@ public class CollateralBuilder
             OriginalBalance = balance,
             CurrentInterestRate = poolStrat.WeightedAverageApr ?? 5.0,
             OriginalInterestRate = poolStrat.WeightedAverageApr ?? 5.0,
-            OriginalAmortizationTerm = originalTerm,
-            OriginalDate = firstPayDate.AddMonths(-wala),
+            OriginalAmortizationTerm = wam, // Use remaining term for correct payment calculation
+            OriginalDate = firstPayDate, // Set to first pay date since we're using remaining term
             ServiceFee = 0.0,
             LoanStatus = "Current",
             InterestRateType = InterestRateType.FRM,

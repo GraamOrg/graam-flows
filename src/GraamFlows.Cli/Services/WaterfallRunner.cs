@@ -41,10 +41,17 @@ public class WaterfallRunner
 
         // Create assumptions
         var anchorAbsT = DateUtil.CalcAbsT(projectionDate);
+
+        // Extract weighted average remaining term (WAM) for ABS-to-SMM amortization adjustment
+        // This ensures the SMM conversion accounts for balance declining from scheduled amortization
+        var wam = dealModel.PoolStratification?.WeightedAverageRemainingTerm.HasValue == true
+            ? (int)Math.Round(dealModel.PoolStratification.WeightedAverageRemainingTerm.Value)
+            : 0;
+
         // Use ABS prepayment convention for Auto ABS deals (prepay as % of original balance)
         // Otherwise use standard CPR convention (prepay as % of current balance)
         var assumps = useAbsPrepayment
-            ? DealLevelAssumptions.CreateAbsAssumptions(projectionDate, anchorAbsT, cpr, cdr, sev, dq)
+            ? DealLevelAssumptions.CreateAbsAssumptions(projectionDate, anchorAbsT, cpr, cdr, sev, dq, 0, wam)
             : DealLevelAssumptions.CreateConstAssumptions(projectionDate, anchorAbsT, cpr, cdr, sev, dq);
 
         // Enable clean-up call trigger if requested
@@ -271,10 +278,15 @@ public class WaterfallRunner
             if (floorAmt == 0 && ocTarget.FloorPct.HasValue && ocTarget.CutoffBalance.HasValue)
                 floorAmt = ocTarget.FloorPct.Value * ocTarget.CutoffBalance.Value;
 
+            // Use initial pool balance (cut-off balance) for static OC target calculation
+            // This matches prospectus language like "10.15% of pool balance as of cut-off date"
+            var initialPoolBalance = ocTarget.CutoffBalance ?? dto.BalanceAtIssuance;
+
             deal.OcTargetConfig = new OcTargetConfig
             {
                 TargetPct = ocTarget.TargetPct,
-                FloorAmt = floorAmt
+                FloorAmt = floorAmt,
+                InitialPoolBalance = initialPoolBalance > 0 ? initialPoolBalance : null
             };
         }
 

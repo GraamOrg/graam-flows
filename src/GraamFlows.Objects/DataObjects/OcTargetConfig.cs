@@ -11,4 +11,17 @@ public record OcTargetConfig
 
     /// <summary>Floor OC amount in dollars</summary>
     public double FloorAmt { get; init; }
+
+    /// <summary>
+    /// Initial pool balance for calculating OC target when UseInitialBalance is true.
+    /// If set, OC target = MAX(TargetPct * InitialPoolBalance, FloorAmt) instead of current pool balance.
+    /// This matches prospectus language like "10.15% of pool balance as of cut-off date".
+    /// </summary>
+    public double? InitialPoolBalance { get; init; }
+
+    /// <summary>
+    /// When true, use InitialPoolBalance for OC target calculation instead of current pool balance.
+    /// Default is false (use current pool balance).
+    /// </summary>
+    public bool UseInitialBalance => InitialPoolBalance.HasValue && InitialPoolBalance.Value > 0;
 }

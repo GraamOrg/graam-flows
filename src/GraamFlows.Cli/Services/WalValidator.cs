@@ -40,6 +40,28 @@ public class WalValidator
         // Check if clean-up call should be assumed (for WAL calculation)
         var cleanUpCallAssumed = dealModel.WalScenarios.Assumptions?.CleanUpCallAssumed ?? false;
 
+        // Get issuance date for WAL calculation (prospectus WAL is measured from issuance, not first payment)
+        var issuanceDate = dealModel.WalScenarios.Assumptions?.PurchaseDate ?? projectionDate;
+
+        // Apply WAL scenario interest rate overrides if provided
+        // The prospectus WAL tables may use different rates than the actual note coupons
+        var originalRates = new Dictionary<string, double?>();
+        if (dealModel.WalScenarios.Assumptions?.InterestRates != null)
+        {
+            foreach (var rateOverride in dealModel.WalScenarios.Assumptions.InterestRates)
+            {
+                var tranche = dealModel.Deal.Tranches.FirstOrDefault(t =>
+                    t.TrancheName.Equals(rateOverride.TrancheName, StringComparison.OrdinalIgnoreCase));
+                if (tranche != null)
+                {
+                    originalRates[tranche.TrancheName] = tranche.FixedCoupon;
+                    tranche.FixedCoupon = rateOverride.Rate;
+                    if (verbose)
+                        Console.WriteLine($"  Applied WAL rate override: {tranche.TrancheName} -> {rateOverride.Rate}%");
+                }
+            }
+        }
+
         var runner = new WaterfallRunner();
 
         // Group scenarios by tranche
@@ -79,11 +101,11 @@ public class WalValidator
                 if (trancheName == "All")
                 {
                     // Average WAL across all tranches
-                    computedWal = CalculateAverageWal(result, dealModel);
+                    computedWal = CalculateAverageWal(result, dealModel, issuanceDate);
                 }
                 else
                 {
-                    computedWal = CalculateTrancheWal(result, trancheName, dealModel, verbose);
+                    computedWal = CalculateTrancheWal(result, trancheName, dealModel, issuanceDate, verbose);
                 }
 
                 var passed = Math.Abs(computedWal - scenario.ExpectedWal) <= threshold;
@@ -103,6 +125,14 @@ public class WalValidator
             }
         }
 
+        // Restore original interest rates
+        foreach (var (trancheName, originalRate) in originalRates)
+        {
+            var tranche = dealModel.Deal.Tranches.FirstOrDefault(t => t.TrancheName == trancheName);
+            if (tranche != null)
+                tranche.FixedCoupon = originalRate;
+        }
+
         return results;
     }
 
@@ -115,12 +145,15 @@ public class WalValidator
         return absPct;
     }
 
-    private static double CalculateTrancheWal(WaterfallResult result, string trancheName, DealModelFile? dealModel = null, bool verbose = false)
+    private static double CalculateTrancheWal(WaterfallResult result, string trancheName, DealModelFile? dealModel, DateTime issuanceDate, bool verbose = false)
     {
         // First try direct lookup
         if (result.TrancheCashflows.TryGetValue(trancheName, out var cashflows) && cashflows.Count > 0)
         {
-            return CalculateWalFromCashflows(cashflows);
+            // Get initial balance for the tranche (use as denominator per prospectus WAL definition)
+            var initialBalance = dealModel?.Deal.Tranches
+                .FirstOrDefault(t => t.TrancheName == trancheName)?.OriginalBalance ?? 0;
+            return CalculateWalFromCashflows(cashflows, issuanceDate, initialBalance);
         }
 
         // If not found, check if it's a combined class (e.g., "A2" for A2A+A2B)
@@ -132,32 +165,38 @@ public class WalValidator
                 if (verbose)
                     Console.WriteLine($"    (Combined class: {trancheName} -> {string.Join("+", subTranches.Select(t => t.TrancheName))})");
 
-                return CalculateCombinedTrancheWal(result, subTranches);
+                return CalculateCombinedTrancheWal(result, subTranches, issuanceDate);
             }
         }
 
         return 0;
     }
 
-    private static double CalculateWalFromCashflows(List<TrancheCashflowDto> cashflows)
+    /// <summary>
+    /// Calculate WAL from cashflows using the prospectus definition:
+    /// WAL = sum(principal * years_from_issuance) / initial_balance
+    /// </summary>
+    private static double CalculateWalFromCashflows(List<TrancheCashflowDto> cashflows, DateTime issuanceDate, double initialBalance = 0)
     {
         if (cashflows.Count == 0)
             return 0;
 
-        var firstPayDate = cashflows.First().CashflowDate;
         var totalPrincipal = cashflows.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
 
-        if (totalPrincipal <= 0)
+        // Use initial balance if provided, otherwise fall back to total principal
+        var denominator = initialBalance > 0 ? initialBalance : totalPrincipal;
+        if (denominator <= 0)
             return 0;
 
         var walNumerator = cashflows.Sum(c =>
         {
             var principal = c.ScheduledPrincipal + c.UnscheduledPrincipal;
-            var yearsFromStart = (c.CashflowDate - firstPayDate).TotalDays / 365.25;
-            return principal * yearsFromStart;
+            // Use issuance date as reference per prospectus WAL definition
+            var yearsFromIssuance = (c.CashflowDate - issuanceDate).TotalDays / 365.25;
+            return principal * yearsFromIssuance;
         });
 
-        return walNumerator / totalPrincipal;
+        return walNumerator / denominator;
     }
 
     /// <summary>
@@ -174,7 +213,7 @@ public class WalValidator
     /// <summary>
     /// Calculate weighted average WAL for a combined class by combining sub-tranche cashflows.
     /// </summary>
-    private static double CalculateCombinedTrancheWal(WaterfallResult result, List<TrancheDto> subTranches)
+    private static double CalculateCombinedTrancheWal(WaterfallResult result, List<TrancheDto> subTranches, DateTime issuanceDate)
     {
         var totalBalance = 0.0;
         var weightedWalNumerator = 0.0;
@@ -185,7 +224,7 @@ public class WalValidator
                 continue;
 
             var trancheBalance = tranche.OriginalBalance;
-            var trancheWal = CalculateWalFromCashflows(cashflows);
+            var trancheWal = CalculateWalFromCashflows(cashflows, issuanceDate, trancheBalance);
 
             totalBalance += trancheBalance;
             weightedWalNumerator += trancheBalance * trancheWal;
@@ -194,7 +233,7 @@ public class WalValidator
         return totalBalance > 0 ? weightedWalNumerator / totalBalance : 0;
     }
 
-    private static double CalculateAverageWal(WaterfallResult result, DealModelFile dealModel)
+    private static double CalculateAverageWal(WaterfallResult result, DealModelFile dealModel, DateTime issuanceDate)
     {
         if (result.TrancheCashflows.Count == 0)
             return 0;
@@ -208,7 +247,7 @@ public class WalValidator
                 continue;
 
             var trancheBalance = tranche.OriginalBalance;
-            var trancheWal = CalculateWalFromCashflows(cashflows);
+            var trancheWal = CalculateWalFromCashflows(cashflows, issuanceDate, trancheBalance);
 
             totalBalance += trancheBalance;
             weightedWal += trancheBalance * trancheWal;

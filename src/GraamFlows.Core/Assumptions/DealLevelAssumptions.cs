@@ -53,6 +53,20 @@ public class DealLevelAssumptions : IAssumptionMill
 
     public bool RunToCall { get; set; }
 
+    /// <summary>
+    /// Pool age offset in months (weighted average WALA) for ABS prepayment calculation.
+    /// This adjusts the 'n' parameter in the ABS-to-SMM formula to account for pool seasoning.
+    /// </summary>
+    public int PoolAgeOffset { get; set; }
+
+    /// <summary>
+    /// Weighted average remaining term (WAM) in months for ABS prepayment calculation.
+    /// Used to adjust the ABS-to-SMM conversion formula to account for scheduled amortization.
+    /// When set, the formula accounts for the fact that balance declines from both prepayment
+    /// and scheduled amortization, requiring higher SMM rates at later periods.
+    /// </summary>
+    public int WeightedAverageRemainingTerm { get; set; }
+
     public DateTime SettleDate { get; }
 
     public IAssetAssumptions GetAssumptionsForAsset(IAsset asset)
@@ -187,10 +201,49 @@ public class DealLevelAssumptions : IAssumptionMill
     public static DealLevelAssumptions CreateAbsAssumptions(DateTime settleDate, int anchorAbsT, double abs,
         double cdr, double sev, double delinq)
     {
+        return CreateAbsAssumptions(settleDate, anchorAbsT, abs, cdr, sev, delinq, 0);
+    }
+
+    /// <summary>
+    ///     Create assumptions using ABS prepayment convention (prepayment as % of original balance).
+    ///     This is the standard convention for Auto ABS deals.
+    /// </summary>
+    /// <param name="settleDate">Settlement/projection date</param>
+    /// <param name="anchorAbsT">Anchor time for assumption vectors</param>
+    /// <param name="abs">ABS prepayment rate (% of original balance per month)</param>
+    /// <param name="cdr">Constant default rate (annual %)</param>
+    /// <param name="sev">Loss severity (%)</param>
+    /// <param name="delinq">Delinquency rate (%)</param>
+    /// <param name="poolAgeOffset">Pool age offset in months (weighted average WALA) for ABS-to-SMM conversion</param>
+    public static DealLevelAssumptions CreateAbsAssumptions(DateTime settleDate, int anchorAbsT, double abs,
+        double cdr, double sev, double delinq, int poolAgeOffset)
+    {
+        return CreateAbsAssumptions(settleDate, anchorAbsT, abs, cdr, sev, delinq, poolAgeOffset, 0);
+    }
+
+    /// <summary>
+    ///     Create assumptions using ABS prepayment convention (prepayment as % of original balance).
+    ///     This is the standard convention for Auto ABS deals.
+    /// </summary>
+    /// <param name="settleDate">Settlement/projection date</param>
+    /// <param name="anchorAbsT">Anchor time for assumption vectors</param>
+    /// <param name="abs">ABS prepayment rate (% of original balance per month)</param>
+    /// <param name="cdr">Constant default rate (annual %)</param>
+    /// <param name="sev">Loss severity (%)</param>
+    /// <param name="delinq">Delinquency rate (%)</param>
+    /// <param name="poolAgeOffset">Pool age offset in months (weighted average WALA) for ABS-to-SMM conversion</param>
+    /// <param name="wam">Weighted average remaining term in months for amortization adjustment</param>
+    public static DealLevelAssumptions CreateAbsAssumptions(DateTime settleDate, int anchorAbsT, double abs,
+        double cdr, double sev, double delinq, int poolAgeOffset, int wam)
+    {
         var assetAssumps = new AssetAssumptions(PrepaymentTypeEnum.ABS, new ConstVector(anchorAbsT, abs),
             DefaultTypeEnum.CDR, new ConstVector(anchorAbsT, cdr), new ConstVector(anchorAbsT, sev),
             DelinqRateTypeEnum.PctOrigBal, new ConstVector(anchorAbsT, delinq),
             new ConstVector(anchorAbsT, 100.0), new ConstVector(anchorAbsT, 100.0));
-        return new DealLevelAssumptions(settleDate, assetAssumps);
+        return new DealLevelAssumptions(settleDate, assetAssumps)
+        {
+            PoolAgeOffset = poolAgeOffset,
+            WeightedAverageRemainingTerm = wam
+        };
     }
 }

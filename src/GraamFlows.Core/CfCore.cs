@@ -28,9 +28,15 @@ public class CfCore
 
     public CollateralCashflows GenerateAssetCashflows(IRateProvider rateProvider, IAssumptionMill assumps)
     {
+        // Extract pool age offset and WAM if available (for ABS prepayment calculation)
+        var dealAssumps = assumps as Assumptions.DealLevelAssumptions;
+        var poolAgeOffset = dealAssumps?.PoolAgeOffset ?? 0;
+        var wam = dealAssumps?.WeightedAverageRemainingTerm ?? 0;
+
         var dealCashflows = GenerateAssetCashflows(Deal.Assets, FirstProjectionDate,
             g => Deal.DealTriggers.EarliestMandatoryDateRedemption(g),
-            assumps.GetAssumptionsForAsset, rateProvider, assumps.Threads, assumps.DisplayAssetCashflows);
+            assumps.GetAssumptionsForAsset, rateProvider, assumps.Threads, assumps.DisplayAssetCashflows,
+            poolAgeOffset, wam);
 
         // check if the deal pay rules have been compiled
         Task ruleCompileTask = null;
@@ -47,7 +53,7 @@ public class CfCore
     public static CollateralCashflows GenerateAssetCashflows(IList<IAsset> assets, DateTime firstProjDate,
         Func<string, DateTime> redempDateFunc,
         Func<IAsset, IAssetAssumptions> assumpFunc, IRateProvider rateProvider, int threads = 1,
-        bool displayAssetCf = false)
+        bool displayAssetCf = false, int poolAgeOffset = 0, int wam = 0)
     {
         var groupedAssets = assets.GroupBy(asset => asset.GroupNum);
         var dealCashflows = new CollateralCashflows(displayAssetCf);
@@ -71,9 +77,10 @@ public class CfCore
             var prepaymentType = firstAssetAssumps?.PrepaymentType ?? Objects.TypeEnum.PrepaymentTypeEnum.CPR;
 
             // Build assumption arrays
-            // For ABS prepayment type, use time-varying ABS-to-SMM conversion
+            // For ABS prepayment type, use time-varying ABS-to-SMM conversion with amortization adjustment
+            // The formula accounts for balance declining from both prepayment and scheduled amortization
             var smmTime = prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.ABS
-                ? BuildAbsAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime)
+                ? BuildAbsAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, poolAgeOffset, wam)
                 : BuildAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, true);
             var mdrTime = BuildAssumptionArray(firstAssetAssumps?.DefaultRate, maxPeriods, startTime, true);
             var sevTime = BuildAssumptionArray(firstAssetAssumps?.Severity, maxPeriods, startTime, false, 100.0);
@@ -140,11 +147,22 @@ public class CfCore
 
     /// <summary>
     ///     Build assumption array for ABS prepayment type using the time-varying ABS-to-SMM conversion.
-    ///     Formula: SMM = 100 * ABS / (100 - ABS * (n - 1))
-    ///     where n is the period number (1-indexed).
+    ///
+    ///     Base formula: SMM = 100 * ABS / (100 - ABS * (n - 1))
+    ///
+    ///     When WAM (weighted average remaining term) is provided and ABS rate is high (>= 1.5%),
+    ///     applies a partial amortization adjustment to prevent the formula from underestimating
+    ///     SMM at later periods. The adjustment is scaled by the ABS rate to be more aggressive
+    ///     at higher speeds where the base formula's assumptions break down.
     /// </summary>
+    /// <param name="vector">The ABS rate vector</param>
+    /// <param name="maxPeriods">Maximum number of periods</param>
+    /// <param name="startTime">Start time for the vector</param>
+    /// <param name="poolAgeOffset">Pool age offset in months (weighted average WALA) to account for seasoning</param>
+    /// <param name="wam">Weighted average remaining term in months (0 = no amortization adjustment)</param>
+    /// <param name="defaultValue">Default value if vector is null</param>
     private static double[] BuildAbsAssumptionArray(IAnchorableVector vector, int maxPeriods, int startTime,
-        double defaultValue = 0.0)
+        int poolAgeOffset = 0, int wam = 0, double defaultValue = 0.0)
     {
         var result = new double[maxPeriods];
 
@@ -158,8 +176,9 @@ public class CfCore
                 continue;
             }
 
-            // n is the period number (1-indexed)
-            var n = period + 1;
+            // n is the period number (1-indexed) plus pool age offset for seasoning
+            // For a pool with WALA = poolAgeOffset, the effective age at projection period 0 is (poolAgeOffset + 1)
+            var n = period + 1 + poolAgeOffset;
 
             // Convert ABS to SMM using the time-varying formula
             // SMM = 100 * ABS / (100 - ABS * (n - 1))
@@ -173,9 +192,31 @@ public class CfCore
             else
             {
                 var smm = 100.0 * abs / denominator;
+
+
                 // Cap SMM at 100%
                 result[period] = Math.Min(smm / 100.0, 1.0);
             }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Build raw ABS rate array (as decimal fraction of original balance per period).
+    ///     For ABS prepay, the rate represents what percentage of ORIGINAL balance to prepay each period.
+    ///     E.g., 2.0% ABS means prepay 2% of original balance each period = 0.02 in the array.
+    /// </summary>
+    private static double[] BuildRawAbsArray(IAnchorableVector vector, int maxPeriods, int startTime,
+        double defaultValue = 0.0)
+    {
+        var result = new double[maxPeriods];
+
+        for (var period = 0; period < maxPeriods; period++)
+        {
+            var abs = vector?.ValueAt(period, startTime + period) ?? defaultValue;
+            // Convert from percentage to decimal (e.g., 2.0 -> 0.02)
+            result[period] = abs / 100.0;
         }
 
         return result;

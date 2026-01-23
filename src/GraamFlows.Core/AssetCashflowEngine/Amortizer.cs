@@ -9,6 +9,9 @@ public static class Amortizer
     /// <summary>
     ///     Generate aggregated cashflows for a group of assets using array-based processing.
     /// </summary>
+    /// <param name="absTime">Optional ABS prepay rate array. When provided, prepay is calculated as absTime[period] * originalBalance
+    /// instead of smmTime[period] * currentBalance. This matches the ABS convention where prepay is expressed as
+    /// a percentage of original balance per period.</param>
     public static CashflowResultArrays GenerateCashflows(
         AssetDataArrays assetData,
         int startTime,
@@ -22,7 +25,8 @@ public static class Amortizer
         double[] forbRecovPpayTime,
         double[] forbRecovMaturityTime,
         double[] forbRecovDefaultTime,
-        double[][] allMarketRates)
+        double[][] allMarketRates,
+        double[]? absTime = null)
     {
         var maxPeriods = Math.Min(endTime - startTime + 1, 720);
         var results = new CashflowResultArrays(maxPeriods);
@@ -259,7 +263,24 @@ public static class Amortizer
                 var defaultedPrincipal = defPrin;
                 var recoveryPrincipal = defaultedPrincipal - defaultedPrincipal * sev;
 
-                var unschedPrin = Math.Max(schedBal - schedPrin + unadvPrincipal, 0) * smm;
+                // Calculate prepayment (unscheduled principal)
+                // For ABS prepay: prepay = absRate * originalBalance, capped at available balance
+                // For CPR/SMM: prepay = smm * (balance - scheduled principal)
+                double unschedPrin;
+                if (absTime != null)
+                {
+                    // ABS prepay: percentage of original balance per period
+                    var absRate = absTime[period];
+                    var maxPrepay = Math.Max(schedBal - schedPrin + unadvPrincipal - defPrin, 0);
+                    unschedPrin = Math.Min(absRate * rawOriginalBalance[assetIndex], maxPrepay);
+                }
+                else
+                {
+                    // Standard SMM prepay: percentage of beginning balance
+                    // For ABS-to-SMM conversion, the SMM is calibrated assuming prepay on full balance,
+                    // so we apply SMM to schedBal (not schedBal-schedPrin) for consistency
+                    unschedPrin = Math.Max(schedBal - defPrin, 0) * smm;
+                }
                 var unscheduledPrincipal = unschedPrin;
 
                 balance = schedBal - schedPrinMdr - defPrin - unschedPrin;

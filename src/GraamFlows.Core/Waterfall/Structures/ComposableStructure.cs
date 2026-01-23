@@ -182,8 +182,8 @@ public class ComposableStructure : BaseStructure
         // Start reserve period tracking at beginning of waterfall (before any draws)
         dynGroup.FundsAccount?.StartPeriod();
 
-        // Update Certificate tranche balance to reflect current OC (Pool - Notes)
-        dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
+        // Note: UpdateCertificateBalance is called AFTER principal payments to ensure
+        // both pool and note balances are at end-of-period values for correct OC calculation.
 
         // Calculate OC release BEFORE principal allocation
         // This reduces principal available to notes so OC can be released to CERTIFICATE
@@ -258,6 +258,10 @@ public class ComposableStructure : BaseStructure
                     break;
             }
         }
+
+        // Update Certificate tranche balance to reflect current OC (Pool - Notes)
+        // Called AFTER all principal payments so both pool and note balances are at end-of-period values
+        dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
     }
 
     /// <summary>
@@ -479,7 +483,10 @@ public class ComposableStructure : BaseStructure
         var projectedOc = poolBalance - projectedNoteBalance;
 
         // Calculate target OC
-        var targetOc = Math.Max(ocConfig.TargetPct * poolBalance, ocConfig.FloorAmt);
+        // Use initial pool balance if specified (static OC target from cut-off date)
+        // Otherwise use current pool balance (dynamic OC target)
+        var targetPoolBalance = ocConfig.UseInitialBalance ? ocConfig.InitialPoolBalance!.Value : poolBalance;
+        var targetOc = Math.Max(ocConfig.TargetPct * targetPoolBalance, ocConfig.FloorAmt);
 
         // If projected OC exceeds target, release the excess
         if (projectedOc > targetOc)
@@ -511,7 +518,9 @@ public class ComposableStructure : BaseStructure
         var currentOc = poolBalance - noteBalance;
 
         // Calculate target OC = MAX(TargetPct * PoolBalance, FloorAmt)
-        var targetOc = Math.Max(ocConfig.TargetPct * poolBalance, ocConfig.FloorAmt);
+        // Use initial pool balance if specified (static OC target from cut-off date)
+        var targetPoolBalance = ocConfig.UseInitialBalance ? ocConfig.InitialPoolBalance!.Value : poolBalance;
+        var targetOc = Math.Max(ocConfig.TargetPct * targetPoolBalance, ocConfig.FloorAmt);
 
         // Check if we have a pre-calculated OC release amount (from principal allocation)
         var ocReleaseAmount = dynGroup.GetVariable("oc_release_amount");
