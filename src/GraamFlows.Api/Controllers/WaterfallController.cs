@@ -300,10 +300,15 @@ public class WaterfallController : ControllerBase
             if (floorAmt == 0 && ocTarget.FloorPct.HasValue && ocTarget.CutoffBalance.HasValue)
                 floorAmt = ocTarget.FloorPct.Value * ocTarget.CutoffBalance.Value;
 
+            // Use initial pool balance (cut-off balance) for static OC target calculation
+            var initialPoolBalance = ocTarget.CutoffBalance ?? dto.BalanceAtIssuance;
+
             deal.OcTargetConfig = new OcTargetConfig
             {
                 TargetPct = ocTarget.TargetPct,
-                FloorAmt = floorAmt
+                FloorAmt = floorAmt,
+                InitialPoolBalance = initialPoolBalance > 0 ? initialPoolBalance : null,
+                FormulaType = ocTarget.FormulaType ?? "max"
             };
         }
 

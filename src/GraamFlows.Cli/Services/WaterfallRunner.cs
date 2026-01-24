@@ -286,7 +286,8 @@ public class WaterfallRunner
             {
                 TargetPct = ocTarget.TargetPct,
                 FloorAmt = floorAmt,
-                InitialPoolBalance = initialPoolBalance > 0 ? initialPoolBalance : null
+                InitialPoolBalance = initialPoolBalance > 0 ? initialPoolBalance : null,
+                FormulaType = ocTarget.FormulaType ?? "max"
             };
         }
 

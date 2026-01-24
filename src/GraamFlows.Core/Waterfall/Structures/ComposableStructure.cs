@@ -474,25 +474,16 @@ public class ComposableStructure : BaseStructure
         var poolBalance = periodCf.Balance; // End of period pool balance
         var noteBalance = dynGroup.Balance(); // Current note balance
 
-        // After paying notes totalPrincipal, note balance will be:
-        // noteBalance - totalPrincipal (assuming all goes to notes)
-        // Pool balance is already at end-of-period value
-
         // Calculate what OC would be if all principal went to notes
         var projectedNoteBalance = Math.Max(0, noteBalance - totalPrincipal);
         var projectedOc = poolBalance - projectedNoteBalance;
 
-        // Calculate target OC
-        // Use initial pool balance if specified (static OC target from cut-off date)
-        // Otherwise use current pool balance (dynamic OC target)
-        var targetPoolBalance = ocConfig.UseInitialBalance ? ocConfig.InitialPoolBalance!.Value : poolBalance;
-        var targetOc = Math.Max(ocConfig.TargetPct * targetPoolBalance, ocConfig.FloorAmt);
+        // Calculate target OC using the configured formula
+        var targetOc = ocConfig.CalculateTargetOc(poolBalance);
 
         // If projected OC exceeds target, release the excess
         if (projectedOc > targetOc)
-        {
             return projectedOc - targetOc;
-        }
 
         return 0;
     }
@@ -517,10 +508,8 @@ public class ComposableStructure : BaseStructure
         var noteBalance = dynGroup.Balance();
         var currentOc = poolBalance - noteBalance;
 
-        // Calculate target OC = MAX(TargetPct * PoolBalance, FloorAmt)
-        // Use initial pool balance if specified (static OC target from cut-off date)
-        var targetPoolBalance = ocConfig.UseInitialBalance ? ocConfig.InitialPoolBalance!.Value : poolBalance;
-        var targetOc = Math.Max(ocConfig.TargetPct * targetPoolBalance, ocConfig.FloorAmt);
+        // Calculate target OC using the configured formula
+        var targetOc = ocConfig.CalculateTargetOc(poolBalance);
 
         // Check if we have a pre-calculated OC release amount (from principal allocation)
         var ocReleaseAmount = dynGroup.GetVariable("oc_release_amount");
@@ -528,10 +517,9 @@ public class ComposableStructure : BaseStructure
         if (ocReleaseAmount > 0 && dynGroup.ReleasePayable != null)
         {
             // Pay the OC release to CERTIFICATE
-            // This amount was already held back from notes in RunComposablePeriod
             dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, ocReleaseAmount, () => { });
         }
-        else if (currentOc < targetOc && availableInterest > 0 && dynGroup.TurboPayable != null)
+        else if (currentOc < targetOc && availableInterest > 0)
         {
             // OC below target - turbo pay notes to build OC
             var shortfall = targetOc - currentOc;
@@ -540,7 +528,8 @@ public class ComposableStructure : BaseStructure
             if (turboAmount > 0)
             {
                 // Pay down notes (reduces note balance, increases OC)
-                dynGroup.TurboPayable.PaySp(null, periodCf.CashflowDate, turboAmount, () => { });
+                var turboPayable = dynGroup.TurboPayable ?? dynGroup.ScheduledPayable;
+                turboPayable?.PaySp(null, periodCf.CashflowDate, turboAmount, () => { });
                 availableInterest -= turboAmount;
             }
         }

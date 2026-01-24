@@ -2,7 +2,9 @@ namespace GraamFlows.Objects.DataObjects;
 
 /// <summary>
 /// Configuration for OC turbo paydown step.
-/// Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
+/// Target OC calculation depends on FormulaType:
+/// - "max" (default): MAX(TargetPct * PoolBalance, FloorAmt)
+/// - "sum_of": TargetPct * PoolBalance + FloorAmt
 /// </summary>
 public record OcTargetConfig
 {
@@ -24,4 +26,25 @@ public record OcTargetConfig
     /// Default is false (use current pool balance).
     /// </summary>
     public bool UseInitialBalance => InitialPoolBalance.HasValue && InitialPoolBalance.Value > 0;
+
+    /// <summary>
+    /// Formula type for OC target calculation:
+    /// - "max" (default): Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
+    /// - "sum_of": Target OC = TargetPct * PoolBalance + FloorAmt
+    /// </summary>
+    public string FormulaType { get; init; } = "max";
+
+    /// <summary>
+    /// Calculate target OC given a pool balance.
+    /// </summary>
+    public double CalculateTargetOc(double poolBalance)
+    {
+        var targetPoolBalance = UseInitialBalance ? InitialPoolBalance!.Value : poolBalance;
+
+        return FormulaType?.ToLowerInvariant() switch
+        {
+            "sum_of" => TargetPct * targetPoolBalance + FloorAmt,
+            _ => Math.Max(TargetPct * targetPoolBalance, FloorAmt)
+        };
+    }
 }

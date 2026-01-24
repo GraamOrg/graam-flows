@@ -86,21 +86,35 @@ public class DealDto
 
 /// <summary>
 /// OC target configuration for auto ABS turbo paydown.
-/// Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
+/// Target OC calculation depends on FormulaType:
+/// - "max" (default): MAX(TargetPct * PoolBalance, FloorAmt)
+/// - "sum_of": TargetPct * PoolBalance + FloorAmt
 /// </summary>
 public class OcTargetDto
 {
     /// <summary>Target OC as percentage of pool balance (e.g., 0.2335 = 23.35%)</summary>
+    [JsonPropertyName("target_pct")]
     public double TargetPct { get; set; }
 
     /// <summary>Floor OC amount in dollars (e.g., 9058854)</summary>
+    [JsonPropertyName("floor_amt")]
     public double FloorAmt { get; set; }
 
     /// <summary>Optional: Floor as percentage of cutoff balance (e.g., 0.015 = 1.5%)</summary>
+    [JsonPropertyName("floor_pct")]
     public double? FloorPct { get; set; }
 
     /// <summary>Optional: Cutoff pool balance for floor calculation</summary>
+    [JsonPropertyName("cutoff_balance")]
     public double? CutoffBalance { get; set; }
+
+    /// <summary>
+    /// Formula type for OC target calculation:
+    /// - "max" (default): Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
+    /// - "sum_of": Target OC = TargetPct * PoolBalance + FloorAmt
+    /// </summary>
+    [JsonPropertyName("formula_type")]
+    public string? FormulaType { get; set; }
 }
 
 public class DealVariableDto
@@ -339,6 +353,7 @@ public class WaterfallStepDto
     ///     OC target for EXCESS_TURBO step.
     ///     Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
     /// </summary>
+    [JsonPropertyName("oc_target")]
     public OcTargetDto? OcTarget { get; set; }
 }
 

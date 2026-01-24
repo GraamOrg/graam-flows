@@ -81,6 +81,7 @@ public class WalValidator
                 if (verbose)
                     Console.WriteLine($"Testing {trancheName} at ABS={scenario.AbsPct:P0}, CPR={cpr:P2}...");
 
+
                 // Run waterfall with this ABS prepayment speed
                 // Note: absPercentages in walScenarios are already in percentage form (e.g., 2.0 = 2%)
                 // Use ABS prepayment convention (prepay as % of original balance) for Auto ABS deals
