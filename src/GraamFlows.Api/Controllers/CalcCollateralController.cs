@@ -3,6 +3,7 @@ using GraamFlows.Api.Models;
 using GraamFlows.Assumptions;
 using GraamFlows.Domain;
 using GraamFlows.Objects.DataObjects;
+using GraamFlows.Objects.Functions;
 using GraamFlows.Objects.TypeEnum;
 using GraamFlows.Objects.Util;
 using Microsoft.AspNetCore.Mvc;
@@ -68,27 +69,55 @@ public class CalcCollateralController : ControllerBase
 
     private static DealLevelAssumptions CreateAssumptions(DateTime projectionDate, int anchorAbsT, AssumptionsDto dto)
     {
-        // Check if any vector strings are provided
-        var hasVectors = !string.IsNullOrEmpty(dto.CprVector) ||
-                         !string.IsNullOrEmpty(dto.CdrVector) ||
-                         !string.IsNullOrEmpty(dto.SeverityVector) ||
-                         !string.IsNullOrEmpty(dto.DelinquencyVector) ||
-                         !string.IsNullOrEmpty(dto.AdvancingVector);
+        // Priority 1: Per-period arrays (e.g., cdrVector: [10.4, 9.8, 8.2, ...])
+        var hasArrays = dto.CprVector != null || dto.CdrVector != null ||
+                        dto.SeverityVector != null || dto.DelinquencyVector != null ||
+                        dto.AdvancingVector != null;
 
-        if (hasVectors)
+        if (hasArrays)
         {
-            // Use vector strings (fall back to scalar as string if vector not provided)
-            var vprStr = dto.CprVector ?? dto.Cpr.ToString();
-            var cdrStr = dto.CdrVector ?? dto.Cdr.ToString();
-            var sevStr = dto.SeverityVector ?? dto.Severity.ToString();
-            var dqStr = dto.DelinquencyVector ?? dto.Delinquency.ToString();
-            var advStr = dto.AdvancingVector ?? dto.Advancing.ToString();
+            var vpr = dto.CprVector != null
+                ? new ArrayVector(anchorAbsT, dto.CprVector)
+                : (IAnchorableVector)new ConstVector(anchorAbsT, dto.Cpr);
+            var cdr = dto.CdrVector != null
+                ? new ArrayVector(anchorAbsT, dto.CdrVector)
+                : (IAnchorableVector)new ConstVector(anchorAbsT, dto.Cdr);
+            var sev = dto.SeverityVector != null
+                ? new ArrayVector(anchorAbsT, dto.SeverityVector)
+                : (IAnchorableVector)new ConstVector(anchorAbsT, dto.Severity);
+            var delinq = dto.DelinquencyVector != null
+                ? new ArrayVector(anchorAbsT, dto.DelinquencyVector)
+                : (IAnchorableVector)new ConstVector(anchorAbsT, dto.Delinquency);
+            var adv = dto.AdvancingVector != null
+                ? new ArrayVector(anchorAbsT, dto.AdvancingVector)
+                : (IAnchorableVector)new ConstVector(anchorAbsT, dto.Advancing);
+
+            var assetAssumps = new AssetAssumptions(PrepaymentTypeEnum.CPR, vpr,
+                DefaultTypeEnum.CDR, cdr, sev,
+                DelinqRateTypeEnum.PctCurrBal, delinq, adv, adv);
+            return new DealLevelAssumptions(projectionDate, assetAssumps);
+        }
+
+        // Priority 2: PolyPaths format strings (legacy)
+        var hasVectorStrs = !string.IsNullOrEmpty(dto.CprVectorStr) ||
+                            !string.IsNullOrEmpty(dto.CdrVectorStr) ||
+                            !string.IsNullOrEmpty(dto.SeverityVectorStr) ||
+                            !string.IsNullOrEmpty(dto.DelinquencyVectorStr) ||
+                            !string.IsNullOrEmpty(dto.AdvancingVectorStr);
+
+        if (hasVectorStrs)
+        {
+            var vprStr = dto.CprVectorStr ?? dto.Cpr.ToString();
+            var cdrStr = dto.CdrVectorStr ?? dto.Cdr.ToString();
+            var sevStr = dto.SeverityVectorStr ?? dto.Severity.ToString();
+            var dqStr = dto.DelinquencyVectorStr ?? dto.Delinquency.ToString();
+            var advStr = dto.AdvancingVectorStr ?? dto.Advancing.ToString();
 
             return DealLevelAssumptions.CreateConstAssumptions(
                 projectionDate, anchorAbsT, vprStr, cdrStr, sevStr, dqStr, advStr);
         }
 
-        // Use scalar values
+        // Priority 3: Scalar values
         return DealLevelAssumptions.CreateConstAssumptions(
             projectionDate, anchorAbsT,
             dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, dto.Advancing);

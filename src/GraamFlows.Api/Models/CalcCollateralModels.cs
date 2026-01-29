@@ -54,13 +54,21 @@ public class AssumptionsDto
     public double Delinquency { get; set; } = 0.0; // Delinquency rate %
     public double Advancing { get; set; } = 100.0; // Advancing rate %
 
-    // Vector strings (PolyPaths format: "6.0", "1.0R12,6.0", "6.0/12", "202301,1.0R12,6.0")
-    // If provided, these override the scalar values above
-    public string? CprVector { get; set; }
-    public string? CdrVector { get; set; }
-    public string? SeverityVector { get; set; }
-    public string? DelinquencyVector { get; set; }
-    public string? AdvancingVector { get; set; }
+    // Per-period arrays — if provided, these override the scalar values above.
+    // Each element is one period's rate (e.g., [10.4, 9.8, 8.2, ...] for monthly CDR %).
+    public double[]? CprVector { get; set; }
+    public double[]? CdrVector { get; set; }
+    public double[]? SeverityVector { get; set; }
+    public double[]? DelinquencyVector { get; set; }
+    public double[]? AdvancingVector { get; set; }
+
+    // PolyPaths format strings (legacy) — "6.0", "1.0R12,6.0", "6.0/12", "202301,1.0R12,6.0"
+    // Used only if the array version above is not provided.
+    public string? CprVectorStr { get; set; }
+    public string? CdrVectorStr { get; set; }
+    public string? SeverityVectorStr { get; set; }
+    public string? DelinquencyVectorStr { get; set; }
+    public string? AdvancingVectorStr { get; set; }
 }
 
 // ============== Response Models ==============
