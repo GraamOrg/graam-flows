@@ -53,6 +53,18 @@ public static class RunCommand
             getDefaultValue: () => false,
             description: "Verbose output");
 
+        var collatBalOption = new Option<double?>(
+            name: "--collat-bal",
+            description: "Override collateral balance ($)");
+
+        var wacOption = new Option<double?>(
+            name: "--wac",
+            description: "Override weighted average coupon (%)");
+
+        var termOption = new Option<int?>(
+            name: "--term",
+            description: "Override collateral term (months)");
+
         var command = new Command("run", "Run waterfall execution on a deal model")
         {
             dealModelArg,
@@ -63,7 +75,10 @@ public static class RunCommand
             dqOption,
             projectionDateOption,
             factorsOption,
-            verboseOption
+            verboseOption,
+            collatBalOption,
+            wacOption,
+            termOption
         };
 
         command.SetHandler(async (context) =>
@@ -78,7 +93,10 @@ public static class RunCommand
                 Dq = context.ParseResult.GetValueForOption(dqOption),
                 ProjectionDate = context.ParseResult.GetValueForOption(projectionDateOption),
                 FactorsFile = context.ParseResult.GetValueForOption(factorsOption),
-                Verbose = context.ParseResult.GetValueForOption(verboseOption)
+                Verbose = context.ParseResult.GetValueForOption(verboseOption),
+                CollatBal = context.ParseResult.GetValueForOption(collatBalOption),
+                Wac = context.ParseResult.GetValueForOption(wacOption),
+                Term = context.ParseResult.GetValueForOption(termOption)
             };
 
             context.ExitCode = await ExecuteAsync(options);
@@ -140,6 +158,37 @@ public static class RunCommand
 
             if (options.Verbose)
                 Console.WriteLine($"Built {assets.Count} collateral assets");
+
+            // Apply collateral overrides from CLI
+            if (options.CollatBal.HasValue || options.Wac.HasValue || options.Term.HasValue)
+            {
+                foreach (var asset in assets)
+                {
+                    if (options.CollatBal.HasValue)
+                    {
+                        asset.CurrentBalance = options.CollatBal.Value;
+                        asset.BalanceAtIssuance = options.CollatBal.Value;
+                        asset.OriginalBalance = options.CollatBal.Value;
+                    }
+
+                    if (options.Wac.HasValue)
+                    {
+                        asset.CurrentInterestRate = options.Wac.Value;
+                        asset.OriginalInterestRate = options.Wac.Value;
+                    }
+
+                    if (options.Term.HasValue)
+                        asset.OriginalAmortizationTerm = options.Term.Value;
+                }
+
+                if (options.Verbose)
+                {
+                    Console.WriteLine($"Collateral overrides applied:"
+                        + (options.CollatBal.HasValue ? $" balance=${options.CollatBal.Value:N0}" : "")
+                        + (options.Wac.HasValue ? $" wac={options.Wac.Value}%" : "")
+                        + (options.Term.HasValue ? $" term={options.Term.Value}mo" : ""));
+                }
+            }
 
             // Run waterfall
             var runner = new WaterfallRunner();

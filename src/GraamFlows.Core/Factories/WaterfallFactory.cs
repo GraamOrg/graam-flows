@@ -9,8 +9,8 @@ public static class WaterfallFactory
         return cashflowEngineName switch
         {
             "ComposableStructure" => new ComposableStructure(),
-            _ => throw new ArgumentException(
-                $"{cashflowEngineName} is not supported. Available: ComposableStructure.")
+            // Default to ComposableStructure for any other value (Sequential, ProRata, etc.)
+            _ => new ComposableStructure()
         };
     }
 }

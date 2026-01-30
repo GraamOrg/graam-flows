@@ -180,6 +180,51 @@ public class DealModelLoader
         if (model.Deal.Tranches.Count == 0)
             throw new InvalidOperationException("At least one tranche is required");
 
+        // If no Collateral section exists, try to build one from deal-level fields.
+        // Deal JSON from graam-harmony may have collateralBalance/balanceAtIssuance at root
+        // plus collateral characteristics embedded in a "collateral" object.
+        if (model.Collateral == null && model.PoolStratification == null)
+        {
+            // Try parsing a root-level "collateral" object
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("collateral", out var collateralEl) && collateralEl.ValueKind == JsonValueKind.Object)
+            {
+                model.Collateral = JsonSerializer.Deserialize<CollateralSection>(collateralEl.GetRawText(), _jsonOptions);
+            }
+
+            // If still no collateral section, synthesize from top-level fields
+            if (model.Collateral == null)
+            {
+                double? balance = null;
+                double? wac = null;
+                double? wam = null;
+
+                if (root.TryGetProperty("collateralBalance", out var cbEl) && cbEl.ValueKind == JsonValueKind.Number)
+                    balance = cbEl.GetDouble();
+                else if (root.TryGetProperty("balanceAtIssuance", out var baiEl) && baiEl.ValueKind == JsonValueKind.Number)
+                    balance = baiEl.GetDouble();
+                else if (model.Deal.BalanceAtIssuance.HasValue && model.Deal.BalanceAtIssuance > 0)
+                    balance = model.Deal.BalanceAtIssuance;
+
+                if (root.TryGetProperty("wac", out var wacEl) && wacEl.ValueKind == JsonValueKind.Number)
+                    wac = wacEl.GetDouble();
+                if (root.TryGetProperty("wam", out var wamEl) && wamEl.ValueKind == JsonValueKind.Number)
+                    wam = wamEl.GetDouble();
+
+                if (balance.HasValue && balance > 0)
+                {
+                    model.Collateral = new CollateralSection
+                    {
+                        TotalBalance = balance,
+                        Wac = wac,
+                        Wam = wam
+                    };
+                }
+            }
+        }
+
         return model;
     }
 

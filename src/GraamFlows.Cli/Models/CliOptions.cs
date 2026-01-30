@@ -12,6 +12,11 @@ public class RunOptions
     public FileInfo? FactorsFile { get; set; }
     public bool Verbose { get; set; }
 
+    // Collateral overrides
+    public double? CollatBal { get; set; }
+    public double? Wac { get; set; }
+    public int? Term { get; set; }
+
     public string GetOutputPath(string dealName)
     {
         if (OutputFile != null)
