@@ -210,8 +210,13 @@ public class DealModelLoader
 
                 if (root.TryGetProperty("wac", out var wacEl) && wacEl.ValueKind == JsonValueKind.Number)
                     wac = wacEl.GetDouble();
+                else if (root.TryGetProperty("wavgRate", out var wrEl) && wrEl.ValueKind == JsonValueKind.Number)
+                    wac = wrEl.GetDouble();
+
                 if (root.TryGetProperty("wam", out var wamEl) && wamEl.ValueKind == JsonValueKind.Number)
                     wam = wamEl.GetDouble();
+                else if (root.TryGetProperty("wavgTerm", out var wtEl) && wtEl.ValueKind == JsonValueKind.Number)
+                    wam = wtEl.GetDouble();
 
                 if (balance.HasValue && balance > 0)
                 {
@@ -219,7 +224,9 @@ public class DealModelLoader
                     {
                         TotalBalance = balance,
                         Wac = wac,
-                        Wam = wam
+                        Wam = wam,
+                        OriginalTerm = wam.HasValue ? (int)Math.Round(wam.Value) : null,
+                        Wala = 0
                     };
                 }
             }

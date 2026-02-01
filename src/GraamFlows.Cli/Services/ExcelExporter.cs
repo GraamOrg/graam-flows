@@ -466,27 +466,27 @@ public class ExcelExporter
             sheet.Cell(row, col).Value = Sanitize(cf.Expenses);
             sheet.Cell(row, col++).Style.NumberFormat.Format = "#,##0.00";
 
-            // Weighted averages
+            // Weighted averages (already in percentage form, e.g. 5.0 = 5%)
             sheet.Cell(row, col).Value = Sanitize(cf.WAC);
-            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00%";
+            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
             sheet.Cell(row, col).Value = Sanitize(cf.NetWac);
-            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00%";
+            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
             sheet.Cell(row, col).Value = Sanitize(cf.EffectiveWac);
-            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00%";
+            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
             sheet.Cell(row, col).Value = Sanitize(cf.WAM);
             sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
             sheet.Cell(row, col).Value = Sanitize(cf.WALA);
             sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
 
-            // Rates (annualized)
+            // Rates (annualized, already in percentage form e.g. 8.0 = 8%)
             sheet.Cell(row, col).Value = Sanitize(cf.VPR);
-            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00%";
+            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
             sheet.Cell(row, col).Value = Sanitize(cf.CDR);
-            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00%";
+            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
             sheet.Cell(row, col).Value = Sanitize(cf.SEV);
-            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00%";
+            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
             sheet.Cell(row, col).Value = Sanitize(cf.DQ);
-            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00%";
+            sheet.Cell(row, col++).Style.NumberFormat.Format = "0.00";
             sheet.Cell(row, col).Value = Sanitize(cf.DelinqBalance);
             sheet.Cell(row, col++).Style.NumberFormat.Format = "#,##0.00";
 
