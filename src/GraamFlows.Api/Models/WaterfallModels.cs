@@ -1,6 +1,26 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace GraamFlows.Api.Models;
+
+/// <summary>
+/// Deserializes JSON null as 0.0 for non-nullable double fields.
+/// </summary>
+public class NullableDoubleAsZeroConverter : JsonConverter<double>
+{
+    public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return 0.0;
+        return reader.GetDouble();
+    }
+
+    public override void Write(Utf8JsonWriter writer, double value, JsonSerializerOptions options)
+    {
+        writer.WriteNumberValue(value);
+    }
+}
+
 // ============== Request Models ==============
 
 public class WaterfallRequest
@@ -162,6 +182,8 @@ public class ExShareDto
 public class TrancheDto
 {
     public string TrancheName { get; set; } = "";
+
+    [System.Text.Json.Serialization.JsonConverter(typeof(NullableDoubleAsZeroConverter))]
     public double OriginalBalance { get; set; }
     public double Factor { get; set; } = 1.0;
     public string CouponType { get; set; } = "Fixed"; // Fixed, Floating, TrancheWac, None, ResidualInterest
@@ -178,9 +200,9 @@ public class TrancheDto
     public string CashflowType { get; set; } = "PI"; // PI, IO, PO
     public string TrancheType { get; set; } = "Offered"; // Offered, Residual, Notional
     public string? ClassReference { get; set; }
-    public DateTime FirstPayDate { get; set; }
-    public DateTime StatedMaturityDate { get; set; }
-    public DateTime LegalMaturityDate { get; set; }
+    public DateTime? FirstPayDate { get; set; }
+    public DateTime? StatedMaturityDate { get; set; }
+    public DateTime? LegalMaturityDate { get; set; }
     public string? CouponFormula { get; set; }
     public int SubordinationOrder { get; set; } // 0 = most senior
     public string GroupNum { get; set; } = "0";

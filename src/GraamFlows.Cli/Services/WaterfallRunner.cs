@@ -120,13 +120,11 @@ public class WaterfallRunner
                 CashflowType = trancheDto.CashflowType,
                 TrancheType = MapTrancheType(trancheDto.TrancheType),
                 ClassReference = trancheDto.ClassReference ?? trancheDto.TrancheName,
-                FirstPayDate = trancheDto.FirstPayDate,
-                StatedMaturityDate = trancheDto.StatedMaturityDate,
-                LegalMaturityDate = trancheDto.LegalMaturityDate != default
-                    ? trancheDto.LegalMaturityDate
-                    : trancheDto.StatedMaturityDate.AddYears(2),
-                FirstSettleDate = trancheDto.FirstPayDate != default
-                    ? trancheDto.FirstPayDate.AddMonths(-1)
+                FirstPayDate = trancheDto.FirstPayDate ?? factorDate,
+                StatedMaturityDate = trancheDto.StatedMaturityDate ?? trancheDto.LegalMaturityDate ?? factorDate.AddYears(10),
+                LegalMaturityDate = trancheDto.LegalMaturityDate ?? trancheDto.StatedMaturityDate?.AddYears(2) ?? factorDate.AddYears(12),
+                FirstSettleDate = trancheDto.FirstPayDate.HasValue
+                    ? trancheDto.FirstPayDate.Value.AddMonths(-1)
                     : factorDate,
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,

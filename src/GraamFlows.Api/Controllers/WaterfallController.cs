@@ -133,15 +133,13 @@ public class WaterfallController : ControllerBase
                 CashflowType = trancheDto.CashflowType,
                 TrancheType = trancheDto.TrancheType,
                 ClassReference = trancheDto.ClassReference ?? trancheDto.TrancheName,
-                FirstPayDate = trancheDto.FirstPayDate,
-                StatedMaturityDate = trancheDto.StatedMaturityDate,
-                LegalMaturityDate = trancheDto.LegalMaturityDate != default
-                    ? trancheDto.LegalMaturityDate
-                    : trancheDto.StatedMaturityDate.AddYears(2),
+                FirstPayDate = trancheDto.FirstPayDate ?? factorDate,
+                StatedMaturityDate = trancheDto.StatedMaturityDate ?? trancheDto.LegalMaturityDate ?? factorDate.AddYears(10),
+                LegalMaturityDate = trancheDto.LegalMaturityDate ?? trancheDto.StatedMaturityDate?.AddYears(2) ?? factorDate.AddYears(12),
                 // For seasoned deals, FirstSettleDate should be before FirstPayDate
                 // Default to one month before FirstPayDate for monthly deals
-                FirstSettleDate = trancheDto.FirstPayDate != default
-                    ? trancheDto.FirstPayDate.AddMonths(-1)
+                FirstSettleDate = trancheDto.FirstPayDate.HasValue
+                    ? trancheDto.FirstPayDate.Value.AddMonths(-1)
                     : factorDate,
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,

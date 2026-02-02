@@ -211,8 +211,8 @@ public class CollateralBuilder
     private static DateTime GetFirstPayDate(DealModelFile dealModel)
     {
         var firstPayDate = dealModel.Deal.Tranches
-            .Where(t => t.FirstPayDate != default)
-            .Select(t => t.FirstPayDate)
+            .Where(t => t.FirstPayDate.HasValue && t.FirstPayDate != default)
+            .Select(t => t.FirstPayDate!.Value)
             .DefaultIfEmpty(DateTime.Today.AddMonths(1))
             .Min();
 
