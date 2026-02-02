@@ -1,4 +1,5 @@
 using GraamFlows.Objects.DataObjects;
+using GraamFlows.Objects.TypeEnum;
 using GraamFlows.RulesEngine;
 using GraamFlows.Triggers;
 using GraamFlows.Util;
@@ -185,29 +186,27 @@ public class ComposableStructure : BaseStructure
         // Note: UpdateCertificateBalance is called AFTER principal payments to ensure
         // both pool and note balances are at end-of-period values for correct OC calculation.
 
-        // Calculate OC release BEFORE principal allocation
-        // This reduces principal available to notes so OC can be released to CERTIFICATE
-        var ocRelease = CalculateOcRelease(deal, dynGroup, adjPeriodCf,
-            availableSchedPrin + availablePrepayPrin + availableRecovPrin);
-        if (ocRelease > 0)
+        // OC release: reduce scheduled principal to notes when OC exceeds target,
+        // maintaining OC at the target level. This matches auto ABS prospectus mechanics
+        // where excess principal above the OC target is released to certificate holders.
+        dynGroup.SetVariable("oc_release_amount", 0.0);
+        if (deal.OcTargetConfig != null)
         {
-            // Reduce principal available to notes proportionally
-            var totalPrin = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
-            if (totalPrin > 0)
+            var ocRelease = CalculateOcRelease(deal, dynGroup, adjPeriodCf,
+                availableSchedPrin + availablePrepayPrin + availableRecovPrin);
+            if (ocRelease > 0)
             {
-                var reduction = Math.Min(ocRelease, totalPrin);
-                var ratio = (totalPrin - reduction) / totalPrin;
-                availableSchedPrin *= ratio;
-                availablePrepayPrin *= ratio;
-                availableRecovPrin *= ratio;
-
-                // Store OC release for EXCESS_TURBO step to pay to CERTIFICATE
-                dynGroup.SetVariable("oc_release_amount", reduction);
+                var totalPrin = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
+                if (totalPrin > 0)
+                {
+                    var reduction = Math.Min(ocRelease, totalPrin);
+                    var ratio = (totalPrin - reduction) / totalPrin;
+                    availableSchedPrin *= ratio;
+                    availablePrepayPrin *= ratio;
+                    availableRecovPrin *= ratio;
+                    dynGroup.SetVariable("oc_release_amount", reduction);
+                }
             }
-        }
-        else
-        {
-            dynGroup.SetVariable("oc_release_amount", 0.0);
         }
 
         // Execute steps in order
@@ -528,9 +527,13 @@ public class ComposableStructure : BaseStructure
             if (turboAmount > 0)
             {
                 // Pay down notes (reduces note balance, increases OC)
+                // Track actual amount absorbed — if notes are fully paid off,
+                // PaySp won't absorb anything and funds should remain available.
                 var turboPayable = dynGroup.TurboPayable ?? dynGroup.ScheduledPayable;
+                var noteBalBefore = dynGroup.Balance();
                 turboPayable?.PaySp(null, periodCf.CashflowDate, turboAmount, () => { });
-                availableInterest -= turboAmount;
+                var actualTurboPaid = noteBalBefore - dynGroup.Balance();
+                availableInterest -= actualTurboPaid;
             }
         }
 
@@ -575,15 +578,34 @@ public class ComposableStructure : BaseStructure
 
     /// <summary>
     /// Release remaining excess to certificateholders.
+    /// Records as Interest (not Principal) on certificate cashflows to avoid
+    /// conflicting with UpdateCertificateBalance's balance-derived principal tracking.
     /// </summary>
     private void PayExcessReleaseStep(DynamicGroup dynGroup, PeriodCashflows periodCf,
         double availableInterest)
     {
-        if (dynGroup.ReleasePayable == null || availableInterest <= 0)
+        if (availableInterest <= 0)
             return;
 
-        // Release to certificates
-        dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, availableInterest, () => { });
+        // Find certificate classes and record excess interest directly
+        var certificateClasses = dynGroup.DynamicClasses
+            .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+            .ToList();
+
+        if (certificateClasses.Any())
+        {
+            // Record excess interest on certificate cashflows
+            foreach (var certClass in certificateClasses)
+            {
+                var cf = certClass.GetCashflow(periodCf.CashflowDate);
+                cf.Interest += availableInterest;
+            }
+        }
+        else if (dynGroup.ReleasePayable != null)
+        {
+            // Fallback: use PaySp for non-certificate release payables
+            dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, availableInterest, () => { });
+        }
     }
 
     public override List<InputField> GetInputs(IDeal deal)

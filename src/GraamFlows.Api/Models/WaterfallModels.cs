@@ -110,6 +110,14 @@ public class OcTargetDto
     /// - "sum_of": Target OC = TargetPct * PoolBalance + FloorAmt
     /// </summary>
     public string? FormulaType { get; set; }
+
+    /// <summary>
+    /// If true, OC target is based on cutoff/initial pool balance (static target).
+    /// If false (default), OC target is based on current pool balance (dynamic target).
+    /// Most auto ABS deals use current pool balance: "X% of aggregate Collateral Balance
+    /// as of the end of the related collection period."
+    /// </summary>
+    public bool UseInitialBalance { get; set; }
 }
 
 public class DealVariableDto

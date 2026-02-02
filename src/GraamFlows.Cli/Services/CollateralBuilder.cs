@@ -41,26 +41,23 @@ public class CollateralBuilder
         foreach (var pool in poolStrat.Pools!)
         {
             var wam = pool.RemainingTermMonths;
-            var originalTerm = pool.OriginalTermMonths;
-            var wala = originalTerm - wam;
-            var originationDate = pool.NextPaymentDate?.AddMonths(-wala) ?? firstPayDate.AddMonths(-wala);
 
-            // For pool stratification, use remaining term for amortization calculation.
-            // The aggregate balance represents the current pool balance, which should
-            // amortize over the remaining term, not the original term.
-            // This matches the prospectus convention of level amortization over WAM.
+            // Set OriginalDate so that age=0 at projection start (firstPayDate).
+            // CfCore calculates age = CalcAbsT(projectionDate) - CalcAbsT(OriginalDate) - 1.
+            // Setting OriginalDate = firstPayDate gives age = 0, so the pool generates
+            // exactly 'wam' periods of cashflows starting from the first projection period.
             var asset = new Asset
             {
                 AssetId = $"POOL_{pool.PoolNum}",
                 AssetName = $"Pool {pool.PoolNum}",
-                GroupNum = "1", // All pools share the same group as tranches
+                GroupNum = "1",
                 CurrentBalance = pool.AggregateBalance,
                 BalanceAtIssuance = pool.AggregateBalance,
                 OriginalBalance = pool.AggregateBalance,
                 CurrentInterestRate = pool.GrossApr,
                 OriginalInterestRate = pool.GrossApr,
-                OriginalAmortizationTerm = wam, // Use remaining term for correct payment calculation
-                OriginalDate = firstPayDate, // Set to first pay date since we're using remaining term
+                OriginalAmortizationTerm = wam,
+                OriginalDate = firstPayDate,
                 ServiceFee = 0.0,
                 LoanStatus = "Current",
                 InterestRateType = InterestRateType.FRM,

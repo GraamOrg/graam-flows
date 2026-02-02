@@ -455,6 +455,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     }
     
     /// <summary>
+    /// WARNING This code needs review. Balance updates and cashflow release from certificates should happens as part of the deal model.
     /// Updates Certificate tranche balance to reflect current OC.
     /// OC = Pool Balance - Note Balance
     /// </summary>
@@ -476,6 +477,12 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             // Record the cashflow to track balance over time
             var cf = certClass.GetCashflow(cashflowDate);
             cf.BeginBalance = certClass.Balance;
+
+            // Record principal paydown when certificate balance decreases
+            var balanceChange = certClass.Balance - ocBalance;
+            if (balanceChange > 0)
+                cf.ScheduledPrincipal += balanceChange;
+
             certClass.SetBalance(ocBalance);
             cf.Balance = ocBalance;
         }

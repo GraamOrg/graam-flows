@@ -31,6 +31,14 @@ public class WalValidator
         var collateralBuilder = new CollateralBuilder();
         var assets = collateralBuilder.BuildAssets(dealModel);
 
+        if (verbose)
+        {
+            Console.WriteLine($"  Built {assets.Count} collateral asset(s)");
+            Console.WriteLine($"  Pool stratification pools: {dealModel.PoolStratification?.Pools?.Count ?? 0}");
+            foreach (var a in assets)
+                Console.WriteLine($"    {a.AssetId}: bal={a.CurrentBalance:N2}, rate={a.CurrentInterestRate:F3}%, term={a.OriginalAmortizationTerm}, origDate={a.OriginalDate:yyyy-MM-dd}");
+        }
+
         // Determine projection date
         var projectionDate = dealModel.ProjectionDate
             ?? dealModel.WalScenarios.Assumptions?.FirstDistributionDate
@@ -193,7 +201,7 @@ public class WalValidator
         {
             var principal = c.ScheduledPrincipal + c.UnscheduledPrincipal;
             // Use issuance date as reference per prospectus WAL definition
-            var yearsFromIssuance = (c.CashflowDate - issuanceDate).TotalDays / 365.25;
+            var yearsFromIssuance = (c.CashflowDate - issuanceDate).TotalDays / 365.0;
             return principal * yearsFromIssuance;
         });
 

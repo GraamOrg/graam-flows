@@ -147,7 +147,7 @@ public static class WalTestsCommand
 
         Console.WriteLine($"Running single scenario: ABS={absPct}%, CPR={cpr}%");
 
-        // Build collateral
+        // Build collateral using all pools for accurate amortization profile
         var collateralBuilder = new CollateralBuilder();
         var assets = collateralBuilder.BuildAssets(dealModel);
 

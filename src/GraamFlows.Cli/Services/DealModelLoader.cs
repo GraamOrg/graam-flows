@@ -151,7 +151,7 @@ public class DealModelLoader
         PropertyNameCaseInsensitive = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
-        Converters = { new FactorEntryConverter() }
+        Converters = { new FlexibleDateTimeConverter(), new FactorEntryConverter() }
     };
 
     public async Task<DealModelFile> LoadAsync(string filePath)
@@ -240,6 +240,43 @@ public class DealModelLoader
         var json = await File.ReadAllTextAsync(filePath);
         return JsonSerializer.Deserialize<Dictionary<string, FactorEntry>>(json, _jsonOptions)
             ?? new Dictionary<string, FactorEntry>();
+    }
+}
+
+/// <summary>
+/// Handles partial date strings like "2024-05" by defaulting to the last day of the month.
+/// </summary>
+public class FlexibleDateTimeConverter : JsonConverter<DateTime?>
+{
+    public override DateTime? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+
+        var str = reader.GetString();
+        if (string.IsNullOrEmpty(str))
+            return null;
+
+        if (DateTime.TryParse(str, out var dt))
+            return dt;
+
+        // Handle "YYYY-MM" → last day of month
+        if (str.Length == 7 && str[4] == '-'
+            && int.TryParse(str[..4], out var year)
+            && int.TryParse(str[5..], out var month))
+        {
+            return new DateTime(year, month, DateTime.DaysInMonth(year, month));
+        }
+
+        throw new JsonException($"Cannot parse date: '{str}'");
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTime? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+            writer.WriteStringValue(value.Value.ToString("yyyy-MM-dd"));
+        else
+            writer.WriteNullValue();
     }
 }
 

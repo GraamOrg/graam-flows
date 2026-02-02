@@ -35,6 +35,13 @@ public record OcTargetConfig
     public string FormulaType { get; init; } = "max";
 
     /// <summary>
+    /// When true, pre-release excess OC by reducing scheduled principal to notes.
+    /// Default is false: all scheduled principal flows to notes per prospectus waterfall,
+    /// and OC naturally drifts above target post-turbo.
+    /// </summary>
+    public bool ReleaseExcessOc { get; init; }
+
+    /// <summary>
     /// Calculate target OC given a pool balance.
     /// </summary>
     public double CalculateTargetOc(double poolBalance)

@@ -278,9 +278,12 @@ public class WaterfallRunner
             if (floorAmt == 0 && ocTarget.FloorPct.HasValue && ocTarget.CutoffBalance.HasValue)
                 floorAmt = ocTarget.FloorPct.Value * ocTarget.CutoffBalance.Value;
 
-            // Use initial pool balance (cut-off balance) for static OC target calculation
-            // This matches prospectus language like "10.15% of pool balance as of cut-off date"
-            var initialPoolBalance = ocTarget.CutoffBalance ?? dto.BalanceAtIssuance;
+            // Only use initial pool balance when explicitly requested (useInitialBalance: true).
+            // Default: use current pool balance per standard prospectus language like
+            // "X% of aggregate Collateral Balance as of the end of the related collection period"
+            double? initialPoolBalance = null;
+            if (ocTarget.UseInitialBalance)
+                initialPoolBalance = ocTarget.CutoffBalance ?? dto.BalanceAtIssuance;
 
             deal.OcTargetConfig = new OcTargetConfig
             {
