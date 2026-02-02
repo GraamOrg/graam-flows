@@ -54,6 +54,13 @@ public class AssumptionsDto
     public double Delinquency { get; set; } = 0.0; // Delinquency rate %
     public double Advancing { get; set; } = 100.0; // Advancing rate %
 
+    // Prepayment convention: "CPR" (default, % of current balance) or "ABS" (% of original balance).
+    // Auto ABS deals use "ABS"; RMBS/agency deals use "CPR".
+    public string PrepaymentType { get; set; } = "CPR";
+
+    // Weighted average remaining term (months) — used for ABS-to-SMM amortization adjustment.
+    public int Wam { get; set; } = 0;
+
     // Per-period arrays — if provided, these override the scalar values above.
     // Each element is one period's rate (e.g., [10.4, 9.8, 8.2, ...] for monthly CDR %).
     public double[]? CprVector { get; set; }

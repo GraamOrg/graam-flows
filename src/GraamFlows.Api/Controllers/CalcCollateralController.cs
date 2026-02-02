@@ -92,10 +92,20 @@ public class CalcCollateralController : ControllerBase
                 ? new ArrayVector(anchorAbsT, dto.AdvancingVector)
                 : (IAnchorableVector)new ConstVector(anchorAbsT, dto.Advancing);
 
-            var assetAssumps = new AssetAssumptions(PrepaymentTypeEnum.CPR, vpr,
+            var prepayType = string.Equals(dto.PrepaymentType, "ABS", StringComparison.OrdinalIgnoreCase)
+                ? PrepaymentTypeEnum.ABS
+                : PrepaymentTypeEnum.CPR;
+            var delinqType = prepayType == PrepaymentTypeEnum.ABS
+                ? DelinqRateTypeEnum.PctOrigBal
+                : DelinqRateTypeEnum.PctCurrBal;
+
+            var assetAssumps = new AssetAssumptions(prepayType, vpr,
                 DefaultTypeEnum.CDR, cdr, sev,
-                DelinqRateTypeEnum.PctCurrBal, delinq, adv, adv);
-            return new DealLevelAssumptions(projectionDate, assetAssumps);
+                delinqType, delinq, adv, adv);
+            return new DealLevelAssumptions(projectionDate, assetAssumps)
+            {
+                WeightedAverageRemainingTerm = dto.Wam
+            };
         }
 
         // Priority 2: PolyPaths format strings (legacy)
@@ -118,6 +128,13 @@ public class CalcCollateralController : ControllerBase
         }
 
         // Priority 3: Scalar values
+        if (string.Equals(dto.PrepaymentType, "ABS", StringComparison.OrdinalIgnoreCase))
+        {
+            return DealLevelAssumptions.CreateAbsAssumptions(
+                projectionDate, anchorAbsT,
+                dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, 0, dto.Wam);
+        }
+
         return DealLevelAssumptions.CreateConstAssumptions(
             projectionDate, anchorAbsT,
             dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, dto.Advancing);
