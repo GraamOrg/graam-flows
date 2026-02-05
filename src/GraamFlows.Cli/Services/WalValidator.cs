@@ -16,7 +16,7 @@ public class WalValidationResult
 
 public class WalValidator
 {
-    public List<WalValidationResult> Validate(DealModelFile dealModel, double threshold, bool verbose)
+    public List<WalValidationResult> Validate(DealModelFile dealModel, double threshold, bool verbose, bool useBalanceModel = false)
     {
         var results = new List<WalValidationResult>();
 
@@ -30,6 +30,15 @@ public class WalValidator
 
         var collateralBuilder = new CollateralBuilder();
         var assets = collateralBuilder.BuildAssets(dealModel);
+
+        // Apply servicing fee from WAL assumptions to collateral assets
+        // The prospectus WAL tables assume a specific servicing fee rate that reduces net interest
+        var servicingFeeRate = dealModel.WalScenarios.Assumptions?.ServicingFeeRate ?? 0;
+        if (servicingFeeRate > 0)
+        {
+            foreach (var asset in assets)
+                asset.ServiceFee = servicingFeeRate;
+        }
 
         if (verbose)
         {
@@ -50,6 +59,15 @@ public class WalValidator
 
         // Get issuance date for WAL calculation (prospectus WAL is measured from issuance, not first payment)
         var issuanceDate = dealModel.WalScenarios.Assumptions?.PurchaseDate ?? projectionDate;
+
+        // Get unadjusted payment day for WAL calculation
+        // Prosup WAL tables use contractual payment dates (e.g., 15th), not business-day-adjusted dates
+        var paymentDay = dealModel.WalScenarios.Assumptions?.PaymentDayOfMonth
+            ?? dealModel.Deal.Tranches.FirstOrDefault()?.PayDay
+            ?? 15;
+        var firstDistDate = dealModel.WalScenarios.Assumptions?.FirstDistributionDate
+            ?? dealModel.Deal.Tranches.FirstOrDefault()?.FirstPayDate
+            ?? projectionDate;
 
         // Apply WAL scenario interest rate overrides if provided
         // The prospectus WAL tables may use different rates than the actual note coupons
@@ -105,16 +123,16 @@ public class WalValidator
                     runToCall: cleanUpCallAssumed, // Enable clean-up call trigger for WAL calculation
                     useAbsPrepayment: true); // Use ABS prepayment convention for Auto ABS
 
-                // Calculate WAL for the tranche
+                // Calculate WAL for the tranche using unadjusted payment dates
                 double computedWal;
                 if (trancheName == "All")
                 {
                     // Average WAL across all tranches
-                    computedWal = CalculateAverageWal(result, dealModel, issuanceDate);
+                    computedWal = CalculateAverageWal(result, dealModel, issuanceDate, firstDistDate);
                 }
                 else
                 {
-                    computedWal = CalculateTrancheWal(result, trancheName, dealModel, issuanceDate, verbose);
+                    computedWal = CalculateTrancheWal(result, trancheName, dealModel, issuanceDate, firstDistDate, verbose);
                 }
 
                 var passed = Math.Abs(computedWal - scenario.ExpectedWal) <= threshold;
@@ -154,7 +172,8 @@ public class WalValidator
         return absPct;
     }
 
-    private static double CalculateTrancheWal(WaterfallResult result, string trancheName, DealModelFile? dealModel, DateTime issuanceDate, bool verbose = false)
+    private static double CalculateTrancheWal(WaterfallResult result, string trancheName, DealModelFile? dealModel,
+        DateTime issuanceDate, DateTime firstDistDate, bool verbose = false)
     {
         // First try direct lookup
         if (result.TrancheCashflows.TryGetValue(trancheName, out var cashflows) && cashflows.Count > 0)
@@ -162,7 +181,7 @@ public class WalValidator
             // Get initial balance for the tranche (use as denominator per prospectus WAL definition)
             var initialBalance = dealModel?.Deal.Tranches
                 .FirstOrDefault(t => t.TrancheName == trancheName)?.OriginalBalance ?? 0;
-            return CalculateWalFromCashflows(cashflows, issuanceDate, initialBalance);
+            return CalculateWalFromCashflows(cashflows, issuanceDate, firstDistDate, initialBalance);
         }
 
         // If not found, check if it's a combined class (e.g., "A2" for A2A+A2B)
@@ -174,7 +193,7 @@ public class WalValidator
                 if (verbose)
                     Console.WriteLine($"    (Combined class: {trancheName} -> {string.Join("+", subTranches.Select(t => t.TrancheName))})");
 
-                return CalculateCombinedTrancheWal(result, subTranches, issuanceDate);
+                return CalculateCombinedTrancheWal(result, subTranches, issuanceDate, firstDistDate);
             }
         }
 
@@ -184,8 +203,12 @@ public class WalValidator
     /// <summary>
     /// Calculate WAL from cashflows using the prospectus definition:
     /// WAL = sum(principal * years_from_issuance) / initial_balance
+    ///
+    /// Uses unadjusted payment dates (contractual schedule) rather than business-day-adjusted dates
+    /// to match the prosup WAL table methodology.
     /// </summary>
-    private static double CalculateWalFromCashflows(List<TrancheCashflowDto> cashflows, DateTime issuanceDate, double initialBalance = 0)
+    private static double CalculateWalFromCashflows(List<TrancheCashflowDto> cashflows, DateTime issuanceDate,
+        DateTime firstDistDate, double initialBalance = 0)
     {
         if (cashflows.Count == 0)
             return 0;
@@ -197,13 +220,25 @@ public class WalValidator
         if (denominator <= 0)
             return 0;
 
-        var walNumerator = cashflows.Sum(c =>
+        // Use unadjusted payment dates for WAL calculation.
+        // The prosup WAL table uses contractual dates (e.g., 15th of each month),
+        // not the business-day-adjusted dates from the waterfall engine.
+        // Map each cashflow to the contractual date in the same month.
+        var paymentDay = firstDistDate.Day;
+        var walNumerator = 0.0;
+        foreach (var c in cashflows)
         {
             var principal = c.ScheduledPrincipal + c.UnscheduledPrincipal;
-            // Use issuance date as reference per prospectus WAL definition
-            var yearsFromIssuance = (c.CashflowDate - issuanceDate).TotalDays / 365.0;
-            return principal * yearsFromIssuance;
-        });
+            if (Math.Abs(principal) < 0.01)
+                continue;
+
+            // Map to contractual payment date (same year/month, unadjusted day)
+            var daysInMonth = DateTime.DaysInMonth(c.CashflowDate.Year, c.CashflowDate.Month);
+            var day = Math.Min(paymentDay, daysInMonth);
+            var unadjustedDate = new DateTime(c.CashflowDate.Year, c.CashflowDate.Month, day);
+            var yearsFromIssuance = (unadjustedDate - issuanceDate).TotalDays / 365.0;
+            walNumerator += principal * yearsFromIssuance;
+        }
 
         return walNumerator / denominator;
     }
@@ -222,7 +257,8 @@ public class WalValidator
     /// <summary>
     /// Calculate weighted average WAL for a combined class by combining sub-tranche cashflows.
     /// </summary>
-    private static double CalculateCombinedTrancheWal(WaterfallResult result, List<TrancheDto> subTranches, DateTime issuanceDate)
+    private static double CalculateCombinedTrancheWal(WaterfallResult result, List<TrancheDto> subTranches,
+        DateTime issuanceDate, DateTime firstDistDate)
     {
         var totalBalance = 0.0;
         var weightedWalNumerator = 0.0;
@@ -233,7 +269,7 @@ public class WalValidator
                 continue;
 
             var trancheBalance = tranche.OriginalBalance;
-            var trancheWal = CalculateWalFromCashflows(cashflows, issuanceDate, trancheBalance);
+            var trancheWal = CalculateWalFromCashflows(cashflows, issuanceDate, firstDistDate, trancheBalance);
 
             totalBalance += trancheBalance;
             weightedWalNumerator += trancheBalance * trancheWal;
@@ -242,7 +278,8 @@ public class WalValidator
         return totalBalance > 0 ? weightedWalNumerator / totalBalance : 0;
     }
 
-    private static double CalculateAverageWal(WaterfallResult result, DealModelFile dealModel, DateTime issuanceDate)
+    private static double CalculateAverageWal(WaterfallResult result, DealModelFile dealModel,
+        DateTime issuanceDate, DateTime firstDistDate)
     {
         if (result.TrancheCashflows.Count == 0)
             return 0;
@@ -256,7 +293,7 @@ public class WalValidator
                 continue;
 
             var trancheBalance = tranche.OriginalBalance;
-            var trancheWal = CalculateWalFromCashflows(cashflows, issuanceDate, trancheBalance);
+            var trancheWal = CalculateWalFromCashflows(cashflows, issuanceDate, firstDistDate, trancheBalance);
 
             totalBalance += trancheBalance;
             weightedWal += trancheBalance * trancheWal;

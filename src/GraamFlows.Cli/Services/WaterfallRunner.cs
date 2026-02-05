@@ -34,6 +34,10 @@ public class WaterfallRunner
         bool runToCall = false,
         bool useAbsPrepayment = false)
     {
+        // Propagate closing date from top-level DealModelFile to DealDto
+        if (dealModel.ClosingDate.HasValue && !dealModel.Deal.ClosingDate.HasValue)
+            dealModel.Deal.ClosingDate = dealModel.ClosingDate;
+
         // Build deal structure from DTO
         var deal = BuildDeal(dealModel.Deal, projectionDate, factors);
         foreach (var asset in assets)
@@ -123,9 +127,11 @@ public class WaterfallRunner
                 FirstPayDate = trancheDto.FirstPayDate ?? factorDate,
                 StatedMaturityDate = trancheDto.StatedMaturityDate ?? trancheDto.LegalMaturityDate ?? factorDate.AddYears(10),
                 LegalMaturityDate = trancheDto.LegalMaturityDate ?? trancheDto.StatedMaturityDate?.AddYears(2) ?? factorDate.AddYears(12),
-                FirstSettleDate = trancheDto.FirstPayDate.HasValue
-                    ? trancheDto.FirstPayDate.Value.AddMonths(-1)
-                    : factorDate,
+                FirstSettleDate = dto.ClosingDate.HasValue
+                    ? dto.ClosingDate.Value
+                    : trancheDto.FirstPayDate.HasValue
+                        ? trancheDto.FirstPayDate.Value.AddMonths(-1)
+                        : factorDate,
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,
                 Deal = deal,

@@ -77,8 +77,10 @@ public class CfCore
             var prepaymentType = firstAssetAssumps?.PrepaymentType ?? Objects.TypeEnum.PrepaymentTypeEnum.CPR;
 
             // Build assumption arrays
-            // For ABS prepayment type, use time-varying ABS-to-SMM conversion with amortization adjustment
-            // The formula accounts for balance declining from both prepayment and scheduled amortization
+            // For ABS prepayment type, use time-varying ABS-to-SMM conversion
+            // SMM = ABS / (100 - ABS * (n-1)) where n is the period number (1-indexed)
+            // This formula is mathematically exact for the ABS convention where a constant fraction
+            // of the original NUMBER of receivables prepay each month.
             var smmTime = prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.ABS
                 ? BuildAbsAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, poolAgeOffset, wam)
                 : BuildAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, true);

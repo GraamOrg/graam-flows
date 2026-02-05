@@ -62,6 +62,8 @@ public class Asset : IAsset
 
     [Database("Step_Rates_List")] public string StepRatesList { get; set; }
 
+    public int Wala { get; set; }
+
     public override int GetHashCode()
     {
         return AssetId?.GetHashCode() ?? 0;

@@ -32,4 +32,10 @@ public interface IAsset
     double? ForbearanceAmt { get; set; }
     string StepDatesList { get; set; }
     string StepRatesList { get; set; }
+
+    /// <summary>
+    ///     Weighted average loan age in months. Used for ABS-to-SMM conversion where
+    ///     the pool's seasoning affects the prepayment rate formula.
+    /// </summary>
+    int Wala { get; set; }
 }

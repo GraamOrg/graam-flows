@@ -102,6 +102,13 @@ public class DealDto
     public string? Issuer { get; set; }
     public string? InterestTreatment { get; set; } = "Collateral";
     public double? BalanceAtIssuance { get; set; }
+
+    /// <summary>
+    /// Closing/settlement date of the deal. Used to set FirstSettleDate on tranches
+    /// for accurate first-period interest accrual. If not set, FirstSettleDate defaults
+    /// to FirstPayDate minus one month.
+    /// </summary>
+    public DateTime? ClosingDate { get; set; }
 }
 
 /// <summary>

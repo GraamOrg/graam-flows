@@ -151,6 +151,16 @@ public static class WalTestsCommand
         var collateralBuilder = new CollateralBuilder();
         var assets = collateralBuilder.BuildAssets(dealModel);
 
+        // Apply servicing fee from WAL assumptions to collateral assets
+        var servicingFeeRate = dealModel.WalScenarios?.Assumptions?.ServicingFeeRate ?? 0;
+        if (servicingFeeRate > 0)
+        {
+            foreach (var asset in assets)
+                asset.ServiceFee = servicingFeeRate;
+            if (options.Verbose)
+                Console.WriteLine($"Applied servicing fee: {servicingFeeRate}% to {assets.Count} asset(s)");
+        }
+
         // Determine projection date
         var projectionDate = dealModel.ProjectionDate
             ?? dealModel.WalScenarios?.Assumptions?.FirstDistributionDate
@@ -165,6 +175,22 @@ public static class WalTestsCommand
 
         // Check if clean-up call should be assumed (for WAL calculation)
         var cleanUpCallAssumed = dealModel.WalScenarios?.Assumptions?.CleanUpCallAssumed ?? true;
+
+        // Apply WAL scenario interest rate overrides to match prospectus assumptions
+        if (dealModel.WalScenarios?.Assumptions?.InterestRates != null)
+        {
+            foreach (var rateOverride in dealModel.WalScenarios.Assumptions.InterestRates)
+            {
+                var tranche = dealModel.Deal.Tranches.FirstOrDefault(t =>
+                    t.TrancheName.Equals(rateOverride.TrancheName, StringComparison.OrdinalIgnoreCase));
+                if (tranche != null)
+                {
+                    tranche.FixedCoupon = rateOverride.Rate;
+                    if (options.Verbose)
+                        Console.WriteLine($"Applied WAL rate override: {tranche.TrancheName} -> {rateOverride.Rate}%");
+                }
+            }
+        }
 
         // Run waterfall with ABS prepayment convention (prepay as % of original balance)
         var runner = new WaterfallRunner();
@@ -181,7 +207,20 @@ public static class WalTestsCommand
             useAbsPrepayment: true);
 
         if (options.Verbose)
+        {
             Console.WriteLine($"Waterfall completed: {result.TrancheCashflows.Count} tranches");
+            // Print collateral balance trajectory
+            if (result.CollateralCashflows != null)
+            {
+                var collatPeriods = result.CollateralCashflows.PeriodCashflows;
+                Console.WriteLine($"  Collateral periods: {collatPeriods.Count}");
+                for (var i = 0; i < Math.Min(collatPeriods.Count, 30); i++)
+                {
+                    var pcf = collatPeriods[i];
+                    Console.WriteLine($"    P{i + 1}: EndBal={pcf.Balance:N0}, SchedPrin={pcf.ScheduledPrincipal:N0}, Prepay={pcf.UnscheduledPrincipal:N0}");
+                }
+            }
+        }
 
         // Export full cashflows to Excel
         var outputPath = options.GetOutputPath(dealModel.Deal.DealName);
@@ -206,15 +245,20 @@ public static class WalTestsCommand
                 continue;
 
             var totalPrincipal = cashflows.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
-            var firstPayDate = cashflows.First().CashflowDate;
+
+            // Use same WAL formula as WalValidator: measure from issuance date (purchaseDate)
+            var walIssuanceDate = dealModel.WalScenarios?.Assumptions?.PurchaseDate
+                ?? dealModel.ProjectionDate
+                ?? cashflows.First().CashflowDate;
+            var walDenominator = tranche.OriginalBalance > 0 ? tranche.OriginalBalance : totalPrincipal;
 
             var walNumerator = cashflows.Sum(c =>
             {
                 var principal = c.ScheduledPrincipal + c.UnscheduledPrincipal;
-                var yearsFromStart = (c.CashflowDate - firstPayDate).TotalDays / 365.25;
-                return principal * yearsFromStart;
+                var yearsFromIssuance = (c.CashflowDate - walIssuanceDate).TotalDays / 365.0;
+                return principal * yearsFromIssuance;
             });
-            var wal = totalPrincipal > 0 ? walNumerator / totalPrincipal : 0;
+            var wal = walDenominator > 0 ? walNumerator / walDenominator : 0;
 
             // Check expected WAL if available
             var expectedWal = GetExpectedWal(dealModel, tranche.TrancheName, absPct);

@@ -12,6 +12,8 @@ public class DealModelFile
     public WalScenariosSection? WalScenarios { get; set; }
     public DateTime? ProjectionDate { get; set; }
     public Dictionary<string, FactorEntry>? Factors { get; set; }
+    public DateTime? ClosingDate { get; set; }
+    public DateTime? CutoffDate { get; set; }
 }
 
 public class PoolStratificationSection

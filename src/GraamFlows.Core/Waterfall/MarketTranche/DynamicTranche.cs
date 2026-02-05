@@ -223,9 +223,16 @@ public class DynamicTranche : DynamicClass
         if (datePrev < Tranche.FirstSettleDate || Tranche.FirstPayDate > datePrev)
             datePrev = Tranche.FirstSettleDate;
 
-        // interest always accrues the same for 30/360
+        // For 30/360, normalize to PayDay for regular periods.
+        // But for the first period (when datePrev == FirstSettleDate and settlement
+        // day differs from PayDay), use the actual settlement date to get correct
+        // short first-period accrual (e.g., Jan 22 to Feb 15 = 23 days, not 30).
         if (DayCounter is Thirty360Us || DayCounter is Thirty360E)
+        {
+            if (datePrev == Tranche.FirstSettleDate && datePrev.Day != Tranche.PayDay)
+                return datePrev;
             return new DateTime(datePrev.Year, datePrev.Month, Tranche.PayDay);
+        }
 
         return datePrev;
     }

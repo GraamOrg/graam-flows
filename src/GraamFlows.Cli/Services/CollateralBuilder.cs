@@ -42,10 +42,6 @@ public class CollateralBuilder
         {
             var wam = pool.RemainingTermMonths;
 
-            // Set OriginalDate so that age=0 at projection start (firstPayDate).
-            // CfCore calculates age = CalcAbsT(projectionDate) - CalcAbsT(OriginalDate) - 1.
-            // Setting OriginalDate = firstPayDate gives age = 0, so the pool generates
-            // exactly 'wam' periods of cashflows starting from the first projection period.
             var asset = new Asset
             {
                 AssetId = $"POOL_{pool.PoolNum}",
