@@ -276,10 +276,10 @@ public static class Amortizer
                 }
                 else
                 {
-                    // Standard SMM prepay: percentage of beginning balance
-                    // For ABS-to-SMM conversion, the SMM is calibrated assuming prepay on full balance,
-                    // so we apply SMM to schedBal (not schedBal-schedPrin) for consistency
-                    unschedPrin = Math.Max(schedBal - defPrin, 0) * smm;
+                    // Standard SMM prepay: applied to balance after scheduled principal
+                    // This matches the CPR convention where SMM is conditional on the balance
+                    // not already scheduled to amortize, and ensures VPR output round-trips.
+                    unschedPrin = Math.Max(schedBal - schedPrin + unadvPrincipal, 0) * smm;
                 }
                 var unscheduledPrincipal = unschedPrin;
 
