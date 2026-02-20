@@ -103,6 +103,9 @@ public class PeriodCashflows
             return;
 
         var totalPrin = ScheduledPrincipal + UnscheduledPrincipal;
+        if (Math.Abs(totalPrin) < .001)
+            return;
+
         UnscheduledPrincipal -= UnscheduledPrincipal / totalPrin * prin;
         ScheduledPrincipal -= ScheduledPrincipal / totalPrin * prin;
     }

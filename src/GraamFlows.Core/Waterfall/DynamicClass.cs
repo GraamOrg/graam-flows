@@ -188,8 +188,9 @@ public class DynamicClass : IPayable
 
     public virtual void Pay(DateTime cashflowDate, double unshedPrin, double schedPrin)
     {
-        Debug.Assert(!double.IsNaN(unshedPrin));
-        Debug.Assert(!double.IsNaN(schedPrin));
+        if (double.IsNaN(unshedPrin) || double.IsNaN(schedPrin))
+            throw new DealModelingException(Tranche.DealName,
+                $"NaN principal detected for tranche {Tranche.TrancheName}: unshedPrin={unshedPrin}, schedPrin={schedPrin}");
         var adjDate = AdjustedCashflowDate(cashflowDate);
 
         var totalPrin = unshedPrin + schedPrin;
