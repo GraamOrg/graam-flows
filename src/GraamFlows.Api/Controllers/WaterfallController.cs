@@ -222,6 +222,17 @@ public class WaterfallController : ControllerBase
                 // Only set ExecutionOrder if explicitly provided (engine uses default if null/empty)
                 if (dto.UnifiedWaterfall.ExecutionOrder != null && dto.UnifiedWaterfall.ExecutionOrder.Any())
                     deal.ExecutionOrder = dto.UnifiedWaterfall.ExecutionOrder;
+
+                // Set waterfall order (interleaving mode)
+                if (!string.IsNullOrEmpty(dto.UnifiedWaterfall.WaterfallOrder))
+                {
+                    deal.WaterfallOrder = dto.UnifiedWaterfall.WaterfallOrder.ToLowerInvariant() switch
+                    {
+                        "interestfirst" => WaterfallOrderEnum.InterestFirst,
+                        "principalfirst" => WaterfallOrderEnum.PrincipalFirst,
+                        _ => WaterfallOrderEnum.Standard
+                    };
+                }
             }
             else
             {

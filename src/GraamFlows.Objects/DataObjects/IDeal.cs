@@ -37,4 +37,10 @@ public interface IDeal : IPayRuleAssemblyStore
     /// Configuration for OC turbo paydown step (optional).
     /// </summary>
     OcTargetConfig? OcTargetConfig { get; }
+
+    /// <summary>
+    /// Controls interleaving of INTEREST and PRINCIPAL steps.
+    /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
+    /// </summary>
+    WaterfallOrderEnum WaterfallOrder { get; }
 }

@@ -5,6 +5,7 @@ using GraamFlows.Triggers;
 using GraamFlows.Util;
 using GraamFlows.Waterfall.MarketTranche;
 using GraamFlows.Waterfall.Structures.PayableStructures;
+using WfOrder = GraamFlows.Objects.TypeEnum.WaterfallOrderEnum;
 
 namespace GraamFlows.Waterfall.Structures;
 
@@ -210,6 +211,9 @@ public class ComposableStructure : BaseStructure
         }
 
         // Execute steps in order
+        var waterfallOrder = deal.WaterfallOrder;
+        var interleavedDone = false;
+
         foreach (var step in executionOrder)
         {
             switch (step.ToUpperInvariant())
@@ -220,21 +224,38 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "INTEREST":
+                    if (waterfallOrder != WfOrder.Standard)
+                    {
+                        // Interleaved mode: handle INTEREST + all PRINCIPAL together on first encounter
+                        if (!interleavedDone)
+                        {
+                            (availableInterest, availableSchedPrin, availablePrepayPrin, availableRecovPrin) =
+                                PayInterleavedSteps(deal, dynGroup, rateProvider, adjPeriodCf, cfAlloc,
+                                    triggerValues, payRuleExecutor, allTranches, waterfallOrder,
+                                    availableInterest, availableSchedPrin, availablePrepayPrin, availableRecovPrin);
+                            interleavedDone = true;
+                        }
+                        // Skip subsequent INTEREST/PRINCIPAL steps — already handled
+                        break;
+                    }
                     availableInterest = PayInterestStep(dynGroup, rateProvider, adjPeriodCf, availableInterest,
                         allTranches);
                     break;
 
                 case "PRINCIPAL_SCHEDULED":
+                    if (waterfallOrder != WfOrder.Standard && interleavedDone) break;
                     availableSchedPrin = PayScheduledPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc,
                         triggerValues, payRuleExecutor, availableSchedPrin);
                     break;
 
                 case "PRINCIPAL_UNSCHEDULED":
+                    if (waterfallOrder != WfOrder.Standard && interleavedDone) break;
                     availablePrepayPrin = PayUnscheduledPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc,
                         triggerValues, payRuleExecutor, availablePrepayPrin);
                     break;
 
                 case "PRINCIPAL_RECOVERY":
+                    if (waterfallOrder != WfOrder.Standard && interleavedDone) break;
                     availableRecovPrin = PayRecoveryPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc,
                         triggerValues, payRuleExecutor, availableRecovPrin);
                     break;
@@ -341,6 +362,111 @@ public class ComposableStructure : BaseStructure
 
         // Return remaining available interest (reserve draw doesn't add to remaining)
         return availableInterest - paidFromAvailable;
+    }
+
+    /// <summary>
+    /// Pay INTEREST and PRINCIPAL steps interleaved by seniority level.
+    /// Walks the top-level children of each payable structure in lockstep.
+    /// </summary>
+    private (double interest, double sched, double prepay, double recov) PayInterleavedSteps(
+        IDeal deal, DynamicGroup dynGroup, IRateProvider rateProvider,
+        PeriodCashflows adjPeriodCf, CashflowAllocs cfAlloc,
+        List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor,
+        List<DynamicTranche> allTranches, WfOrder order,
+        double availableInterest, double availableSchedPrin,
+        double availablePrepayPrin, double availableRecovPrin)
+    {
+        var intChildren = dynGroup.InterestPayable?.GetChildren() ?? new List<IPayable>();
+        var schedChildren = dynGroup.ScheduledPayable?.GetChildren() ?? new List<IPayable>();
+        var prepayChildren = dynGroup.PrepayPayable?.GetChildren() ?? new List<IPayable>();
+        var recovChildren = dynGroup.RecoveryPayable?.GetChildren() ?? new List<IPayable>();
+
+        var maxChildren = new[] { intChildren.Count, schedChildren.Count, prepayChildren.Count, recovChildren.Count }.Max();
+
+        for (var i = 0; i < maxChildren; i++)
+        {
+            if (order == WfOrder.InterestFirst)
+            {
+                availableInterest = PayInterestChild(dynGroup, rateProvider, adjPeriodCf, allTranches,
+                    intChildren, i, availableInterest);
+                (availableSchedPrin, availablePrepayPrin, availableRecovPrin) =
+                    PayPrincipalChildren(deal, dynGroup, adjPeriodCf, triggerValues, payRuleExecutor,
+                        schedChildren, prepayChildren, recovChildren, i,
+                        availableSchedPrin, availablePrepayPrin, availableRecovPrin);
+            }
+            else // PrincipalFirst
+            {
+                (availableSchedPrin, availablePrepayPrin, availableRecovPrin) =
+                    PayPrincipalChildren(deal, dynGroup, adjPeriodCf, triggerValues, payRuleExecutor,
+                        schedChildren, prepayChildren, recovChildren, i,
+                        availableSchedPrin, availablePrepayPrin, availableRecovPrin);
+                availableInterest = PayInterestChild(dynGroup, rateProvider, adjPeriodCf, allTranches,
+                    intChildren, i, availableInterest);
+            }
+        }
+
+        CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
+
+        return (availableInterest, availableSchedPrin, availablePrepayPrin, availableRecovPrin);
+    }
+
+    /// <summary>
+    /// Pay interest for a single seniority level (one child of InterestPayable).
+    /// </summary>
+    private double PayInterestChild(DynamicGroup dynGroup, IRateProvider rateProvider,
+        PeriodCashflows periodCf, List<DynamicTranche> allTranches,
+        List<IPayable> intChildren, int index, double availableInterest)
+    {
+        if (index >= intChildren.Count || availableInterest < 0.01)
+            return availableInterest;
+
+        var child = intChildren[index];
+        var due = child.InterestDue(periodCf.CashflowDate, rateProvider, allTranches);
+        var paidFromAvailable = Math.Min(availableInterest, due);
+        var paidFromReserve = DrawFromReserve(dynGroup, due - paidFromAvailable);
+        child.PayInterest(null, periodCf.CashflowDate,
+            paidFromAvailable + paidFromReserve, rateProvider, allTranches);
+
+        return availableInterest - paidFromAvailable;
+    }
+
+    /// <summary>
+    /// Pay scheduled, unscheduled, and recovery principal for a single seniority level.
+    /// </summary>
+    private (double sched, double prepay, double recov) PayPrincipalChildren(
+        IDeal deal, DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
+        List<TriggerValue> triggerValues, IPayRuleExecutor payRuleExecutor,
+        List<IPayable> schedChildren, List<IPayable> prepayChildren, List<IPayable> recovChildren,
+        int index, double availableSchedPrin, double availablePrepayPrin, double availableRecovPrin)
+    {
+        if (index < schedChildren.Count && availableSchedPrin > 0.01)
+        {
+            var child = schedChildren[index];
+            var balBefore = child.CurrentBalance(adjPeriodCf.CashflowDate);
+            child.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
+                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
+            availableSchedPrin -= (balBefore - child.CurrentBalance(adjPeriodCf.CashflowDate));
+        }
+
+        if (index < prepayChildren.Count && availablePrepayPrin > 0.01)
+        {
+            var child = prepayChildren[index];
+            var balBefore = child.CurrentBalance(adjPeriodCf.CashflowDate);
+            child.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
+                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
+            availablePrepayPrin -= (balBefore - child.CurrentBalance(adjPeriodCf.CashflowDate));
+        }
+
+        if (index < recovChildren.Count && availableRecovPrin > 0.01)
+        {
+            var child = recovChildren[index];
+            var balBefore = child.CurrentBalance(adjPeriodCf.CashflowDate);
+            child.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
+                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
+            availableRecovPrin -= (balBefore - child.CurrentBalance(adjPeriodCf.CashflowDate));
+        }
+
+        return (availableSchedPrin, availablePrepayPrin, availableRecovPrin);
     }
 
     /// <summary>

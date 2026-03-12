@@ -343,6 +343,14 @@ public class UnifiedWaterfallDto
     ///           "PRINCIPAL_RECOVERY", "RESERVE", "WRITEDOWN", "EXCESS"]
     /// </summary>
     public List<string>? ExecutionOrder { get; set; }
+
+    /// <summary>
+    /// Controls interleaving of INTEREST and PRINCIPAL steps by seniority level.
+    /// "standard" (default): all interest then all principal.
+    /// "interestFirst": per seniority level, pay interest then principal.
+    /// "principalFirst": per seniority level, pay principal then interest.
+    /// </summary>
+    public string? WaterfallOrder { get; set; }
 }
 
 /// <summary>
