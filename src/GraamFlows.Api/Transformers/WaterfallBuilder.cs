@@ -154,6 +154,12 @@ public static class WaterfallBuilder
                 return BuildShiftiDsl(structure);
             case "ACCRETE":
                 return BuildAccreteDsl(structure);
+            case "CSCAP":
+                return BuildCscapDsl(structure);
+            case "FIXED":
+                return BuildFixedDsl(structure);
+            case "FORCE_PAYDOWN":
+                return BuildForcePaydownDsl(structure);
             default:
                 throw new ArgumentException($"Unknown structure type: {structure.Type}");
         }
@@ -218,5 +224,50 @@ public static class WaterfallBuilder
     {
         var tranche = structure.Tranche ?? structure.Tranches?.FirstOrDefault() ?? "";
         return $"ACCRETE('{tranche}')";
+    }
+
+    /// <summary>
+    ///     Builds CSCAP DSL: CSCAP('variable', primary, cap) or CSCAP(0.055, primary, cap)
+    /// </summary>
+    private static string BuildCscapDsl(PayableStructureDto structure)
+    {
+        string capParam;
+        if (!string.IsNullOrEmpty(structure.CapVariable))
+            capParam = $"'{structure.CapVariable}'";
+        else
+            capParam = structure.CapPercent?.ToString("0.####") ?? "0";
+
+        var primary = structure.Primary != null ? BuildStructureDsl(structure.Primary) : "SINGLE('')";
+        var cap = structure.Cap != null ? BuildStructureDsl(structure.Cap) : "SINGLE('')";
+
+        return $"CSCAP({capParam}, {primary}, {cap})";
+    }
+
+    /// <summary>
+    ///     Builds FIXED DSL: FIXED('variable', primary, overflow) or FIXED(12345, primary, overflow)
+    /// </summary>
+    private static string BuildFixedDsl(PayableStructureDto structure)
+    {
+        string fixedParam;
+        if (!string.IsNullOrEmpty(structure.FixedVariable))
+            fixedParam = $"'{structure.FixedVariable}'";
+        else
+            fixedParam = structure.FixedAmount?.ToString("0.####") ?? "0";
+
+        var primary = structure.Primary != null ? BuildStructureDsl(structure.Primary) : "SINGLE('')";
+        var overflow = structure.Overflow != null ? BuildStructureDsl(structure.Overflow) : "SINGLE('')";
+
+        return $"FIXED({fixedParam}, {primary}, {overflow})";
+    }
+
+    /// <summary>
+    ///     Builds FORCE_PAYDOWN DSL: FORCE_PAYDOWN(forced, support)
+    /// </summary>
+    private static string BuildForcePaydownDsl(PayableStructureDto structure)
+    {
+        var forced = structure.Forced != null ? BuildStructureDsl(structure.Forced) : "SINGLE('')";
+        var support = structure.Support != null ? BuildStructureDsl(structure.Support) : "SINGLE('')";
+
+        return $"FORCE_PAYDOWN({forced}, {support})";
     }
 }

@@ -1,0 +1,784 @@
+{
+  "dealName": "STACR25DNA4",
+  "waterfallType": "ComposableStructure",
+  "dealType": "AgencyCreditRisk",
+  "issuer": "Freddie Mac STACR REMIC Trust 2025-DNA4",
+  "trustee": "U.S. Bank National Association",
+  "interestTreatment": "Guaranteed",
+  "balanceAtIssuance": 20550120174.07005,
+  "closingDate": "2025-10-29",
+
+  "tranches": [
+    {
+      "trancheName": "AH",
+      "originalBalance": 19522614165.07,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "trancheType": "Reference",
+      "classReference": "AH",
+      "interestPriority": 0,
+      "floaterIndex": null,
+      "floaterSpread": null,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "A1",
+      "originalBalance": 258600000,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 90,
+      "trancheType": "Offered",
+      "classReference": "A1",
+      "interestPriority": 1,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "A1H",
+      "originalBalance": 13689092,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "trancheType": "Reference",
+      "classReference": "A1H",
+      "interestPriority": 1,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "M1",
+      "originalBalance": 258600000,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 110,
+      "trancheType": "Offered",
+      "classReference": "M1",
+      "interestPriority": 2,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "M1H",
+      "originalBalance": 13689092,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 0,
+      "trancheType": "Reference",
+      "classReference": "M1H",
+      "interestPriority": 2,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "M2A",
+      "originalBalance": 43900000,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 155,
+      "trancheType": "Offered",
+      "classReference": "M2A",
+      "interestPriority": 3,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "M2AH",
+      "originalBalance": 2337770,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "trancheType": "Reference",
+      "classReference": "M2AH",
+      "interestPriority": 3,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "M2B",
+      "originalBalance": 43900000,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 155,
+      "trancheType": "Offered",
+      "classReference": "M2B",
+      "interestPriority": 4,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "M2BH",
+      "originalBalance": 2337770,
+      "couponType": "Fixed",
+      "fixedCoupon": 0,
+      "trancheType": "Reference",
+      "classReference": "M2BH",
+      "interestPriority": 4,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "B1H",
+      "originalBalance": 92475540,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 180,
+      "trancheType": "Reference",
+      "classReference": "B1H",
+      "interestPriority": 5,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "B2H",
+      "originalBalance": 246601442,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 475,
+      "trancheType": "Reference",
+      "classReference": "B2H",
+      "interestPriority": 6,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    },
+    {
+      "trancheName": "B3H",
+      "originalBalance": 51375303,
+      "couponType": "Floating",
+      "floaterIndex": "Sofr30Avg",
+      "floaterSpread": 0,
+      "trancheType": "Reference",
+      "classReference": "B3H",
+      "interestPriority": 7,
+      "legalMaturityDate": "2045-10-25",
+      "firstPayDate": "2025-11-25",
+      "dayCount": "Actual/360",
+      "businessDayConvention": "Unadjusted",
+      "payDay": 25,
+      "payDelay": 0,
+      "payFrequency": 12
+    }
+  ],
+
+  "triggers": [
+    {
+      "triggerName": "MandatoryTermination",
+      "description": "Mandatory Termination Date",
+      "triggerType": "DATE_TERMINATION",
+      "triggerParam": "2045-10-25",
+      "isMandatory": true,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "OptionalTermination",
+      "description": "Optional Termination on or after the fifth anniversary",
+      "triggerType": "DATE_TERMINATION",
+      "triggerParam": "2030-10-25",
+      "isMandatory": false,
+      "possibleValues": "Y,N,*",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CleanUpCall",
+      "description": "Clean Up Call at 10% of reference pool balance",
+      "triggerType": "COLLATERAL_VALUE",
+      "triggerParam": "10",
+      "isMandatory": false,
+      "possibleValues": "Y,N,*",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "MinCeTest",
+      "description": "Minimum Credit Enhancement Test - Subordinate Percentage >= 3.674995%",
+      "triggerType": "CREDIT_ENHANCEMENT",
+      "triggerParam": "0.03674995",
+      "triggerParam2": "A1",
+      "isMandatory": true,
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "CumNetLossTest",
+      "description": "Cumulative Net Loss Test - scheduled threshold based on payment date",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "ccl / ib + VAR('credit_event_factor') < VAR('CumNetLossSchedule')",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "A1CumNetLossTest",
+      "description": "Class A-1 Cumulative Net Loss Test - cumulative net loss <= 1.00%",
+      "triggerType": "FORMULA_CONDITION",
+      "triggerFormula": "ccl / ib < 0.01",
+      "groupNum": "1"
+    },
+    {
+      "triggerName": "DelinquencyTest",
+      "description": "Delinquency Test - 6-month rolling average distressed balance < 50% of subordinate percentage",
+      "triggerType": "DELINQ_TRIGGER_SUB_6",
+      "triggerParam": "DelinqTest",
+      "triggerParam2": "AH",
+      "groupNum": "1"
+    }
+  ],
+
+  "scheduledVariables": [
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2025-11-01", "endDate": "2026-10-31", "value": 0.001 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2026-11-01", "endDate": "2027-10-31", "value": 0.002 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2027-11-01", "endDate": "2028-10-31", "value": 0.003 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2028-11-01", "endDate": "2029-10-31", "value": 0.004 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2029-11-01", "endDate": "2030-10-31", "value": 0.005 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2030-11-01", "endDate": "2031-10-31", "value": 0.006 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2031-11-01", "endDate": "2032-10-31", "value": 0.007 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2032-11-01", "endDate": "2033-10-31", "value": 0.008 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2033-11-01", "endDate": "2034-10-31", "value": 0.009 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2034-11-01", "endDate": "2035-10-31", "value": 0.010 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2035-11-01", "endDate": "2036-10-31", "value": 0.011 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2036-11-01", "endDate": "2037-10-31", "value": 0.012 },
+    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2037-11-01", "endDate": "2125-10-31", "value": 0.013 },
+    { "variableName": "DelinqTest", "groupNum": 1, "beginDate": "2025-11-01", "endDate": "2125-10-31", "value": 0.5 },
+    { "variableName": "SupplSubReduAmt", "groupNum": 1, "beginDate": "2025-11-01", "endDate": "2125-10-31", "value": 0.055 },
+    { "variableName": "A1TurboFlag", "groupNum": 1, "beginDate": "2025-11-01", "endDate": "2028-10-31", "value": 0 },
+    { "variableName": "A1TurboFlag", "groupNum": 1, "beginDate": "2028-11-01", "endDate": "2125-10-31", "value": 1 },
+    { "variableName": "FixedA1", "groupNum": 1, "beginDate": "2025-11-01", "endDate": "2026-10-31", "value": 10210840.95 },
+    { "variableName": "FixedA1", "groupNum": 1, "beginDate": "2026-11-01", "endDate": "2028-10-31", "value": 4084336.38 },
+    { "variableName": "FixedA1", "groupNum": 1, "beginDate": "2028-11-01", "endDate": "2125-10-31", "value": 0 },
+    { "variableName": "A1Paydown", "groupNum": 1, "beginDate": "1990-01-01", "endDate": "2028-12-01", "value": 0 },
+    { "variableName": "A1Paydown", "groupNum": 1, "beginDate": "2028-12-01", "endDate": "2029-01-01", "value": 1 },
+    { "variableName": "A1Paydown", "groupNum": 1, "beginDate": "2029-01-01", "endDate": "2100-01-01", "value": 0 }
+  ],
+
+  "variables": [
+    { "variableName": "credit_event_factor", "variableValue": "0", "groupNum": "1" },
+    { "variableName": "SenRedu", "variableValue": "0", "groupNum": "1" },
+    { "variableName": "SenReduRecov", "variableValue": "1", "groupNum": "1" }
+  ],
+
+  "expenses": [],
+
+  "unifiedWaterfall": {
+    "executionOrder": [
+      "EXPENSE",
+      "INTEREST",
+      "PRINCIPAL_SCHEDULED",
+      "PRINCIPAL_UNSCHEDULED",
+      "PRINCIPAL_RECOVERY",
+      "WRITEDOWN"
+    ],
+
+    "computedVariables": [
+      {
+        "name": "SenRedu",
+        "rules": [
+          {
+            "when": { "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"] },
+            "formula": "1 - BEGIN_CREDIT_SUPPORT('A1')"
+          },
+          { "formula": "1" }
+        ]
+      },
+      {
+        "name": "SenReduRecov",
+        "rules": [
+          { "formula": "1" }
+        ]
+      }
+    ],
+
+    "steps": [
+      {
+        "type": "INTEREST",
+        "structure": {
+          "type": "SEQ",
+          "children": [
+            { "type": "SINGLE", "tranche": "AH" },
+            { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+            { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+            { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+            { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+            { "type": "SINGLE", "tranche": "B1H" },
+            { "type": "SINGLE", "tranche": "B2H" },
+            { "type": "SINGLE", "tranche": "B3H" }
+          ]
+        }
+      },
+
+      {
+        "type": "PRINCIPAL",
+        "source": "scheduled",
+        "rules": [
+          {
+            "_comment": "All 4 triggers pass: FIXED A1 amount, then AH, then mezz+B sequential",
+            "when": {
+              "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest", "A1CumNetLossTest"]
+            },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": {
+                  "type": "FIXED", "fixedVariable": "FixedA1",
+                  "primary": { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                  "overflow": { "type": "SINGLE", "tranche": "AH" }
+                },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] }
+                ]
+              }
+            }
+          },
+          {
+            "_comment": "3 pass, A1CumNetLossTest fails: AH first, then mezz+A1+B",
+            "when": {
+              "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"],
+              "fail": ["A1CumNetLossTest"]
+            },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": { "type": "SINGLE", "tranche": "AH" },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                ]
+              }
+            }
+          },
+          {
+            "_comment": "Any of 3 main triggers fail, A1 passes: FIXED A1 first, then CSCAP+SHIFTI",
+            "when": {
+              "fail": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"],
+              "pass": ["A1CumNetLossTest"]
+            },
+            "structure": {
+              "type": "FIXED", "fixedVariable": "FixedA1",
+              "primary": { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+              "overflow": {
+                "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+                "primary": {
+                  "type": "SHIFTI", "shiftVariable": "SenRedu",
+                  "seniors": { "type": "SINGLE", "tranche": "AH" },
+                  "subordinates": {
+                    "type": "SEQ",
+                    "children": [
+                      { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                      { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                      { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                      { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                      { "type": "SINGLE", "tranche": "B1H" },
+                      { "type": "SINGLE", "tranche": "B2H" },
+                      { "type": "SINGLE", "tranche": "B3H" }
+                    ]
+                  }
+                },
+                "cap": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "_comment": "A1 turbo + A1 test passes: A1 first, then AH",
+            "when": {
+              "pass": ["A1CumNetLossTest"],
+              "vars": [{ "var": "A1TurboFlag", "op": ">", "value": 0.999 }]
+            },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "AH" }
+                  ]
+                },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                ]
+              }
+            }
+          },
+          {
+            "_comment": "A1 force paydown: pay off A1 entirely before AH",
+            "when": {
+              "pass": ["A1CumNetLossTest"],
+              "vars": [{ "var": "A1Paydown", "op": ">", "value": 0.999 }]
+            },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": {
+                  "type": "FORCE_PAYDOWN",
+                  "forced": { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                  "support": { "type": "SINGLE", "tranche": "AH" }
+                },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                ]
+              }
+            }
+          },
+          {
+            "_comment": "A1CumNetLossTest fails (all failed): full sequential",
+            "when": { "fail": ["A1CumNetLossTest"] },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": { "type": "SINGLE", "tranche": "AH" },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                ]
+              }
+            }
+          }
+        ]
+      },
+
+      {
+        "type": "PRINCIPAL",
+        "source": "unscheduled",
+        "rules": [
+          {
+            "_comment": "Triggers pass, while A1 fixed amount is active: A1 last in subordinate sequence",
+            "when": {
+              "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"],
+              "vars": [{ "var": "FixedA1", "op": ">", "value": 0 }]
+            },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": { "type": "SINGLE", "tranche": "AH" },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                ]
+              }
+            }
+          },
+          {
+            "_comment": "Triggers pass, A1 fixed expired: A1 in normal position",
+            "when": {
+              "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"],
+              "vars": [{ "var": "FixedA1", "op": "<", "value": 0.01 }]
+            },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": { "type": "SINGLE", "tranche": "AH" },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                ]
+              }
+            }
+          },
+          {
+            "_comment": "Any main trigger fails: full sequential with A1",
+            "when": { "fail": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"] },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": { "type": "SINGLE", "tranche": "AH" },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                ]
+              }
+            }
+          },
+          {
+            "_comment": "A1 turbo prepay: A1 first, then AH",
+            "when": {
+              "pass": ["A1CumNetLossTest"],
+              "vars": [{ "var": "A1TurboFlag", "op": ">", "value": 0.999 }]
+            },
+            "structure": {
+              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+              "primary": {
+                "type": "SHIFTI", "shiftVariable": "SenRedu",
+                "seniors": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "AH" }
+                  ]
+                },
+                "subordinates": {
+                  "type": "SEQ",
+                  "children": [
+                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+                    { "type": "SINGLE", "tranche": "B1H" },
+                    { "type": "SINGLE", "tranche": "B2H" },
+                    { "type": "SINGLE", "tranche": "B3H" }
+                  ]
+                }
+              },
+              "cap": {
+                "type": "SEQ",
+                "children": [
+                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                ]
+              }
+            }
+          }
+        ]
+      },
+
+      {
+        "type": "PRINCIPAL",
+        "source": "recovery",
+        "structure": {
+          "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+          "primary": {
+            "type": "SEQ",
+            "children": [
+              { "type": "SINGLE", "tranche": "AH" },
+              { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+              { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+              { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+              { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+              { "type": "SINGLE", "tranche": "B1H" },
+              { "type": "SINGLE", "tranche": "B2H" },
+              { "type": "SINGLE", "tranche": "B3H" }
+            ]
+          },
+          "cap": {
+            "type": "SEQ",
+            "children": [
+              { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+              { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+              { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+              { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+            ]
+          }
+        }
+      },
+
+      {
+        "type": "WRITEDOWN",
+        "structure": {
+          "type": "SEQ",
+          "children": [
+            { "type": "SINGLE", "tranche": "B3H" },
+            { "type": "SINGLE", "tranche": "B2H" },
+            { "type": "SINGLE", "tranche": "B1H" },
+            { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
+            { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
+            { "type": "PRORATA", "tranches": ["M1", "M1H"] },
+            { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+            { "type": "SINGLE", "tranche": "AH" }
+          ]
+        }
+      }
+    ]
+  }
+}

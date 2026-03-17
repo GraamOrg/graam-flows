@@ -475,15 +475,7 @@ public abstract class BaseStructure : IWaterfall
                     if (payRuleExecutor != null)
                         ExecutePayRules(dynGroup.Deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf);
                     if (triggerValue.TriggerExecuter.TriggerExecType == TriggerExecutionType.Terminate)
-                    {
-                        var writedown = WritedownAmt(dynGroup.Deal, dynGroup, adjPeriodCf);
-                        WritedownClass(dynGroup, dynGroup.SubordinateClass(), adjPeriodCf.CashflowDate, writedown);
-                        foreach (var dynClass in dynGroup.DynamicClasses)
-                            if (dynClass.DealStructure == null || (dynClass.DealStructure != null &&
-                                                                   dynClass.DealStructure.PayFromEnum !=
-                                                                   PayFromEnum.Exchange))
-                                dynClass.Pay(adjPeriodCf.CashflowDate, dynClass.Balance, 0);
-                    }
+                        ExecuteTermination(dynGroup, adjPeriodCf);
 
                     return triggerValues;
                 }
@@ -495,6 +487,30 @@ public abstract class BaseStructure : IWaterfall
         }
 
         return triggerValues;
+    }
+
+    /// <summary>
+    /// Executes deal termination: writedown remaining losses, then pay off all tranche balances.
+    /// </summary>
+    protected void ExecuteTermination(DynamicGroup dynGroup, PeriodCashflows adjPeriodCf)
+    {
+        // At termination, writedown remaining losses then pay off all balances.
+        // Unabsorbed writedowns are expected at termination (subordinates may already be zero).
+        var writedown = WritedownAmt(dynGroup.Deal, dynGroup, adjPeriodCf);
+        if (writedown > 0)
+        {
+            var subClasses = dynGroup.SubordinateClass().Where(dc => dc.Balance > 0).ToList();
+            if (subClasses.Any())
+            {
+                var absorbable = subClasses.Sum(dc => dc.Balance);
+                WritedownClass(dynGroup, subClasses, adjPeriodCf.CashflowDate, Math.Min(writedown, absorbable));
+            }
+        }
+
+        foreach (var dynClass in dynGroup.DynamicClasses)
+            if (dynClass.DealStructure == null ||
+                dynClass.DealStructure.PayFromEnum != PayFromEnum.Exchange)
+                dynClass.Pay(adjPeriodCf.CashflowDate, dynClass.Balance, 0);
     }
 
     protected virtual PeriodCashflows AdjustPeriodCashflows(DynamicGroup dynGroup, PeriodCashflows periodCf)

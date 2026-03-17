@@ -136,11 +136,12 @@ public class WaterfallController : ControllerBase
                 FirstPayDate = trancheDto.FirstPayDate ?? factorDate,
                 StatedMaturityDate = trancheDto.StatedMaturityDate ?? trancheDto.LegalMaturityDate ?? factorDate.AddYears(10),
                 LegalMaturityDate = trancheDto.LegalMaturityDate ?? trancheDto.StatedMaturityDate?.AddYears(2) ?? factorDate.AddYears(12),
-                // For seasoned deals, FirstSettleDate should be before FirstPayDate
-                // Default to one month before FirstPayDate for monthly deals
-                FirstSettleDate = trancheDto.FirstPayDate.HasValue
-                    ? trancheDto.FirstPayDate.Value.AddMonths(-1)
-                    : factorDate,
+                // FirstSettleDate determines first-period accrual start.
+                // Priority: deal ClosingDate > FirstPayDate - 1 month > factorDate
+                FirstSettleDate = dto.ClosingDate
+                    ?? (trancheDto.FirstPayDate.HasValue
+                        ? trancheDto.FirstPayDate.Value.AddMonths(-1)
+                        : factorDate),
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,
                 Deal = deal

@@ -311,11 +311,12 @@ public class TriggerConditionDto
 }
 
 /// <summary>
-///     Payment structure node (mirrors IPayable XML format)
+///     Payment structure node (mirrors IPayable XML format).
+///     Supported types: SEQ, PRORATA, SINGLE, SHIFTI, ACCRETE, CSCAP, FIXED, FORCE_PAYDOWN
 /// </summary>
 public class PayableStructureDto
 {
-    public string Type { get; set; } = ""; // SEQ, PRORATA, SINGLE, SHIFTI
+    public string Type { get; set; } = "";
     public List<PayableStructureDto>? Children { get; set; }
     public List<string>? Tranches { get; set; } // Shorthand for PRORATA with SINGLE children
     public string? Tranche { get; set; } // For SINGLE type
@@ -323,6 +324,22 @@ public class PayableStructureDto
     public string? ShiftVariable { get; set; } // Variable name for dynamic shift %
     public PayableStructureDto? Seniors { get; set; } // For SHIFTI
     public PayableStructureDto? Subordinates { get; set; } // For SHIFTI
+
+    // CSCAP (Credit Support Cap / Enhancement Cap) fields
+    public string? CapVariable { get; set; } // Variable name for cap percentage
+    public double? CapPercent { get; set; } // Constant cap percentage
+    public PayableStructureDto? Primary { get; set; } // Primary payable (seniors)
+    public PayableStructureDto? Cap { get; set; } // Cap payable (subordinates that receive excess)
+
+    // FIXED (Fixed Amount) fields
+    public string? FixedVariable { get; set; } // Variable name for fixed dollar amount
+    public double? FixedAmount { get; set; } // Constant fixed dollar amount
+    // Primary = tranche receiving fixed amount, Overflow = remainder destination
+    public PayableStructureDto? Overflow { get; set; }
+
+    // FORCE_PAYDOWN fields
+    public PayableStructureDto? Forced { get; set; } // Tranche forced to pay down
+    public PayableStructureDto? Support { get; set; } // Receives remainder
 }
 
 // ============== Unified Waterfall Models ==============
@@ -351,6 +368,32 @@ public class UnifiedWaterfallDto
     /// "principalFirst": per seniority level, pay principal then interest.
     /// </summary>
     public string? WaterfallOrder { get; set; }
+
+    /// <summary>
+    /// Variables computed dynamically each period before waterfall execution.
+    /// Each computed variable has conditional rules (first match wins).
+    /// Used for STACR-style deals where variables like SenRedu depend on trigger state.
+    /// </summary>
+    public List<ComputedVariableDto>? ComputedVariables { get; set; }
+}
+
+/// <summary>
+/// A variable computed dynamically each period using conditional rules.
+/// </summary>
+public class ComputedVariableDto
+{
+    public string Name { get; set; } = "";
+    public List<ComputedVariableRuleDto> Rules { get; set; } = new();
+}
+
+/// <summary>
+/// A conditional rule for computing a variable value.
+/// If "when" is null/absent, this is the unconditional fallback (must be last).
+/// </summary>
+public class ComputedVariableRuleDto
+{
+    public RuleConditionDto? When { get; set; }
+    public string Formula { get; set; } = "";
 }
 
 /// <summary>
@@ -380,9 +423,16 @@ public class WaterfallStepDto
     public PayableStructureDto? Default { get; set; }
 
     /// <summary>
-    ///     Alternative structure when triggers fail
+    ///     Alternative structure when triggers fail (simple two-branch model)
     /// </summary>
     public TriggerConditionDto? OnTriggerFail { get; set; }
+
+    /// <summary>
+    ///     Multi-branch conditional rules (replaces Default/OnTriggerFail for complex deals).
+    ///     First matching rule wins. A rule with no "when" is the unconditional fallback (must be last).
+    ///     Used for STACR-style deals with multiple trigger/variable combinations.
+    /// </summary>
+    public List<WaterfallRuleDto>? Rules { get; set; }
 
     /// <summary>
     ///     Reference to use another source's structure (e.g., "scheduled")
@@ -394,6 +444,49 @@ public class WaterfallStepDto
     ///     Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
     /// </summary>
     public OcTargetDto? OcTarget { get; set; }
+}
+
+/// <summary>
+/// A conditional waterfall rule: if "when" matches, use "structure".
+/// Rules are evaluated in order - first match wins.
+/// </summary>
+public class WaterfallRuleDto
+{
+    /// <summary>
+    /// Condition for this rule. If null/absent, this is the unconditional fallback.
+    /// </summary>
+    public RuleConditionDto? When { get; set; }
+
+    /// <summary>
+    /// Payable structure to use when this rule matches.
+    /// </summary>
+    public PayableStructureDto Structure { get; set; } = new();
+}
+
+/// <summary>
+/// Condition combining trigger pass/fail checks and variable comparisons.
+/// All conditions within a single RuleConditionDto are ANDed together.
+/// </summary>
+public class RuleConditionDto
+{
+    /// <summary>All listed triggers must be passing</summary>
+    public List<string>? Pass { get; set; }
+
+    /// <summary>All listed triggers must be failing</summary>
+    public List<string>? Fail { get; set; }
+
+    /// <summary>All variable conditions must be true</summary>
+    public List<VarConditionDto>? Vars { get; set; }
+}
+
+/// <summary>
+/// A variable comparison condition (e.g., VAR('A1TurboFlag') > 0.999)
+/// </summary>
+public class VarConditionDto
+{
+    public string Var { get; set; } = "";
+    public string Op { get; set; } = ">"; // >, <, >=, <=, ==, !=
+    public double Value { get; set; }
 }
 
 // ============== Response Models ==============

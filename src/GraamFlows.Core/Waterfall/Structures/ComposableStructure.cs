@@ -43,10 +43,12 @@ public class ComposableStructure : BaseStructure
             ? GetDefaultExecutionOrder()
             : deal.ExecutionOrder.ToList();
 
+        var dealTerminated = false;
+
         foreach (var period in periodCashflows.GroupBy(pc => pc.CashflowDate))
         {
-            var triggerValueList = new List<TriggerValue>();
-            var periodCfList = new List<PeriodCashflows>();
+            if (dealTerminated)
+                break;
 
             // Compute collateral WAC
             var collatWac = period.Sum(p => p.Interest) / period.Sum(p => p.BeginBalance) * 1200;
@@ -94,8 +96,12 @@ public class ComposableStructure : BaseStructure
                     cashflowsBeforeFirstPay.Remove(periodCf.GroupNum);
                 }
 
-                // Execute triggers
-                var triggerValues = ExecuteTriggers(dynGroup, triggers, adjPeriodCf, payRuleExecutor);
+                // Test triggers and record results. Termination is deferred — ComposableStructure
+                // runs the waterfall first (interest on begin balance) then terminates after.
+                var triggerValues = TestAndRecordTriggers(dynGroup, triggers, adjPeriodCf);
+                var terminated = triggerValues.Any(tv =>
+                    tv.TriggerResultType == TriggerValueType.Executer &&
+                    tv.TriggerExecuter?.TriggerExecType == TriggerExecutionType.Terminate);
 
                 // Execute pay rules - this sets up the payable structures
                 ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf);
@@ -103,20 +109,19 @@ public class ComposableStructure : BaseStructure
                 // Validate required payables are set
                 ValidateRequiredPayables(deal, dynGroup);
 
-                // Run composable waterfall period with step-based execution
+                // Run composable waterfall period (interest accrues on begin balance even if terminating)
                 RunComposablePeriod(deal, rateProvider, dynGroup, adjPeriodCf, triggerValues, formulaExecutor, payRuleExecutor, executionOrder);
+
+                // Apply deferred termination: writedown losses and pay off all remaining balances
+                if (terminated)
+                {
+                    ExecuteTermination(dynGroup, adjPeriodCf);
+                    dealTerminated = true;
+                }
 
                 dynGroup.Advance(adjPeriodCf.CashflowDate);
                 periodCf.EffectiveWac = adjPeriodCf.EffectiveWac;
-                triggerValueList.AddRange(triggerValues);
-                periodCfList.Add(adjPeriodCf);
             }
-
-            // Note: No exchangeables or TrancheAllocator in ComposableStructure
-            // Interest is paid via InterestPayable.PayInterest
-
-            triggerValueList.Clear();
-            periodCfList.Clear();
         }
 
         var dealCashflows = dynDeal.DynamicGroups.CreateDealCashflows(cashflows, assumps);
@@ -239,7 +244,7 @@ public class ComposableStructure : BaseStructure
                         break;
                     }
                     availableInterest = PayInterestStep(dynGroup, rateProvider, adjPeriodCf, availableInterest,
-                        allTranches);
+                        allTranches, deal.InterestTreatmentEnum);
                     break;
 
                 case "PRINCIPAL_SCHEDULED":
@@ -338,9 +343,11 @@ public class ComposableStructure : BaseStructure
 
     /// <summary>
     ///     Pay interest via InterestPayable (with reserve draw for shortfalls), returning remaining funds.
+    ///     For Guaranteed interest treatment, each tranche gets its full coupon regardless of available funds.
     /// </summary>
     private double PayInterestStep(DynamicGroup dynGroup, IRateProvider rateProvider,
-        PeriodCashflows periodCf, double availableInterest, List<DynamicTranche> allTranches)
+        PeriodCashflows periodCf, double availableInterest, List<DynamicTranche> allTranches,
+        InterestTreatmentEnum interestTreatment = InterestTreatmentEnum.Collateral)
     {
         if (dynGroup.InterestPayable == null)
             return availableInterest;
@@ -348,7 +355,18 @@ public class ComposableStructure : BaseStructure
         // Calculate total interest due
         var interestDue = dynGroup.InterestPayable.InterestDue(periodCf.CashflowDate, rateProvider, allTranches);
 
-        // Pay from available interest first
+        if (interestTreatment == InterestTreatmentEnum.Guaranteed)
+        {
+            // Guaranteed: pay full coupon to every tranche regardless of available pool interest.
+            // Shortfall is covered by the servicer/guarantor (e.g., Freddie Mac for STACR).
+            dynGroup.InterestPayable.PayInterest(null, periodCf.CashflowDate,
+                interestDue, rateProvider, allTranches);
+
+            // Pool interest is still consumed — but any shortfall doesn't reduce available funds below zero
+            return Math.Max(0, availableInterest - interestDue);
+        }
+
+        // Collateral: pay from available interest, draw reserve for shortfalls
         var paidFromAvailable = Math.Min(availableInterest, interestDue);
         var shortfall = interestDue - paidFromAvailable;
 
@@ -732,6 +750,20 @@ public class ComposableStructure : BaseStructure
             // Fallback: use PaySp for non-certificate release payables
             dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, availableInterest, () => { });
         }
+    }
+
+    /// <summary>
+    /// Test triggers and record results without executing termination or pay rules.
+    /// Used by ComposableStructure to defer termination until after the waterfall steps.
+    /// </summary>
+    private List<TriggerValue> TestAndRecordTriggers(DynamicGroup dynGroup, IList<ITrigger> triggers,
+        PeriodCashflows adjPeriodCf)
+    {
+        var triggerValues = TestTriggers(triggers, dynGroup, adjPeriodCf.CashflowDate, adjPeriodCf);
+        foreach (var triggerResult in triggerValues)
+            dynGroup.AddTriggerResult(adjPeriodCf.CashflowDate, triggerResult.TriggerName,
+                triggerResult.NumericValue, triggerResult.RequiredValue, triggerResult.TriggerResult);
+        return triggerValues;
     }
 
     public override List<InputField> GetInputs(IDeal deal)

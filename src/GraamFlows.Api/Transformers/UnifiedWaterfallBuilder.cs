@@ -49,6 +49,10 @@ public static class UnifiedWaterfallBuilder
         var rules = new List<PayRuleDto>();
         var priority = 0;
 
+        // Emit computed variable rules first (they run before structure selection)
+        if (waterfall.ComputedVariables != null && waterfall.ComputedVariables.Count > 0)
+            rules.AddRange(BuildComputedVariableRules(waterfall.ComputedVariables, groupName, ref priority));
+
         // Track principal structures for "useStructure" references
         var principalStructures = new Dictionary<string, WaterfallStepDto>(StringComparer.OrdinalIgnoreCase);
 
@@ -161,7 +165,8 @@ public static class UnifiedWaterfallBuilder
     }
 
     /// <summary>
-    ///     Builds PayRules for a PRINCIPAL step, handling trigger conditions
+    ///     Builds PayRules for a PRINCIPAL step, handling trigger conditions.
+    ///     Supports both legacy Default/OnTriggerFail and new multi-branch Rules array.
     /// </summary>
     private static List<PayRuleDto> BuildPrincipalStepRules(
         WaterfallStepDto step,
@@ -178,14 +183,20 @@ public static class UnifiedWaterfallBuilder
             _ => "Prin"
         };
 
-        // If there's a trigger condition, generate conditional rules
+        // Multi-branch rules array (new format for complex deals like STACR)
+        if (step.Rules != null && step.Rules.Count > 0)
+        {
+            rules.AddRange(BuildMultiBranchRules(step.Rules, prefix, setStructFunc, groupName, ref priority));
+            return rules;
+        }
+
+        // Legacy: simple Default/OnTriggerFail two-branch model
         if (step.OnTriggerFail != null && step.Default != null)
         {
             var triggerNames = string.Join(",", step.OnTriggerFail.Triggers);
             var passedDsl = WaterfallBuilder.BuildStructureDsl(step.Default);
             var failedDsl = WaterfallBuilder.BuildStructureDsl(step.OnTriggerFail.Structure!);
 
-            // Rule for when triggers pass
             rules.Add(new PayRuleDto
             {
                 RuleName = $"{prefix}PrinPass",
@@ -194,7 +205,6 @@ public static class UnifiedWaterfallBuilder
                 Priority = priority++
             });
 
-            // Rule for when triggers fail
             rules.Add(new PayRuleDto
             {
                 RuleName = $"{prefix}PrinFail",
@@ -205,7 +215,6 @@ public static class UnifiedWaterfallBuilder
         }
         else if (step.Default != null)
         {
-            // Simple unconditional structure
             var structDsl = WaterfallBuilder.BuildStructureDsl(step.Default);
             rules.Add(new PayRuleDto
             {
@@ -214,6 +223,132 @@ public static class UnifiedWaterfallBuilder
                 Formula = $"{setStructFunc}({structDsl})",
                 Priority = priority++
             });
+        }
+        else if (step.Structure != null)
+        {
+            // Fallback: use Structure directly (e.g., recovery with unconditional structure)
+            var structDsl = WaterfallBuilder.BuildStructureDsl(step.Structure);
+            rules.Add(new PayRuleDto
+            {
+                RuleName = $"{prefix}Struct",
+                ClassGroupName = groupName,
+                Formula = $"{setStructFunc}({structDsl})",
+                Priority = priority++
+            });
+        }
+
+        return rules;
+    }
+
+    /// <summary>
+    ///     Builds PayRules from a multi-branch rules array.
+    ///     Each rule becomes a separate PayRule with its condition compiled to DSL.
+    ///     Rules are emitted in order - last matching rule wins (Payscen convention).
+    /// </summary>
+    private static List<PayRuleDto> BuildMultiBranchRules(
+        List<WaterfallRuleDto> branchRules,
+        string prefix,
+        string setStructFunc,
+        string groupName,
+        ref int priority)
+    {
+        var rules = new List<PayRuleDto>();
+
+        for (var i = 0; i < branchRules.Count; i++)
+        {
+            var branch = branchRules[i];
+            var structDsl = WaterfallBuilder.BuildStructureDsl(branch.Structure);
+            var formula = $"{setStructFunc}({structDsl})";
+
+            if (branch.When != null)
+            {
+                var condition = BuildConditionExpression(branch.When);
+                formula = $"if ({condition}) {formula}";
+            }
+
+            rules.Add(new PayRuleDto
+            {
+                RuleName = $"{prefix}Rule{i}",
+                ClassGroupName = groupName,
+                Formula = formula,
+                Priority = priority++
+            });
+        }
+
+        return rules;
+    }
+
+    /// <summary>
+    ///     Converts a RuleConditionDto to a DSL condition expression string.
+    ///     All conditions are ANDed together.
+    /// </summary>
+    private static string BuildConditionExpression(RuleConditionDto condition)
+    {
+        var parts = new List<string>();
+
+        if (condition.Pass != null && condition.Pass.Count > 0)
+            parts.Add($"PASSED('{string.Join(",", condition.Pass)}')");
+
+        if (condition.Fail != null && condition.Fail.Count > 0)
+            parts.Add($"FAILED('{string.Join(",", condition.Fail)}')");
+
+        if (condition.Vars != null)
+        {
+            foreach (var vc in condition.Vars)
+            {
+                if (vc.Op is not (">" or "<" or ">=" or "<=" or "==" or "!="))
+                    throw new ArgumentException($"Unknown comparison operator: '{vc.Op}'");
+                parts.Add($"VAR('{vc.Var}') {vc.Op} {vc.Value}");
+            }
+        }
+
+        return string.Join(" && ", parts);
+    }
+
+    /// <summary>
+    ///     Builds PayRules for computed variables (evaluated before waterfall each period).
+    ///     Since all pay rules execute (last matching wins), fallback rules (no "when")
+    ///     must be guarded with the negation of preceding conditions to avoid overwriting.
+    /// </summary>
+    public static List<PayRuleDto> BuildComputedVariableRules(
+        List<ComputedVariableDto> computedVars,
+        string groupName,
+        ref int priority)
+    {
+        var rules = new List<PayRuleDto>();
+
+        foreach (var cv in computedVars)
+        {
+            // Collect all conditions from prior rules to build negation for fallback
+            var priorConditions = new List<string>();
+
+            for (var i = 0; i < cv.Rules.Count; i++)
+            {
+                var rule = cv.Rules[i];
+                var formula = $"SET_VAR('{cv.Name}', {rule.Formula})";
+
+                if (rule.When != null)
+                {
+                    var condition = BuildConditionExpression(rule.When);
+                    formula = $"if ({condition}) {formula}";
+                    priorConditions.Add(condition);
+                }
+                else if (priorConditions.Count > 0)
+                {
+                    // Fallback rule: negate all prior conditions so it only fires
+                    // when none of the prior conditional rules matched.
+                    var negation = string.Join(" && ", priorConditions.Select(c => $"!({c})"));
+                    formula = $"if ({negation}) {formula}";
+                }
+
+                rules.Add(new PayRuleDto
+                {
+                    RuleName = $"ComputeVar_{cv.Name}_{i}",
+                    ClassGroupName = groupName,
+                    Formula = formula,
+                    Priority = priority++
+                });
+            }
         }
 
         return rules;
@@ -250,6 +385,17 @@ public static class UnifiedWaterfallBuilder
         // Handle SHIFTI seniors/subordinates
         if (structure.Seniors != null) ExtractTranchesRecursive(structure.Seniors, tranches);
         if (structure.Subordinates != null) ExtractTranchesRecursive(structure.Subordinates, tranches);
+
+        // Handle CSCAP primary/cap
+        if (structure.Primary != null) ExtractTranchesRecursive(structure.Primary, tranches);
+        if (structure.Cap != null) ExtractTranchesRecursive(structure.Cap, tranches);
+
+        // Handle FIXED primary/overflow
+        if (structure.Overflow != null) ExtractTranchesRecursive(structure.Overflow, tranches);
+
+        // Handle FORCE_PAYDOWN forced/support
+        if (structure.Forced != null) ExtractTranchesRecursive(structure.Forced, tranches);
+        if (structure.Support != null) ExtractTranchesRecursive(structure.Support, tranches);
     }
 
     /// <summary>
