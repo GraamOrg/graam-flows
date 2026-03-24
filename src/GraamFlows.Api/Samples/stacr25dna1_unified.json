@@ -7,7 +7,6 @@
   "interestTreatment": "Guaranteed",
   "balanceAtIssuance": 18729669304.27,
   "closingDate": "2025-01-21",
-
   "tranches": [
     {
       "trancheName": "AH",
@@ -212,7 +211,6 @@
       "payFrequency": 12
     }
   ],
-
   "triggers": [
     {
       "triggerName": "MandatoryTermination",
@@ -272,89 +270,285 @@
       "groupNum": "1"
     }
   ],
-
   "scheduledVariables": [
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2025-02-01", "endDate": "2026-01-31", "value": 0.001 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2026-02-01", "endDate": "2027-01-31", "value": 0.002 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2027-02-01", "endDate": "2028-01-31", "value": 0.003 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2028-02-01", "endDate": "2029-01-31", "value": 0.004 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2029-02-01", "endDate": "2030-01-31", "value": 0.005 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2030-02-01", "endDate": "2031-01-31", "value": 0.006 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2031-02-01", "endDate": "2032-01-31", "value": 0.007 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2032-02-01", "endDate": "2033-01-31", "value": 0.008 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2033-02-01", "endDate": "2034-01-31", "value": 0.009 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2034-02-01", "endDate": "2035-01-31", "value": 0.010 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2035-02-01", "endDate": "2036-01-31", "value": 0.011 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2036-02-01", "endDate": "2037-01-31", "value": 0.012 },
-    { "variableName": "CumNetLossSchedule", "groupNum": 1, "beginDate": "2037-02-01", "endDate": "2125-01-31", "value": 0.013 },
-    { "variableName": "DelinqTest", "groupNum": 1, "beginDate": "2025-02-01", "endDate": "2125-01-31", "value": 0.5 },
-    { "variableName": "SupplSubReduAmt", "groupNum": 1, "beginDate": "2025-02-01", "endDate": "2125-01-31", "value": 0.055 },
-    { "variableName": "A1TurboFlag", "groupNum": 1, "beginDate": "2025-02-01", "endDate": "2027-12-31", "value": 0 },
-    { "variableName": "A1TurboFlag", "groupNum": 1, "beginDate": "2028-01-01", "endDate": "2125-01-31", "value": 1 },
-    { "variableName": "FixedA1", "groupNum": 1, "beginDate": "2025-02-01", "endDate": "2025-02-28", "value": 21764346.9 },
-    { "variableName": "FixedA1", "groupNum": 1, "beginDate": "2025-03-01", "endDate": "2025-12-31", "value": 10882173.45 },
-    { "variableName": "FixedA1", "groupNum": 1, "beginDate": "2026-01-01", "endDate": "2028-01-31", "value": 4352869.38 },
-    { "variableName": "FixedA1", "groupNum": 1, "beginDate": "2028-02-01", "endDate": "2125-01-31", "value": 0 },
-    { "variableName": "A1Paydown", "groupNum": 1, "beginDate": "1990-01-01", "endDate": "2028-03-01", "value": 0 },
-    { "variableName": "A1Paydown", "groupNum": 1, "beginDate": "2028-03-01", "endDate": "2028-04-01", "value": 1 },
-    { "variableName": "A1Paydown", "groupNum": 1, "beginDate": "2028-04-01", "endDate": "2100-01-01", "value": 0 }
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2026-01-31",
+      "value": 0.001
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2026-02-01",
+      "endDate": "2027-01-31",
+      "value": 0.002
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2027-02-01",
+      "endDate": "2028-01-31",
+      "value": 0.003
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2028-02-01",
+      "endDate": "2029-01-31",
+      "value": 0.004
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2029-02-01",
+      "endDate": "2030-01-31",
+      "value": 0.005
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2030-02-01",
+      "endDate": "2031-01-31",
+      "value": 0.006
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2031-02-01",
+      "endDate": "2032-01-31",
+      "value": 0.007
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2032-02-01",
+      "endDate": "2033-01-31",
+      "value": 0.008
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2033-02-01",
+      "endDate": "2034-01-31",
+      "value": 0.009
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2034-02-01",
+      "endDate": "2035-01-31",
+      "value": 0.01
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2035-02-01",
+      "endDate": "2036-01-31",
+      "value": 0.011
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2036-02-01",
+      "endDate": "2037-01-31",
+      "value": 0.012
+    },
+    {
+      "variableName": "CumNetLossSchedule",
+      "groupNum": 1,
+      "beginDate": "2037-02-01",
+      "endDate": "2125-01-31",
+      "value": 0.013
+    },
+    {
+      "variableName": "DelinqTest",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2125-01-31",
+      "value": 0.5
+    },
+    {
+      "variableName": "SupplSubReduAmt",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2125-01-31",
+      "value": 0.055
+    },
+    {
+      "variableName": "A1TurboFlag",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2027-12-31",
+      "value": 0
+    },
+    {
+      "variableName": "A1TurboFlag",
+      "groupNum": 1,
+      "beginDate": "2028-01-01",
+      "endDate": "2125-01-31",
+      "value": 1
+    },
+    {
+      "variableName": "FixedA1",
+      "groupNum": 1,
+      "beginDate": "2025-02-01",
+      "endDate": "2025-02-28",
+      "value": 21764346.9
+    },
+    {
+      "variableName": "FixedA1",
+      "groupNum": 1,
+      "beginDate": "2025-03-01",
+      "endDate": "2025-12-31",
+      "value": 10882173.45
+    },
+    {
+      "variableName": "FixedA1",
+      "groupNum": 1,
+      "beginDate": "2026-01-01",
+      "endDate": "2028-01-31",
+      "value": 4352869.38
+    },
+    {
+      "variableName": "FixedA1",
+      "groupNum": 1,
+      "beginDate": "2028-02-01",
+      "endDate": "2125-01-31",
+      "value": 0
+    },
+    {
+      "variableName": "A1Paydown",
+      "groupNum": 1,
+      "beginDate": "1990-01-01",
+      "endDate": "2028-03-01",
+      "value": 0
+    },
+    {
+      "variableName": "A1Paydown",
+      "groupNum": 1,
+      "beginDate": "2028-03-01",
+      "endDate": "2028-04-01",
+      "value": 1
+    },
+    {
+      "variableName": "A1Paydown",
+      "groupNum": 1,
+      "beginDate": "2028-04-01",
+      "endDate": "2100-01-01",
+      "value": 0
+    }
   ],
-
   "variables": [
-    { "variableName": "credit_event_factor", "variableValue": "0", "groupNum": "1" },
-    { "variableName": "SenRedu", "variableValue": "0", "groupNum": "1" },
-    { "variableName": "SenReduRecov", "variableValue": "1", "groupNum": "1" }
+    {
+      "variableName": "credit_event_factor",
+      "variableValue": "0",
+      "groupNum": "1"
+    },
+    {
+      "variableName": "SenRedu",
+      "variableValue": "0",
+      "groupNum": "1"
+    },
+    {
+      "variableName": "SenReduRecov",
+      "variableValue": "1",
+      "groupNum": "1"
+    }
   ],
-
   "expenses": [],
-
   "unifiedWaterfall": {
     "executionOrder": [
       "EXPENSE",
       "INTEREST",
+      "WRITEDOWN",
+      "SUPPLEMENTAL_REDUCTION",
       "PRINCIPAL_SCHEDULED",
       "PRINCIPAL_UNSCHEDULED",
-      "PRINCIPAL_RECOVERY",
-      "WRITEDOWN"
+      "PRINCIPAL_RECOVERY"
     ],
-
     "computedVariables": [
       {
         "name": "SenRedu",
         "rules": [
           {
-            "when": { "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"] },
+            "when": {
+              "pass": [
+                "MinCeTest",
+                "CumNetLossTest",
+                "DelinquencyTest"
+              ]
+            },
             "formula": "1 - BEGIN_CREDIT_SUPPORT('A1')"
           },
-          { "formula": "1" }
+          {
+            "formula": "1"
+          }
         ]
       },
       {
         "name": "SenReduRecov",
         "rules": [
-          { "formula": "1" }
+          {
+            "formula": "1"
+          }
         ]
       }
     ],
-
     "steps": [
       {
         "type": "INTEREST",
         "structure": {
           "type": "SEQ",
           "children": [
-            { "type": "SINGLE", "tranche": "AH" },
-            { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-            { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-            { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-            { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-            { "type": "SINGLE", "tranche": "B1H" },
-            { "type": "SINGLE", "tranche": "B2H" },
-            { "type": "SINGLE", "tranche": "B3H" }
+            {
+              "type": "SINGLE",
+              "tranche": "AH"
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "A1",
+                "A1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M1",
+                "M1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2A",
+                "M2AH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2B",
+                "M2BH"
+              ]
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B1H"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B2H"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B3H"
+            }
           ]
         }
       },
-
       {
         "type": "PRINCIPAL",
         "source": "scheduled",
@@ -362,35 +556,67 @@
           {
             "_comment": "All 4 triggers pass: FIXED A1 amount, then AH, then mezz+B sequential",
             "when": {
-              "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest", "A1CumNetLossTest"]
+              "pass": [
+                "MinCeTest",
+                "CumNetLossTest",
+                "DelinquencyTest",
+                "A1CumNetLossTest"
+              ]
             },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": {
-                  "type": "FIXED", "fixedVariable": "FixedA1",
-                  "primary": { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                  "overflow": { "type": "SINGLE", "tranche": "AH" }
-                },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" }
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
+                "type": "FIXED",
+                "fixedVariable": "FixedA1",
+                "primary": {
+                  "type": "PRORATA",
+                  "tranches": [
+                    "A1",
+                    "A1H"
                   ]
+                },
+                "overflow": {
+                  "type": "SINGLE",
+                  "tranche": "AH"
                 }
               },
-              "cap": {
+              "subordinates": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  }
                 ]
               }
             }
@@ -398,34 +624,65 @@
           {
             "_comment": "3 pass, A1CumNetLossTest fails: AH first, then mezz+A1+B",
             "when": {
-              "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"],
-              "fail": ["A1CumNetLossTest"]
+              "pass": [
+                "MinCeTest",
+                "CumNetLossTest",
+                "DelinquencyTest"
+              ],
+              "fail": [
+                "A1CumNetLossTest"
+              ]
             },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": { "type": "SINGLE", "tranche": "AH" },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" }
-                  ]
-                }
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
+                "type": "SINGLE",
+                "tranche": "AH"
               },
-              "cap": {
+              "subordinates": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  }
                 ]
               }
             }
@@ -433,37 +690,112 @@
           {
             "_comment": "Any of 3 main triggers fail, A1 passes: FIXED A1 first, then CSCAP+SHIFTI",
             "when": {
-              "fail": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"],
-              "pass": ["A1CumNetLossTest"]
+              "fail": [
+                "MinCeTest",
+                "CumNetLossTest",
+                "DelinquencyTest"
+              ],
+              "pass": [
+                "A1CumNetLossTest"
+              ]
             },
             "structure": {
-              "type": "FIXED", "fixedVariable": "FixedA1",
-              "primary": { "type": "PRORATA", "tranches": ["A1", "A1H"] },
+              "type": "FIXED",
+              "fixedVariable": "FixedA1",
+              "primary": {
+                "type": "PRORATA",
+                "tranches": [
+                  "A1",
+                  "A1H"
+                ]
+              },
               "overflow": {
-                "type": "CSCAP", "capVariable": "SupplSubReduAmt",
+                "type": "CSCAP",
+                "capVariable": "SupplSubReduAmt",
                 "primary": {
-                  "type": "SHIFTI", "shiftVariable": "SenRedu",
-                  "seniors": { "type": "SINGLE", "tranche": "AH" },
+                  "type": "SHIFTI",
+                  "shiftVariable": "SenRedu",
+                  "seniors": {
+                    "type": "SINGLE",
+                    "tranche": "AH"
+                  },
                   "subordinates": {
                     "type": "SEQ",
                     "children": [
-                      { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                      { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                      { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                      { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                      { "type": "SINGLE", "tranche": "B1H" },
-                      { "type": "SINGLE", "tranche": "B2H" },
-                      { "type": "SINGLE", "tranche": "B3H" }
+                      {
+                        "type": "PRORATA",
+                        "tranches": [
+                          "M1",
+                          "M1H"
+                        ]
+                      },
+                      {
+                        "type": "PRORATA",
+                        "tranches": [
+                          "M2A",
+                          "M2AH"
+                        ]
+                      },
+                      {
+                        "type": "PRORATA",
+                        "tranches": [
+                          "M2B",
+                          "M2BH"
+                        ]
+                      },
+                      {
+                        "type": "PRORATA",
+                        "tranches": [
+                          "A1",
+                          "A1H"
+                        ]
+                      },
+                      {
+                        "type": "SINGLE",
+                        "tranche": "B1H"
+                      },
+                      {
+                        "type": "SINGLE",
+                        "tranche": "B2H"
+                      },
+                      {
+                        "type": "SINGLE",
+                        "tranche": "B3H"
+                      }
                     ]
                   }
                 },
                 "cap": {
                   "type": "SEQ",
                   "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                    {
+                      "type": "PRORATA",
+                      "tranches": [
+                        "M1",
+                        "M1H"
+                      ]
+                    },
+                    {
+                      "type": "PRORATA",
+                      "tranches": [
+                        "M2A",
+                        "M2AH"
+                      ]
+                    },
+                    {
+                      "type": "PRORATA",
+                      "tranches": [
+                        "M2B",
+                        "M2BH"
+                      ]
+                    },
+                    {
+                      "type": "PRORATA",
+                      "tranches": [
+                        "A1",
+                        "A1H"
+                      ]
+                    }
                   ]
                 }
               }
@@ -472,40 +804,79 @@
           {
             "_comment": "A1 turbo + A1 test passes: A1 first, then AH",
             "when": {
-              "pass": ["A1CumNetLossTest"],
-              "vars": [{ "var": "A1TurboFlag", "op": ">", "value": 0.999 }]
+              "pass": [
+                "A1CumNetLossTest"
+              ],
+              "vars": [
+                {
+                  "var": "A1TurboFlag",
+                  "op": ">",
+                  "value": 0.999
+                }
+              ]
             },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "AH" }
-                  ]
-                },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" }
-                  ]
-                }
-              },
-              "cap": {
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "AH"
+                  }
+                ]
+              },
+              "subordinates": {
+                "type": "SEQ",
+                "children": [
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  }
                 ]
               }
             }
@@ -513,77 +884,144 @@
           {
             "_comment": "A1 force paydown: pay off A1 entirely before AH",
             "when": {
-              "pass": ["A1CumNetLossTest"],
-              "vars": [{ "var": "A1Paydown", "op": ">", "value": 0.999 }]
+              "pass": [
+                "A1CumNetLossTest"
+              ],
+              "vars": [
+                {
+                  "var": "A1Paydown",
+                  "op": ">",
+                  "value": 0.999
+                }
+              ]
             },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": {
-                  "type": "FORCE_PAYDOWN",
-                  "forced": { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                  "support": { "type": "SINGLE", "tranche": "AH" }
-                },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" }
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
+                "type": "FORCE_PAYDOWN",
+                "forced": {
+                  "type": "PRORATA",
+                  "tranches": [
+                    "A1",
+                    "A1H"
                   ]
+                },
+                "support": {
+                  "type": "SINGLE",
+                  "tranche": "AH"
                 }
               },
-              "cap": {
+              "subordinates": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  }
                 ]
               }
             }
           },
           {
             "_comment": "A1CumNetLossTest fails (all failed): full sequential",
-            "when": { "fail": ["A1CumNetLossTest"] },
+            "when": {
+              "fail": [
+                "A1CumNetLossTest"
+              ]
+            },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": { "type": "SINGLE", "tranche": "AH" },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" }
-                  ]
-                }
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
+                "type": "SINGLE",
+                "tranche": "AH"
               },
-              "cap": {
+              "subordinates": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  }
                 ]
               }
             }
           }
         ]
       },
-
       {
         "type": "PRINCIPAL",
         "source": "unscheduled",
@@ -591,34 +1029,69 @@
           {
             "_comment": "Triggers pass, while A1 fixed amount is active: A1 last in subordinate sequence",
             "when": {
-              "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"],
-              "vars": [{ "var": "FixedA1", "op": ">", "value": 0 }]
+              "pass": [
+                "MinCeTest",
+                "CumNetLossTest",
+                "DelinquencyTest"
+              ],
+              "vars": [
+                {
+                  "var": "FixedA1",
+                  "op": ">",
+                  "value": 0
+                }
+              ]
             },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": { "type": "SINGLE", "tranche": "AH" },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] }
-                  ]
-                }
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
+                "type": "SINGLE",
+                "tranche": "AH"
               },
-              "cap": {
+              "subordinates": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  }
                 ]
               }
             }
@@ -626,66 +1099,132 @@
           {
             "_comment": "Triggers pass, A1 fixed expired: A1 in normal position",
             "when": {
-              "pass": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"],
-              "vars": [{ "var": "FixedA1", "op": "<", "value": 0.01 }]
+              "pass": [
+                "MinCeTest",
+                "CumNetLossTest",
+                "DelinquencyTest"
+              ],
+              "vars": [
+                {
+                  "var": "FixedA1",
+                  "op": "<",
+                  "value": 0.01
+                }
+              ]
             },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": { "type": "SINGLE", "tranche": "AH" },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" }
-                  ]
-                }
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
+                "type": "SINGLE",
+                "tranche": "AH"
               },
-              "cap": {
+              "subordinates": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  }
                 ]
               }
             }
           },
           {
             "_comment": "Any main trigger fails: full sequential with A1",
-            "when": { "fail": ["MinCeTest", "CumNetLossTest", "DelinquencyTest"] },
+            "when": {
+              "fail": [
+                "MinCeTest",
+                "CumNetLossTest",
+                "DelinquencyTest"
+              ]
+            },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": { "type": "SINGLE", "tranche": "AH" },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" }
-                  ]
-                }
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
+                "type": "SINGLE",
+                "tranche": "AH"
               },
-              "cap": {
+              "subordinates": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  }
                 ]
               }
             }
@@ -693,90 +1232,233 @@
           {
             "_comment": "A1 turbo prepay: A1 first, then AH",
             "when": {
-              "pass": ["A1CumNetLossTest"],
-              "vars": [{ "var": "A1TurboFlag", "op": ">", "value": 0.999 }]
+              "pass": [
+                "A1CumNetLossTest"
+              ],
+              "vars": [
+                {
+                  "var": "A1TurboFlag",
+                  "op": ">",
+                  "value": 0.999
+                }
+              ]
             },
             "structure": {
-              "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-              "primary": {
-                "type": "SHIFTI", "shiftVariable": "SenRedu",
-                "seniors": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "AH" }
-                  ]
-                },
-                "subordinates": {
-                  "type": "SEQ",
-                  "children": [
-                    { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                    { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                    { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                    { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-                    { "type": "SINGLE", "tranche": "B1H" },
-                    { "type": "SINGLE", "tranche": "B2H" },
-                    { "type": "SINGLE", "tranche": "B3H" }
-                  ]
-                }
-              },
-              "cap": {
+              "type": "SHIFTI",
+              "shiftVariable": "SenRedu",
+              "seniors": {
                 "type": "SEQ",
                 "children": [
-                  { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-                  { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-                  { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-                  { "type": "PRORATA", "tranches": ["A1", "A1H"] }
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "AH"
+                  }
+                ]
+              },
+              "subordinates": {
+                "type": "SEQ",
+                "children": [
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M1",
+                      "M1H"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2A",
+                      "M2AH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "M2B",
+                      "M2BH"
+                    ]
+                  },
+                  {
+                    "type": "PRORATA",
+                    "tranches": [
+                      "A1",
+                      "A1H"
+                    ]
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B1H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B2H"
+                  },
+                  {
+                    "type": "SINGLE",
+                    "tranche": "B3H"
+                  }
                 ]
               }
             }
           }
         ]
       },
-
       {
         "type": "PRINCIPAL",
         "source": "recovery",
         "structure": {
-          "type": "CSCAP", "capVariable": "SupplSubReduAmt",
-          "primary": {
-            "type": "SEQ",
-            "children": [
-              { "type": "SINGLE", "tranche": "AH" },
-              { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-              { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-              { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-              { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-              { "type": "SINGLE", "tranche": "B1H" },
-              { "type": "SINGLE", "tranche": "B2H" },
-              { "type": "SINGLE", "tranche": "B3H" }
-            ]
-          },
-          "cap": {
-            "type": "SEQ",
-            "children": [
-              { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-              { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-              { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-              { "type": "PRORATA", "tranches": ["A1", "A1H"] }
-            ]
-          }
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "SINGLE",
+              "tranche": "AH"
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M1",
+                "M1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2A",
+                "M2AH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2B",
+                "M2BH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "A1",
+                "A1H"
+              ]
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B1H"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B2H"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B3H"
+            }
+          ]
         }
       },
-
       {
         "type": "WRITEDOWN",
         "structure": {
           "type": "SEQ",
           "children": [
-            { "type": "SINGLE", "tranche": "B3H" },
-            { "type": "SINGLE", "tranche": "B2H" },
-            { "type": "SINGLE", "tranche": "B1H" },
-            { "type": "PRORATA", "tranches": ["M2B", "M2BH"] },
-            { "type": "PRORATA", "tranches": ["M2A", "M2AH"] },
-            { "type": "PRORATA", "tranches": ["M1", "M1H"] },
-            { "type": "PRORATA", "tranches": ["A1", "A1H"] },
-            { "type": "SINGLE", "tranche": "AH" }
+            {
+              "type": "SINGLE",
+              "tranche": "B3H"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B2H"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B1H"
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2B",
+                "M2BH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2A",
+                "M2AH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M1",
+                "M1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "A1",
+                "A1H"
+              ]
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "AH"
+            }
+          ]
+        }
+      },
+      {
+        "type": "SUPPLEMENTAL_REDUCTION",
+        "capVariable": "SupplSubReduAmt",
+        "seniorTranches": [
+          "AH",
+          "A1",
+          "A1H",
+          "B1H",
+          "B2H",
+          "B3H"
+        ],
+        "offeredTranches": [
+          "M1",
+          "M1H",
+          "M2A",
+          "M2AH",
+          "M2B",
+          "M2BH"
+        ],
+        "structure": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M1",
+                "M1H"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2A",
+                "M2AH"
+              ]
+            },
+            {
+              "type": "PRORATA",
+              "tranches": [
+                "M2B",
+                "M2BH"
+              ]
+            }
           ]
         }
       }

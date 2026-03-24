@@ -444,6 +444,21 @@ public class WaterfallStepDto
     ///     Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
     /// </summary>
     public OcTargetDto? OcTarget { get; set; }
+
+    /// <summary>
+    ///     For SUPPLEMENTAL_REDUCTION: variable name for the cap percentage.
+    /// </summary>
+    public string? CapVariable { get; set; }
+
+    /// <summary>
+    ///     For SUPPLEMENTAL_REDUCTION: sub tranche names (cap overflow recipients, e.g. M1/M1H, M2A/M2AH).
+    /// </summary>
+    public List<string>? OfferedTranches { get; set; }
+
+    /// <summary>
+    ///     For SUPPLEMENTAL_REDUCTION: senior-only tranche names (exclusive to primary, e.g. AH, B1H, B2H, B3H).
+    /// </summary>
+    public List<string>? SeniorTranches { get; set; }
 }
 
 /// <summary>

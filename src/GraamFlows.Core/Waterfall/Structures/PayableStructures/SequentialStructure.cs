@@ -64,6 +64,20 @@ public class SequentialStructure : BasePayable
         return _payables.Sum(p => p.InterestDue(cfDate, rateProvider, allTranches));
     }
 
+    public override double PayInterestShortfall(DateTime cfDate, double availableFunds)
+    {
+        var totalPaid = 0.0;
+        var remaining = availableFunds;
+        foreach (var payable in _payables)
+        {
+            if (remaining < 0.01) break;
+            var paid = payable.PayInterestShortfall(cfDate, remaining);
+            totalPaid += paid;
+            remaining -= paid;
+        }
+        return totalPaid;
+    }
+
     public override string Describe(int level)
     {
         var tabs = string.Concat(Enumerable.Repeat("\t", level));

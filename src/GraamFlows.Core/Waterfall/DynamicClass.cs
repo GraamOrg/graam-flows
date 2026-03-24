@@ -95,6 +95,23 @@ public class DynamicClass : IPayable
         });
     }
 
+    public double PayInterestShortfall(DateTime cfDate, double availableFunds)
+    {
+        var totalPaid = 0.0;
+        var remaining = availableFunds;
+        foreach (var dynTran in DynamicTranches)
+        {
+            if (remaining < 0.01) break;
+            var cf = dynTran.GetCashflow(cfDate);
+            if (cf.AccumInterestShortfall <= 0) continue;
+            var toPay = Math.Min(remaining, cf.AccumInterestShortfall);
+            dynTran.PaybackInterestShortfall(cf, toPay);
+            totalPaid += toPay;
+            remaining -= toPay;
+        }
+        return totalPaid;
+    }
+
     public virtual double BeginBalance(DateTime cfDate)
     {
         var cashflow = GetCashflow(cfDate);

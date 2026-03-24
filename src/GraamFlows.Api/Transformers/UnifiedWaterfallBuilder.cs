@@ -159,6 +159,49 @@ public static class UnifiedWaterfallBuilder
                     }
 
                     break;
+
+                case "CAP_CARRYOVER":
+                    if (step.Structure != null)
+                    {
+                        var dsl = WaterfallBuilder.BuildStructureDsl(step.Structure);
+                        rules.Add(new PayRuleDto
+                        {
+                            RuleName = "CapCarryoverStruct",
+                            ClassGroupName = groupName,
+                            Formula = $"SET_CAP_CARRYOVER_STRUCT({dsl})",
+                            Priority = priority++
+                        });
+                    }
+
+                    break;
+
+                case "SUPPLEMENTAL_REDUCTION":
+                    if (step.Structure != null)
+                    {
+                        var dsl = WaterfallBuilder.BuildStructureDsl(step.Structure);
+                        rules.Add(new PayRuleDto
+                        {
+                            RuleName = "SupplStruct",
+                            ClassGroupName = groupName,
+                            Formula = $"SET_SUPPL_STRUCT({dsl})",
+                            Priority = priority++
+                        });
+                    }
+
+                    if (!string.IsNullOrEmpty(step.CapVariable) && step.OfferedTranches != null && step.SeniorTranches != null)
+                    {
+                        var subList = string.Join(",", step.OfferedTranches);
+                        var senList = string.Join(",", step.SeniorTranches);
+                        rules.Add(new PayRuleDto
+                        {
+                            RuleName = "SupplConfig",
+                            ClassGroupName = groupName,
+                            Formula = $"SET_SUPPL_CONFIG('{step.CapVariable}', '{subList}', '{senList}')",
+                            Priority = priority++
+                        });
+                    }
+
+                    break;
             }
 
         return rules;

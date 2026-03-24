@@ -661,6 +661,11 @@ namespace GraamFlows.RulesEngine
             DynamicGroup.WritedownPayable = payable;
         }
 
+        private void SET_EXCESS_STRUCT(IPayable payable)
+        {
+            DynamicGroup.ExcessPayable = payable;
+        }
+
         private void SET_TURBO_STRUCT(IPayable payable)
         {
             DynamicGroup.TurboPayable = payable;
@@ -669,6 +674,23 @@ namespace GraamFlows.RulesEngine
         private void SET_RELEASE_STRUCT(IPayable payable)
         {
             DynamicGroup.ReleasePayable = payable;
+        }
+
+        private void SET_SUPPL_STRUCT(IPayable payable)
+        {
+            DynamicGroup.SupplementalPayable = payable;
+        }
+
+        private void SET_CAP_CARRYOVER_STRUCT(IPayable payable)
+        {
+            DynamicGroup.CapCarryoverPayable = payable;
+        }
+
+        private void SET_SUPPL_CONFIG(string capVariable, string subTranches, string seniorTranches)
+        {
+            DynamicGroup.SupplementalCapVariable = capVariable;
+            DynamicGroup.SupplementalOfferedTranches = subTranches.Split(',').Select(t => t.Trim()).ToList();
+            DynamicGroup.SupplementalSeniorTranches = seniorTranches.Split(',').Select(t => t.Trim()).ToList();
         }
 
         private double COUPON(params string[] trancheList)

@@ -133,6 +133,15 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     public IPayable? TurboPayable { get; set; }
     public IPayable? ReleasePayable { get; set; }
 
+    // Cap Carryover payable (Private RMBS - WAC-capped interest shortfall payback)
+    public IPayable? CapCarryoverPayable { get; set; }
+
+    // Supplemental reduction payables
+    public IPayable? SupplementalPayable { get; set; }
+    public string? SupplementalCapVariable { get; set; }
+    public List<string>? SupplementalOfferedTranches { get; set; }
+    public List<string>? SupplementalSeniorTranches { get; set; }
+
     private void Initialize(DynamicGroup? parentGroup, double collatBalance = 0)
     {
         foreach (var dealStructure in Deal.DealStructures.Where(ds => ds.GroupNum == GroupNum || ds.GroupNum == "0"))

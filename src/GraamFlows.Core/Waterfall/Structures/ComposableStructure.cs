@@ -277,9 +277,18 @@ public class ComposableStructure : BaseStructure
                     availableInterest = PayExcessTurboStep(deal, dynGroup, adjPeriodCf, availableInterest);
                     break;
 
+                case "EXCESS":
                 case "EXCESS_RELEASE":
                     PayExcessReleaseStep(dynGroup, adjPeriodCf, availableInterest);
                     availableInterest = 0;
+                    break;
+
+                case "SUPPLEMENTAL_REDUCTION":
+                    availableSchedPrin = PaySupplementalReductionStep(dynGroup, adjPeriodCf, availableSchedPrin);
+                    break;
+
+                case "CAP_CARRYOVER":
+                    availableInterest = PayCapCarryoverStep(dynGroup, adjPeriodCf, availableInterest);
                     break;
             }
         }
@@ -753,9 +762,138 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
+    ///     Cap Carryover step for Private RMBS with WAC-capped coupons.
+    ///     When a tranche coupon is limited by the Net WAC Rate (e.g., MIN(fixed, eff_wac)),
+    ///     the shortfall accumulates as AccumInterestShortfall on each tranche cashflow.
+    ///     This step uses available excess cashflow to pay back those accumulated shortfalls
+    ///     sequentially per the Cap Carryover payable structure.
+    /// </summary>
+    private double PayCapCarryoverStep(DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double availableInterest)
+    {
+        if (dynGroup.CapCarryoverPayable == null || availableInterest <= 0)
+            return availableInterest;
+
+        // Walk the payable structure and pay back accumulated interest shortfalls
+        var totalPaid = dynGroup.CapCarryoverPayable.PayInterestShortfall(
+            periodCf.CashflowDate, availableInterest);
+
+        return availableInterest - totalPaid;
+    }
+
+    /// <summary>
+    ///     Pay supplemental subordinate reduction amount.
+    ///     If the aggregate balance of offered tranches exceeds the cap percentage of pool balance,
+    ///     the excess is paid down as principal via the supplemental payable structure.
+    /// </summary>
+    /// <summary>
+    /// Supplemental Reduction: replaces CSCAP by computing credit support and redirecting
+    /// excess principal from seniors to subordinates when support exceeds the cap.
+    /// Uses the same math as EnhancementCapStructure.CalcExcessEnhancement.
+    ///
+    /// Senior tranches = tranches exclusive to the primary waterfall (AH, A1/A1H, B-classes).
+    /// Sub tranches = tranches in the cap overflow (M1/M1H, M2A/M2AH, M2B/M2BH).
+    /// The cap variable (SupplSubReduAmt, typically 5.5%) is the maximum credit support level.
+    /// </summary>
+    private double PaySupplementalReductionStep(DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double availableSchedPrin)
+    {
+        if (dynGroup.SupplementalPayable == null ||
+            dynGroup.SupplementalCapVariable == null ||
+            dynGroup.SupplementalOfferedTranches == null ||
+            dynGroup.SupplementalSeniorTranches == null)
+            return availableSchedPrin;
+
+        if (availableSchedPrin < 0.01)
+            return availableSchedPrin;
+
+        var cap = dynGroup.GetVariable(dynGroup.SupplementalCapVariable, periodCf.CashflowDate);
+
+        // Sum balances for senior-only and sub tranches
+        var senBal = 0.0;
+        foreach (var name in dynGroup.SupplementalSeniorTranches)
+        {
+            var dc = dynGroup.ClassByName(name);
+            if (dc != null) senBal += dc.Balance;
+        }
+
+        var subBal = 0.0;
+        foreach (var name in dynGroup.SupplementalOfferedTranches)
+        {
+            var dc = dynGroup.ClassByName(name);
+            if (dc != null) subBal += dc.Balance;
+        }
+
+        // Credit support if all principal goes to seniors:
+        // cs = 1 - (senBal - prin) / (senBal - prin + subBal)
+        var adjSenBal = senBal - availableSchedPrin;
+        var total = adjSenBal + subBal;
+        if (total <= 0) return availableSchedPrin;
+
+        var expectedSupport = 1.0 - adjSenBal / total;
+        if (double.IsNaN(expectedSupport) || double.IsInfinity(expectedSupport))
+            return availableSchedPrin;
+
+        double subPrin = 0;
+        if (expectedSupport > cap)
+        {
+            var excess = expectedSupport - cap;
+            var excessAmt = excess * total;
+            excessAmt = Math.Min(excessAmt, availableSchedPrin);
+            subPrin = excessAmt;
+        }
+
+        // Balance overflow: if remaining senior principal exceeds senior balance
+        var senPrin = availableSchedPrin - subPrin;
+        if (senPrin > senBal)
+        {
+            var overflow = senPrin - senBal;
+            senPrin = senBal;
+            subPrin += overflow;
+        }
+        if (subPrin > subBal)
+        {
+            var overflow = subPrin - subBal;
+            subPrin = subBal;
+            senPrin += overflow;
+        }
+
+        if (subPrin < 0.01)
+            return availableSchedPrin;
+
+        // Distribute subordinate portion through the supplemental payable
+        dynGroup.SupplementalPayable.PaySp(null, periodCf.CashflowDate, subPrin, () => { });
+        return availableSchedPrin - subPrin;
+    }
+
+    /// <summary>
     /// Test triggers and record results without executing termination or pay rules.
     /// Used by ComposableStructure to defer termination until after the waterfall steps.
     /// </summary>
+    /// <summary>
+    /// Check if a payable tree contains an EnhancementCapStructure (CSCAP) node.
+    /// </summary>
+    private static bool ContainsEnhancementCap(IPayable? payable)
+    {
+        if (payable == null) return false;
+        if (payable is PayableStructures.EnhancementCapStructure) return true;
+
+        var children = payable.GetChildren();
+        if (children == null) return false;
+
+        var queue = new Queue<IPayable>(children);
+        while (queue.Count > 0)
+        {
+            var child = queue.Dequeue();
+            if (child is PayableStructures.EnhancementCapStructure) return true;
+            var sub = child.GetChildren();
+            if (sub != null)
+                foreach (var s in sub)
+                    queue.Enqueue(s);
+        }
+        return false;
+    }
+
     private List<TriggerValue> TestAndRecordTriggers(DynamicGroup dynGroup, IList<ITrigger> triggers,
         PeriodCashflows adjPeriodCf)
     {

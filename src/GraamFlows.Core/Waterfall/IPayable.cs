@@ -42,6 +42,15 @@ public interface IPayable
     /// </summary>
     double InterestDue(DateTime cfDate, IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches);
 
+    /// <summary>
+    /// Pay back accumulated interest shortfalls (Cap Carryover) through this payable structure.
+    /// Walks leaf tranches and pays back AccumInterestShortfall from available funds.
+    /// </summary>
+    /// <param name="cfDate">Cashflow date</param>
+    /// <param name="availableFunds">Funds available for shortfall payback</param>
+    /// <returns>Amount actually paid back</returns>
+    double PayInterestShortfall(DateTime cfDate, double availableFunds);
+
     double BeginBalance(DateTime cfDate);
     double CurrentBalance(DateTime cfDate);
     bool IsLockedOut(DateTime cfDate);

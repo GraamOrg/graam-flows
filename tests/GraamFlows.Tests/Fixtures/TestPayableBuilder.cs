@@ -128,6 +128,8 @@ public class MockPayable : IPayable
         return element;
     }
 
+    public double PayInterestShortfall(DateTime cfDate, double availableFunds) => 0;
+
     public HashSet<IPayable> Leafs() => new() { this };
     public List<IPayable> GetChildren() => new();
 }

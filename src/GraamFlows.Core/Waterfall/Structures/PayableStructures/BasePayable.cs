@@ -17,6 +17,24 @@ public abstract class BasePayable : IPayable
     public abstract double InterestDue(DateTime cfDate, IRateProvider rateProvider,
         IEnumerable<DynamicTranche> allTranches);
 
+    /// <summary>
+    /// Default implementation: delegate sequentially to child payables.
+    /// Overridden by SequentialStructure and DynamicClass for proper behavior.
+    /// </summary>
+    public virtual double PayInterestShortfall(DateTime cfDate, double availableFunds)
+    {
+        var totalPaid = 0.0;
+        var remaining = availableFunds;
+        foreach (var child in GetChildren())
+        {
+            if (remaining < 0.01) break;
+            var paid = child.PayInterestShortfall(cfDate, remaining);
+            totalPaid += paid;
+            remaining -= paid;
+        }
+        return totalPaid;
+    }
+
     public abstract string Describe(int level);
     public abstract XElement DescribeXml();
     public abstract HashSet<IPayable> Leafs();
