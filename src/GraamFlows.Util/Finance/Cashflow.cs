@@ -74,6 +74,22 @@ public class Cashflow
 
     private double SpreadFromPriceInternal(ITermStructure termStructure, double price)
     {
+        // Check if there are any cashflows after settle date
+        var futureCashflows = CashFlowStream.Cashflows
+            .Where(cf => cf.CashflowDate >= CashFlowStream.SettleDate && cf.Cashflow > 0)
+            .ToList();
+
+        if (!futureCashflows.Any())
+        {
+            var lastCfDate = CashFlowStream.Cashflows.Any()
+                ? CashFlowStream.Cashflows.Max(cf => cf.CashflowDate).ToString("yyyy-MM-dd")
+                : "none";
+            throw new InvalidOperationException(
+                $"No cashflows after settle date {CashFlowStream.SettleDate:yyyy-MM-dd}. " +
+                $"Last cashflow date: {lastCfDate}. " +
+                $"Adjust settle date to be on or before the first cashflow date.");
+        }
+
         try
         {
             var solver = new Brent();
@@ -114,6 +130,22 @@ public class Cashflow
 
     public double YieldFromPrice(double price)
     {
+        // Check if there are any cashflows after settle date
+        var futureCashflows = CashFlowStream.Cashflows
+            .Where(cf => cf.CashflowDate >= CashFlowStream.SettleDate && cf.Cashflow > 0)
+            .ToList();
+
+        if (!futureCashflows.Any())
+        {
+            var lastCfDate = CashFlowStream.Cashflows.Any()
+                ? CashFlowStream.Cashflows.Max(cf => cf.CashflowDate).ToString("yyyy-MM-dd")
+                : "none";
+            throw new InvalidOperationException(
+                $"No cashflows after settle date {CashFlowStream.SettleDate:yyyy-MM-dd}. " +
+                $"Last cashflow date: {lastCfDate}. " +
+                $"Adjust settle date to be on or before the first cashflow date.");
+        }
+
         var solver = new Brent();
         solver.SetMaxEvaluations(1000);
         var objFunction = new SimpleRealFunction1D(n =>
@@ -129,7 +161,7 @@ public class Cashflow
         }
         catch
         {
-            // cannot solve, probably becuase out of range.
+            // cannot solve, probably because out of range.
             return -100;
         }
     }
