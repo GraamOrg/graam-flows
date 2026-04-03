@@ -51,8 +51,13 @@ public class ComposableStructure : BaseStructure
                 break;
 
             // Compute collateral WAC
-            var collatWac = period.Sum(p => p.Interest) / period.Sum(p => p.BeginBalance) * 1200;
-            var collatNetWac = period.Sum(p => p.NetInterest) / period.Sum(p => p.BeginBalance) * 1200;
+            var totalBeginBalance = period.Sum(p => p.BeginBalance);
+            var collatWac = totalBeginBalance > 0
+                ? period.Sum(p => p.Interest) / totalBeginBalance * 1200
+                : 0;
+            var collatNetWac = totalBeginBalance > 0
+                ? period.Sum(p => p.NetInterest) / totalBeginBalance * 1200
+                : 0;
 
             foreach (var periodCfGroup in period.GroupBy(g => g.GroupNum))
             {

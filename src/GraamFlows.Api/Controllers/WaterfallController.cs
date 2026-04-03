@@ -92,9 +92,8 @@ public class WaterfallController : ControllerBase
         // Build tranches
         foreach (var trancheDto in dto.Tranches)
         {
-            // Determine factor and balance from request.Factors if provided
-            // If factors is null, default all tranches to factor 1.0
-            var effectiveFactor = factors == null ? 1.0 : trancheDto.Factor;
+            // Determine factor: Factors dictionary overrides trancheDto.Factor if provided
+            var effectiveFactor = trancheDto.Factor;
             var effectiveOriginalBalance = trancheDto.OriginalBalance;
 
             if (factors != null && factors.TryGetValue(trancheDto.TrancheName, out var factorEntry))
@@ -102,13 +101,12 @@ public class WaterfallController : ControllerBase
                 if (factorEntry.Balance.HasValue)
                 {
                     // For OC/Modeling tranches: use explicit balance, set factor to 1
-                    // The "original" balance becomes the current balance for projection purposes
                     effectiveOriginalBalance = factorEntry.Balance.Value;
                     effectiveFactor = 1.0;
                 }
                 else if (factorEntry.Factor.HasValue)
                 {
-                    // For regular tranches: apply factor to original balance
+                    // Factors dictionary overrides tranche-level factor
                     effectiveFactor = factorEntry.Factor.Value;
                 }
             }
@@ -449,14 +447,47 @@ public class WaterfallController : ControllerBase
 
     private static IRateProvider BuildRateProvider(Dictionary<string, List<double[]>>? marketRates)
     {
-        if (marketRates == null || !marketRates.Any()) return new ConstantRateProvider(5.0); // Default 5% rate
+        if (marketRates == null || !marketRates.Any())
+            return new ConstantRateProvider(5.0);
 
-        // For now, use constant rate provider with first rate found
-        // TODO: Implement full rate curve provider
-        var firstRate = marketRates.Values.FirstOrDefault()?.FirstOrDefault();
-        if (firstRate != null && firstRate.Length > 1) return new ConstantRateProvider(firstRate[1]);
+        // Build a MarketData object mapping each instrument to its spot rate.
+        // Input format: {"Sofr30Avg": [[term, rate], ...], "Libor3M": [[term, rate], ...]}
+        // We use the shortest-term rate for each instrument as the current spot rate.
+        var marketData = new MarketData();
+        foreach (var (instName, points) in marketRates)
+        {
+            if (points == null || points.Count == 0) continue;
 
-        return new ConstantRateProvider(5.0);
+            // Use the shortest-term point as the spot rate
+            var spotPoint = points.OrderBy(p => p[0]).First();
+            if (spotPoint.Length < 2) continue;
+            var rate = spotPoint[1];
+
+            if (Enum.TryParse<MarketDataInstEnum>(instName, ignoreCase: true, out var inst))
+                SetMarketDataRate(marketData, inst, rate);
+        }
+
+        return new ConstantRateProvider(marketData);
+    }
+
+    private static void SetMarketDataRate(MarketData md, MarketDataInstEnum inst, double rate)
+    {
+        switch (inst)
+        {
+            case MarketDataInstEnum.Libor1M: md.Libor1M = rate; break;
+            case MarketDataInstEnum.Libor3M: md.Libor3M = rate; break;
+            case MarketDataInstEnum.Libor6M: md.Libor6M = rate; break;
+            case MarketDataInstEnum.Libor12M: md.Libor12M = rate; break;
+            case MarketDataInstEnum.Sofr30Avg: md.Sofr30Avg = rate; break;
+            case MarketDataInstEnum.Sofr90Avg: md.Sofr90Avg = rate; break;
+            case MarketDataInstEnum.Sofr180Avg: md.Sofr180Avg = rate; break;
+            case MarketDataInstEnum.SofrIndex: md.SofrIndex = rate; break;
+            case MarketDataInstEnum.Swap2Y: md.Swap2Y = rate; break;
+            case MarketDataInstEnum.Swap3Y: md.Swap3Y = rate; break;
+            case MarketDataInstEnum.Swap5Y: md.Swap5Y = rate; break;
+            case MarketDataInstEnum.Swap10Y: md.Swap10Y = rate; break;
+            case MarketDataInstEnum.Swap30Y: md.Swap30Y = rate; break;
+        }
     }
 
     private static WaterfallResponse ConvertToResponse(DealCashflows dealCashflows)

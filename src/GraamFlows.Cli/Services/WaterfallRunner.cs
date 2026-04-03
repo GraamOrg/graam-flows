@@ -88,7 +88,7 @@ public class WaterfallRunner
         // Build tranches
         foreach (var trancheDto in dto.Tranches)
         {
-            var effectiveFactor = factors == null ? 1.0 : trancheDto.Factor;
+            var effectiveFactor = trancheDto.Factor;
             var effectiveOriginalBalance = trancheDto.OriginalBalance;
 
             if (factors != null && factors.TryGetValue(trancheDto.TrancheName, out var factorEntry))
