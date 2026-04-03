@@ -4,12 +4,12 @@ A structured finance cashflow engine for modeling securitized debt waterfalls. G
 
 ## What it does
 
-graam-flows takes two inputs:
+graam-flows has two engines:
 
-1. **Collateral cashflows** - periodic interest, scheduled principal, prepayments, defaults, and recoveries from an underlying loan pool
-2. **Deal definition** - tranches, their coupons, and waterfall rules that govern how collateral cashflows are distributed
+1. **Collateral engine** - projects loan pool cashflows from asset-level data and assumptions (CPR, CDR, severity, delinquency). Supports fixed-rate, ARM, step-rate, and interest-only loans with ABS and CPR prepayment conventions.
+2. **Waterfall engine** - distributes collateral cashflows across tranches according to deal rules. Produces period-by-period interest, principal, writedowns, and balance for each tranche.
 
-It produces **tranche-level cashflows** - period-by-period interest, principal, writedowns, and balance for each tranche in the deal.
+The engines can be used together (asset data in, tranche cashflows out) or independently (bring your own collateral cashflows to the waterfall, or generate collateral projections without a waterfall).
 
 The engine supports the deal structures found in Auto ABS, RMBS, and credit risk transfer (CRT) securitizations: sequential and pro-rata payment priorities, shifting interest, enhancement caps, trigger-dependent structure switching, reserve accounts, OC turbo mechanisms, and more.
 
@@ -49,7 +49,40 @@ dotnet run --project src/GraamFlows.Cli -- run --deal path/to/deal.json
 
 ## API usage
 
-`POST /api/waterfall` accepts a JSON body with collateral cashflows and a deal definition, and returns tranche-level cashflows.
+### Collateral projection
+
+`POST /api/calccollateral` projects loan pool cashflows from asset data and assumptions.
+
+```json
+{
+  "projectionDate": "2024-01-25",
+  "assets": [
+    {
+      "assetName": "Pool",
+      "interestRateType": "FRM",
+      "originalDate": "2023-06-01",
+      "originalBalance": 100000000,
+      "originalInterestRate": 6.5,
+      "currentInterestRate": 6.5,
+      "originalAmortizationTerm": 72,
+      "currentBalance": 95000000,
+      "serviceFee": 1.0
+    }
+  ],
+  "assumptions": {
+    "cpr": 6.0,
+    "cdr": 1.0,
+    "severity": 40.0,
+    "prepaymentType": "ABS"
+  }
+}
+```
+
+Assumptions support constant scalars, per-period vectors (`cprVector: [6.0, 7.0, 8.0, ...]`), or ramp strings (`cprVectorStr: "1.0R12,6.0"`). Prepayment convention can be `CPR` (% of current balance, standard for RMBS) or `ABS` (% of original balance, standard for Auto ABS).
+
+### Waterfall execution
+
+`POST /api/waterfall` distributes collateral cashflows across tranches and returns tranche-level cashflows.
 
 ```json
 {
@@ -216,6 +249,7 @@ tests/
 
 ### Core components
 
+- **Amortizer** (`Core/AssetCashflowEngine/Amortizer.cs`) - High-performance collateral cashflow generator using parallel array processing. Projects scheduled principal, prepayments, defaults, recoveries, and delinquencies for fixed-rate, ARM, step-rate, and IO loans.
 - **ComposableStructure** (`Core/Waterfall/Structures/ComposableStructure.cs`) - The waterfall execution engine. Runs step-based waterfall periods, tracking available funds through each step.
 - **Payable structures** (`Core/Waterfall/Structures/PayableStructures/`) - Composable payment distribution trees (Sequential, Prorata, ShiftingInterest, EnhancementCap, etc.).
 - **RulesEngine** (`Core/RulesEngine/`) - Compiles PayRule DSL formulas into executable C# at runtime using Roslyn. Supports trigger conditions, variable lookups, balance queries, and structure-building functions.
