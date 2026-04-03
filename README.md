@@ -8,7 +8,7 @@ graam-flows is the open execution layer behind [Graam](https://graam.ai).
 
 It provides a deterministic, auditable engine for running structured credit deals — from collateral projections through waterfall execution to bond analytics.
 
-The goal is to move structured credit away from fragmented spreadsheet models toward a shared, executable representation of a deal.
+The goal is to move structured credit away from encrypted CDI files and fragmented spreadsheet models toward a shared, executable representation of a deal.
 
 ## Why this exists
 
