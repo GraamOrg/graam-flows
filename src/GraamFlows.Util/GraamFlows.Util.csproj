@@ -3,6 +3,15 @@
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+
+        <PackageId>Graam.Flows.Util</PackageId>
+        <Version>0.1.0</Version>
+        <Authors>Graam, Inc.</Authors>
+        <Description>Pricing analytics, calendar, day counters, term structure, and solvers for the Graam structured credit engine.</Description>
+        <PackageProjectUrl>https://github.com/graam-ai/graam-flows</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/graam-ai/graam-flows</RepositoryUrl>
+        <PackageLicenseExpression>LicenseRef-BSL-1.1</PackageLicenseExpression>
+        <PackageTags>structured-credit;securitization;pricing;yield;duration</PackageTags>
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\GraamFlows.Objects\GraamFlows.Objects.csproj"/>

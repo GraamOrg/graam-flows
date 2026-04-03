@@ -3,6 +3,15 @@
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+
+        <PackageId>Graam.Flows.Domain</PackageId>
+        <Version>0.1.0</Version>
+        <Authors>Graam, Inc.</Authors>
+        <Description>Domain models (Deal, Tranche, PayRule, Trigger) for the Graam structured credit engine.</Description>
+        <PackageProjectUrl>https://github.com/graam-ai/graam-flows</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/graam-ai/graam-flows</RepositoryUrl>
+        <PackageLicenseExpression>LicenseRef-BSL-1.1</PackageLicenseExpression>
+        <PackageTags>structured-credit;securitization;cashflows;abs;rmbs</PackageTags>
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\GraamFlows.Objects\GraamFlows.Objects.csproj"/>

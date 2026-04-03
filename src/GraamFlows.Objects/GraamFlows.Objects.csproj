@@ -3,5 +3,14 @@
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+
+        <PackageId>Graam.Flows.Objects</PackageId>
+        <Version>0.1.0</Version>
+        <Authors>Graam, Inc.</Authors>
+        <Description>Interfaces, enums, and data contracts for the Graam structured credit engine.</Description>
+        <PackageProjectUrl>https://github.com/graam-ai/graam-flows</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/graam-ai/graam-flows</RepositoryUrl>
+        <PackageLicenseExpression>LicenseRef-BSL-1.1</PackageLicenseExpression>
+        <PackageTags>structured-credit;securitization;cashflows;abs;rmbs</PackageTags>
     </PropertyGroup>
 </Project>

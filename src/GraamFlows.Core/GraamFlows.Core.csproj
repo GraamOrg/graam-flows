@@ -3,12 +3,25 @@
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+
+        <PackageId>Graam.Flows.Core</PackageId>
+        <Version>0.1.0</Version>
+        <Authors>Graam, Inc.</Authors>
+        <Description>Deterministic cashflow engine for structured credit — collateral projections, waterfall execution, and bond analytics.</Description>
+        <PackageProjectUrl>https://github.com/graam-ai/graam-flows</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/graam-ai/graam-flows</RepositoryUrl>
+        <PackageLicenseExpression>LicenseRef-BSL-1.1</PackageLicenseExpression>
+        <PackageTags>structured-credit;securitization;cashflows;waterfall;abs;rmbs;crt</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
     <ItemGroup>
         <Compile Remove="RulesEngine\RulesHost.cs"/>
     </ItemGroup>
     <ItemGroup>
         <EmbeddedResource Include="RulesEngine\RulesHost.cs"/>
+    </ItemGroup>
+    <ItemGroup>
+        <None Include="..\..\README.md" Pack="true" PackagePath="\"/>
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0"/>
