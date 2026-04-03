@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="graam-logo.png" alt="Graam" width="120">
+  <img src="graam-logo.png" alt="Graam — Structured Credit for the Agentic Era" width="300">
 </p>
 
 <h1 align="center">graam-flows</h1>
