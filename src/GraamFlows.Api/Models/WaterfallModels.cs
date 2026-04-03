@@ -72,7 +72,7 @@ public class DealDto
 {
     public string DealName { get; set; } = "";
     public List<TrancheDto> Tranches { get; set; } = new();
-    public string WaterfallType { get; set; } = "Sequential"; // Sequential, Passthrough, Agency, Mutable
+    public string WaterfallType { get; set; } = "Sequential"; // Sequential, Passthrough, Agency
     public List<DealStructureDto>? DealStructures { get; set; }
     public List<DealStructureDto>? ClassGroups { get; set; } // Alias for DealStructures (JSON schema naming)
     public List<TriggerDto>? Triggers { get; set; }

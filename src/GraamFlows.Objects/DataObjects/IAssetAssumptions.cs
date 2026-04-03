@@ -40,7 +40,6 @@ public interface IAssumptionMill
     IYieldCurveAssumptions YieldCurveAssumptions { get; }
     bool DisplayAssetCashflows { get; }
     int Threads { get; }
-    IModelAssumps ModelAssumptions { get; }
     IAssetAssumptions GetAssumptionsForAsset(IAsset asset);
     TriggerForecast GetTriggerForecast(string triggerName, string groupNum);
 }

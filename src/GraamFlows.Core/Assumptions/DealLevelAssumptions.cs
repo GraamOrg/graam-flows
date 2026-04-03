@@ -29,16 +29,6 @@ public class DealLevelAssumptions : IAssumptionMill
         Threads = -1;
     }
 
-    public DealLevelAssumptions(DateTime settleDate, IModelAssumps modelAssumps)
-    {
-        SettleDate = settleDate;
-        ModelAssumptions = modelAssumps;
-        CompoundingMethod = CompoundingTypeEnum.Continuous;
-        YieldCurveAssumptions = new DefaultYieldCurveAssumptions();
-        DisplayAssetCashflows = false;
-        Threads = -1;
-    }
-
     public DealLevelAssumptions(DateTime settleDate)
     {
         SettleDate = settleDate;
@@ -95,8 +85,6 @@ public class DealLevelAssumptions : IAssumptionMill
             return new TriggerForecast(triggerName, groupNum, true);
         return null;
     }
-
-    public IModelAssumps ModelAssumptions { get; set; }
 
     public void AddTriggerForecast(string triggerName, string group, bool value)
     {
