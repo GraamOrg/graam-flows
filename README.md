@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="graam-logo.png" alt="Graam — Structured Credit for the Agentic Era" width="300">
+  <img src="graam-logo.png" alt="Graam — Structured Credit for the Agentic Era" width="150">
 </p>
-
-<h1 align="center">graam-flows</h1>
 
 graam-flows is the open execution layer behind [Graam](https://graam.ai).
 
@@ -33,15 +31,30 @@ This repository focuses on the deterministic modeling layer.
 ## How it works
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {
+  'primaryColor': '#e8f0fe',
+  'primaryBorderColor': '#4a86d4',
+  'primaryTextColor': '#1a1a1a',
+  'lineColor': '#7a9ed4',
+  'secondaryColor': '#fff4e6',
+  'tertiaryColor': '#f0f7f0',
+  'fontSize': '14px'
+}}}%%
 graph TD
-    A["Graam Agent"] -->|user query or prospectus| B["Deal DSL"]
-    B --> C["graam-flows"]
-    C --> D["Collateral Engine"]
-    C --> E["Waterfall Engine"]
-    C --> F["Pricing Engine"]
-    D -->|pool cashflows| E
-    E -->|tranche cashflows| F
-    F --> G["Price / Yield / Spread / WAL"]
+    A["🤖 Graam Agent"]:::agent -->|"user query or prospectus"| B["Deal DSL"]:::dsl
+    B --> C{{"graam-flows"}}:::engine
+    C --> D["Collateral Engine"]:::core
+    C --> E["Waterfall Engine"]:::core
+    C --> F["Pricing Engine"]:::core
+    D -->|"pool cashflows"| E
+    E -->|"tranche cashflows"| F
+    F --> G(["Price · Yield · Spread · WAL"]):::output
+
+    classDef agent fill:#fff4e6,stroke:#e8913a,stroke-width:2px,color:#1a1a1a
+    classDef dsl fill:#fef3f3,stroke:#d47a7a,stroke-width:1.5px,color:#1a1a1a
+    classDef engine fill:#e8f0fe,stroke:#4a86d4,stroke-width:2.5px,color:#1a1a1a,font-weight:bold
+    classDef core fill:#f0f7f0,stroke:#5a9e6f,stroke-width:1.5px,color:#1a1a1a
+    classDef output fill:#f5f0ff,stroke:#7a6ad4,stroke-width:2px,color:#1a1a1a
 ```
 
 ## What it does
