@@ -4,12 +4,13 @@ A structured finance cashflow engine for modeling securitized debt waterfalls. G
 
 ## What it does
 
-graam-flows has two engines:
+graam-flows has three engines:
 
 1. **Collateral engine** - projects loan pool cashflows from asset-level data and assumptions (CPR, CDR, severity, delinquency). Supports fixed-rate, ARM, step-rate, and interest-only loans with ABS and CPR prepayment conventions.
 2. **Waterfall engine** - distributes collateral cashflows across tranches according to deal rules. Produces period-by-period interest, principal, writedowns, and balance for each tranche.
+3. **Pricing engine** - computes bond analytics from cashflow streams: price, yield, spread (Z-spread and discount margin), modified duration, WAL, and accrued interest. Supports arbitrary term structures and day count conventions.
 
-The engines can be used together (asset data in, tranche cashflows out) or independently (bring your own collateral cashflows to the waterfall, or generate collateral projections without a waterfall).
+The engines can be used together or independently. Generate collateral projections, run them through a waterfall, then price the output tranches — or use any engine in isolation.
 
 The engine supports the deal structures found in Auto ABS, RMBS, and credit risk transfer (CRT) securitizations: sequential and pro-rata payment priorities, shifting interest, enhancement caps, trigger-dependent structure switching, reserve accounts, OC turbo mechanisms, and more.
 
@@ -73,12 +74,36 @@ dotnet run --project src/GraamFlows.Cli -- run --deal path/to/deal.json
     "cpr": 6.0,
     "cdr": 1.0,
     "severity": 40.0,
-    "prepaymentType": "ABS"
+    "prepaymentType": "CPR"
   }
 }
 ```
 
 Assumptions support constant scalars, per-period vectors (`cprVector: [6.0, 7.0, 8.0, ...]`), or ramp strings (`cprVectorStr: "1.0R12,6.0"`). Prepayment convention can be `CPR` (% of current balance, standard for RMBS) or `ABS` (% of original balance, standard for Auto ABS).
+
+### Pricing and analytics
+
+`POST /api/pricing` computes bond analytics from a cashflow stream.
+
+```json
+{
+  "cashflows": [
+    { "date": "2024-02-25", "interest": 333333, "principal": 1500000, "balance": 98500000 },
+    { "date": "2024-03-25", "interest": 328333, "principal": 1500000, "balance": 97000000 }
+  ],
+  "params": {
+    "inputType": "price",
+    "inputValue": 99.5,
+    "settleDate": "2024-01-25",
+    "balance": 100000000,
+    "dayCount": "30/360",
+    "compounding": "SemiAnnual"
+  },
+  "rates": [[0.5, 5.0], [1.0, 4.8], [2.0, 4.6], [5.0, 4.5], [10.0, 4.4]]
+}
+```
+
+Input types: `price` (solve for yield/spread), `yield` (solve for price), `spread` (solve for price from Z-spread). Returns price, yield, Z-spread, discount margin, modified duration, WAL, and accrued interest. The `rates` array provides a term structure as `[term_years, rate_percent]` pairs for spread and duration calculations.
 
 ### Waterfall execution
 
@@ -242,7 +267,7 @@ src/
   GraamFlows.Core/         Waterfall engine, rules engine, triggers
   GraamFlows.Domain/       Domain models (Deal, Tranche, PayRule, etc.)
   GraamFlows.Objects/      Interfaces, enums, data contracts
-  GraamFlows.Util/         Calendar, day counters, term structure, solvers
+  GraamFlows.Util/         Pricing analytics, calendar, day counters, term structure, solvers
 tests/
   GraamFlows.Tests/        Unit and integration tests (xUnit)
 ```
@@ -254,6 +279,8 @@ tests/
 - **Payable structures** (`Core/Waterfall/Structures/PayableStructures/`) - Composable payment distribution trees (Sequential, Prorata, ShiftingInterest, EnhancementCap, etc.).
 - **RulesEngine** (`Core/RulesEngine/`) - Compiles PayRule DSL formulas into executable C# at runtime using Roslyn. Supports trigger conditions, variable lookups, balance queries, and structure-building functions.
 - **UnifiedWaterfallBuilder** (`Api/Transformers/UnifiedWaterfallBuilder.cs`) - Transforms the steps-based JSON format into PayRule DSL for the engine.
+- **Cashflow** (`Util/Finance/Cashflow.cs`) - Bond analytics calculator. Computes price, yield, Z-spread, discount margin, modified duration, WAL, and accrued interest from any cashflow stream against a term structure.
+- **Solvers** (`Util/Solvers1D/`) - Numerical root-finding (Brent, Newton-Raphson, bisection, etc.) used by the pricing engine to solve for yield and spread.
 
 ## Supported deal types
 
