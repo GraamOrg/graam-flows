@@ -1,0 +1,35 @@
+Business Source License 1.1
+
+Parameters
+
+Licensor:             Graam, Inc.
+Licensed Work:        graam-flows
+                      The Licensed Work is (c) 2025 Graam, Inc.
+Additional Use Grant: You may make use of the Licensed Work, provided that
+                      you may not use the Licensed Work for a Cashflow
+                      Engine Service. A "Cashflow Engine Service" is a
+                      commercial offering that allows third parties to
+                      access the functionality of the Licensed Work by
+                      performing structured credit cashflow projections,
+                      waterfall execution, or bond analytics as a service.
+Change Date:          April 3, 2029
+Change License:       Apache License, Version 2.0
+
+For information about alternative licensing arrangements for the Licensed Work,
+please contact: licensing@graam.ai
+
+Notice
+
+The Business Source License (this document, or the "License") is not an Open
+Source license. However, the Licensed Work will eventually be made available
+under an Open Source License, as stated in this License.
+
+The full text of the Business Source License 1.1 is available at:
+https://mariadb.com/bsl11/
+
+For the avoidance of doubt, this License allows use of the Licensed Work for:
+- Internal evaluation and testing
+- Non-commercial research and education
+- Building applications that use the Licensed Work as a library or component,
+  provided those applications do not themselves constitute a Cashflow Engine
+  Service as defined above

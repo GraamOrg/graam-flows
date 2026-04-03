@@ -347,4 +347,4 @@ The engine has been used to model:
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+Business Source License 1.1 — converts to Apache 2.0 on April 3, 2029. See [LICENSE](LICENSE).
