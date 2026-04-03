@@ -1,4 +1,8 @@
-# graam-flows
+<p align="center">
+  <img src="graam-logo.png" alt="Graam" width="120">
+</p>
+
+<h1 align="center">graam-flows</h1>
 
 graam-flows is the open execution layer behind [Graam](https://graam.ai).
 
@@ -25,6 +29,20 @@ graam-flows is the execution layer. [Graam](https://graam.ai) builds on top of i
 - end-to-end workflows for issuers and investors
 
 This repository focuses on the deterministic modeling layer.
+
+## How it works
+
+```mermaid
+graph TD
+    A["Graam Agent"] -->|user query or prospectus| B["Deal DSL"]
+    B --> C["graam-flows"]
+    C --> D["Collateral Engine"]
+    C --> E["Waterfall Engine"]
+    C --> F["Pricing Engine"]
+    D -->|pool cashflows| E
+    E -->|tranche cashflows| F
+    F --> G["Price / Yield / Spread / WAL"]
+```
 
 ## What it does
 
