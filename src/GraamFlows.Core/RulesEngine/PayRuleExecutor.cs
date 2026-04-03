@@ -33,7 +33,7 @@ public class PayRuleExecutor : IPayRuleExecutor
         var totalPmtNew = rulesResults.PaidAmount;
 
         if (rulesResults.PaidAmount > 0 && payRuleClass != null)
-            // SHARIFF - not sure how to handle when pay balance is greater than tranche if PayFrom = Rule. So far just paying sequentially since thats what CRT wants
+            // When pay balance exceeds tranche capacity for PayFrom = Rule, fall back to sequential distribution
             foreach (var dynClass in payRuleClass)
                 /*if (dynClass.DealStructure.PayFromEnum == PayFromEnum.ProRata)
                    Waterfall.PayProRataClassSchedPrin(dynGroup, dynGroup.DynamicClasses, periodCf.CashflowDate, rulesResults.PaidAmount, periodCf);

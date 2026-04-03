@@ -183,7 +183,7 @@ public class DealModelLoader
             throw new InvalidOperationException("At least one tranche is required");
 
         // If no Collateral section exists, try to build one from deal-level fields.
-        // Deal JSON from graam-harmony may have collateralBalance/balanceAtIssuance at root
+        // Deal JSON may have collateralBalance/balanceAtIssuance at root
         // plus collateral characteristics embedded in a "collateral" object.
         if (model.Collateral == null && model.PoolStratification == null)
         {

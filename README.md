@@ -34,6 +34,13 @@ dotnet run --project src/GraamFlows.Api
 
 The API starts on `http://localhost:5200` with Swagger UI at `/swagger`.
 
+### Docker
+
+```sh
+docker build -t graam-flows .
+docker run -p 5200:5200 graam-flows
+```
+
 ### Run the CLI
 
 ```sh
