@@ -1,6 +1,30 @@
 # graam-flows
 
-A structured finance cashflow engine for modeling securitized debt waterfalls. Given collateral cashflows and a deal structure, graam-flows distributes interest, principal, writedowns, and excess cashflows across tranches according to configurable waterfall rules.
+graam-flows is the open execution layer behind [Graam](https://graam.ai).
+
+It provides a deterministic, auditable engine for running structured credit deals — from collateral projections through waterfall execution to bond analytics.
+
+The goal is to move structured credit away from fragmented spreadsheet models toward a shared, executable representation of a deal.
+
+## Why this exists
+
+Structured credit workflows today rely heavily on spreadsheets and fragmented models. Deals are often re-built independently by each party, introducing inconsistencies and operational risk.
+
+graam-flows provides a single, executable representation of a deal that can be:
+- run consistently across parties
+- validated deterministically
+- reused without re-building
+
+This is a step toward making structured credit programmable.
+
+## Relationship to Graam
+
+graam-flows is the execution layer. [Graam](https://graam.ai) builds on top of it with:
+- AI-driven deal structuring
+- document parsing and generation
+- end-to-end workflows for issuers and investors
+
+This repository focuses on the deterministic modeling layer.
 
 ## What it does
 
