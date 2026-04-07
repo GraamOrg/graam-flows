@@ -33,30 +33,14 @@ This repository focuses on the deterministic modeling layer.
 ## How it works
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {
-  'primaryColor': '#e8f0fe',
-  'primaryBorderColor': '#4a86d4',
-  'primaryTextColor': '#1a1a1a',
-  'lineColor': '#7a9ed4',
-  'fontSize': '14px'
-}}}%%
 graph LR
-    Input["User Query / Prospectus"]:::input --> Agent["🔮 Graam Agent"]:::agent
-    Agent -->|"Deal DSL"| GF
-
-    subgraph GF["graam-flows"]
-        D["Collateral Engine"]:::core -->|"pool cashflows"| E["Waterfall Engine"]:::core
-        E -->|"tranche cashflows"| F["Pricing Engine"]:::core
+    Input["User Query / Prospectus"] --> Agent["Graam Agent"]
+    Agent -->|Deal DSL| D
+    subgraph graam-flows
+        D["Collateral Engine"] -->|pool cashflows| E["Waterfall Engine"]
+        E -->|tranche cashflows| F["Pricing Engine"]
     end
-    GF:::engine
-
-    F --> Output(["Price · Yield · Spread · WAL"]):::output
-
-    classDef input fill:#f9f9f9,stroke:#999,stroke-width:1px,color:#1a1a1a
-    classDef agent fill:#fff4e6,stroke:#e8913a,stroke-width:2px,color:#1a1a1a
-    classDef engine fill:#e8f0fe,stroke:#4a86d4,stroke-width:2.5px,color:#1a1a1a,font-weight:bold
-    classDef core fill:#f0f7f0,stroke:#5a9e6f,stroke-width:1.5px,color:#1a1a1a
-    classDef output fill:#f5f0ff,stroke:#7a6ad4,stroke-width:2px,color:#1a1a1a
+    F --> Output["Price / Yield / Spread / WAL"]
 ```
 
 ## What it does
