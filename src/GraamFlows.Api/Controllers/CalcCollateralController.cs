@@ -233,19 +233,24 @@ public class CalcCollateralController : ControllerBase
         // Calculate summary
         var firstCf = periodCashflows.FirstOrDefault();
         var lastCf = periodCashflows.LastOrDefault();
+        var originalBalance = firstCf?.BeginBalance ?? 0;
+        var totalDefaultedPrincipal = periodCashflows.Sum(cf => cf.DefaultedPrincipal);
+        var totalCollateralLoss = lastCf?.CumCollateralLoss ?? 0;
         response.Summary = new CollateralSummaryDto
         {
             TotalPeriods = periodCashflows.Count,
-            OriginalBalance = firstCf?.BeginBalance ?? 0,
+            OriginalBalance = originalBalance,
             Wac = firstCf?.WAC ?? 0,
             Wam = firstCf?.WAM ?? 0,
             Wala = firstCf?.WALA ?? 0,
             TotalScheduledPrincipal = periodCashflows.Sum(cf => cf.ScheduledPrincipal),
             TotalUnscheduledPrincipal = periodCashflows.Sum(cf => cf.UnscheduledPrincipal),
             TotalInterest = periodCashflows.Sum(cf => cf.Interest),
-            TotalDefaultedPrincipal = periodCashflows.Sum(cf => cf.DefaultedPrincipal),
+            TotalDefaultedPrincipal = totalDefaultedPrincipal,
             TotalRecoveryPrincipal = periodCashflows.Sum(cf => cf.RecoveryPrincipal),
-            TotalCollateralLoss = lastCf?.CumCollateralLoss ?? 0
+            TotalCollateralLoss = totalCollateralLoss,
+            CumDefaultPct = originalBalance > 0 ? totalDefaultedPrincipal / originalBalance : 0,
+            CumLossPct = originalBalance > 0 ? totalCollateralLoss / originalBalance : 0
         };
 
         return response;

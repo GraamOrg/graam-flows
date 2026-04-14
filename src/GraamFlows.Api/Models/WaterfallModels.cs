@@ -563,6 +563,7 @@ public class TrancheSummaryDto
     public double TotalInterest { get; set; }
     public double TotalExpense { get; set; } // Total expense for expense tranches
     public double TotalWritedown { get; set; }
+    public double WritedownPct { get; set; }
     public double FinalBalance { get; set; }
     public double FinalFactor { get; set; }
 }

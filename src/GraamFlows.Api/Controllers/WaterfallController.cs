@@ -549,12 +549,15 @@ public class WaterfallController : ControllerBase
 
             // Calculate summary
             var lastCf = cashflowList.LastOrDefault();
+            var origBal = cashflowList.FirstOrDefault()?.BeginBalance ?? 0;
+            var totalWritedown = cashflowList.Sum(c => c.Writedown);
             response.Summary.TranchesSummary[trancheName] = new TrancheSummaryDto
             {
                 TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
                 TotalInterest = cashflowList.Sum(c => c.Interest),
                 TotalExpense = cashflowList.Sum(c => c.Expense),
-                TotalWritedown = cashflowList.Sum(c => c.Writedown),
+                TotalWritedown = totalWritedown,
+                WritedownPct = origBal > 0 ? totalWritedown / origBal : 0,
                 FinalBalance = lastCf?.Balance ?? 0,
                 FinalFactor = lastCf?.Factor ?? 0
             };
@@ -619,12 +622,15 @@ public class WaterfallController : ControllerBase
 
                 // Calculate summary
                 var lastCf = cashflowList.LastOrDefault();
+                var origBal = cashflowList.FirstOrDefault()?.BeginBalance ?? 0;
+                var totalWritedown = cashflowList.Sum(c => c.Writedown);
                 response.Summary.TranchesSummary[trancheName] = new TrancheSummaryDto
                 {
                     TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
                     TotalInterest = cashflowList.Sum(c => c.Interest),
                     TotalExpense = cashflowList.Sum(c => c.Expense),
-                    TotalWritedown = cashflowList.Sum(c => c.Writedown),
+                    TotalWritedown = totalWritedown,
+                    WritedownPct = origBal > 0 ? totalWritedown / origBal : 0,
                     FinalBalance = lastCf?.Balance ?? 0,
                     FinalFactor = lastCf?.Factor ?? 0
                 };

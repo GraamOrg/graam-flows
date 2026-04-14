@@ -135,4 +135,6 @@ public class CollateralSummaryDto
     public double TotalDefaultedPrincipal { get; set; }
     public double TotalRecoveryPrincipal { get; set; }
     public double TotalCollateralLoss { get; set; }
+    public double CumDefaultPct { get; set; }
+    public double CumLossPct { get; set; }
 }
