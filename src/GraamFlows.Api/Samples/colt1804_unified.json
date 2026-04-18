@@ -116,7 +116,7 @@
       "firstPayDate": "2018-10-25",
       "dayCount": "30/360",
       "payDelay": 24,
-      "trancheType": "Residual"
+      "trancheType": "ResidualInterest"
     }
   ],
   "triggers": [

@@ -1,8 +1,10 @@
 namespace GraamFlows.AssetCashflowEngine;
 
 /// <summary>
-///     High-performance asset cashflow generator using parallel array processing.
-///     Modeled after the Haxe runner for optimal cache utilization and minimal allocations.
+///     High-performance asset cashflow generator. Uses a struct-of-arrays layout
+///     (AssetDataArrays) over the asset set — "parallel arrays" in the data-structure
+///     sense, not thread-level parallelism. Execution is a single sequential pass per
+///     asset group. Modeled after the Haxe runner for cache locality and minimal allocations.
 /// </summary>
 public static class Amortizer
 {

@@ -156,10 +156,13 @@ Input types: `price` (solve for yield/spread), `yield` (solve for price), `sprea
   "collateralCashflows": [
     {
       "cashflowDate": "2024-02-25",
+      "groupNum": "1",
       "beginBalance": 100000000,
       "scheduledPrincipal": 1000000,
       "unscheduledPrincipal": 500000,
       "interest": 666667,
+      "netInterest": 585417,
+      "serviceFee": 81250,
       "defaultedPrincipal": 0,
       "recoveryPrincipal": 0
     }
@@ -168,6 +171,7 @@ Input types: `price` (solve for yield/spread), `yield` (solve for price), `sprea
     "dealName": "EXAMPLE-2024-1",
     "waterfallType": "ComposableStructure",
     "interestTreatment": "Collateral",
+    "closingDate": "2024-01-25",
     "tranches": [
       {
         "trancheName": "A",
@@ -175,9 +179,12 @@ Input types: `price` (solve for yield/spread), `yield` (solve for price), `sprea
         "couponType": "Fixed",
         "fixedCoupon": 5.0,
         "firstPayDate": "2024-02-25",
+        "legalMaturityDate": "2030-01-25",
         "dayCount": "30/360",
         "cashflowType": "PI",
-        "trancheType": "Offered"
+        "trancheType": "Offered",
+        "payDay": 25,
+        "payFrequency": 12
       },
       {
         "trancheName": "B",
@@ -185,9 +192,12 @@ Input types: `price` (solve for yield/spread), `yield` (solve for price), `sprea
         "couponType": "Fixed",
         "fixedCoupon": 6.0,
         "firstPayDate": "2024-02-25",
+        "legalMaturityDate": "2030-01-25",
         "dayCount": "30/360",
         "cashflowType": "PI",
-        "trancheType": "Offered"
+        "trancheType": "Offered",
+        "payDay": 25,
+        "payFrequency": 12
       }
     ],
     "unifiedWaterfall": {
@@ -221,6 +231,13 @@ Input types: `price` (solve for yield/spread), `yield` (solve for price), `sprea
   }
 }
 ```
+
+Required fields to note:
+
+- **`collateralCashflows[].groupNum`** must match the group emitted by the unified waterfall (`"1"` by default). The default on `PeriodCashflowDto` is `"0"`, which will cause every PayRule to be skipped.
+- **`collateralCashflows[].netInterest`** drives tranche interest distribution; `interest` alone is not used. When chaining from `/api/calccollateral`, both fields are populated automatically.
+- **`deal.closingDate`** seeds `FirstSettleDate` on each tranche and anchors first-period accrual. Without it, accrual days collapse to zero for `interestTreatment: "Collateral"`.
+- **`tranche.payFrequency`** is **payments per year** (12 = monthly, 4 = quarterly, 2 = semi-annual, 1 = annual), not months between payments. It must match the cadence of `collateralCashflows`; `/api/calccollateral` emits monthly cashflows, so tranches should use `12`. The default is `12`.
 
 The API accepts both `camelCase` and `snake_case` JSON keys.
 
@@ -315,7 +332,7 @@ tests/
 
 ### Core components
 
-- **Amortizer** (`Core/AssetCashflowEngine/Amortizer.cs`) - High-performance collateral cashflow generator using parallel array processing. Projects scheduled principal, prepayments, defaults, recoveries, and delinquencies for fixed-rate, ARM, step-rate, and IO loans.
+- **Amortizer** (`Core/AssetCashflowEngine/Amortizer.cs`) - High-performance collateral cashflow generator. Uses a struct-of-arrays asset layout (`AssetDataArrays`) and tight, allocation-free inner loops for cache locality — execution itself is single-threaded. Projects scheduled principal, prepayments, defaults, recoveries, and delinquencies for fixed-rate, ARM, step-rate, and IO loans.
 - **ComposableStructure** (`Core/Waterfall/Structures/ComposableStructure.cs`) - The waterfall execution engine. Runs step-based waterfall periods, tracking available funds through each step.
 - **Payable structures** (`Core/Waterfall/Structures/PayableStructures/`) - Composable payment distribution trees (Sequential, Prorata, ShiftingInterest, EnhancementCap, etc.).
 - **RulesEngine** (`Core/RulesEngine/`) - Compiles PayRule DSL formulas into executable C# at runtime using Roslyn. Supports trigger conditions, variable lookups, balance queries, and structure-building functions.

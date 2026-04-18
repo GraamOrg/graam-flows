@@ -207,6 +207,55 @@ public class UnifiedWaterfallBuilderTests
     }
 
     [Fact]
+    public void BuildPayRules_PrincipalUseStructure_ProducesDistinctRuleNamesPerSource()
+    {
+        // Regression: when unscheduled/recovery steps use `useStructure: "scheduled"`
+        // and the scheduled step has trigger-conditional branches, the generated rule
+        // names collided on Sched*Pass/Sched*Fail across sources, producing CS0111
+        // duplicate methods in the Roslyn-compiled RulesHost.
+        var waterfall = new UnifiedWaterfallDto
+        {
+            Steps = new List<WaterfallStepDto>
+            {
+                new()
+                {
+                    Type = "INTEREST",
+                    Structure = new PayableStructureDto
+                        { Type = "SEQ", Tranches = new List<string> { "A", "B" } }
+                },
+                new()
+                {
+                    Type = "PRINCIPAL", Source = "scheduled",
+                    Default = new PayableStructureDto
+                        { Type = "SEQ", Tranches = new List<string> { "A", "B" } },
+                    OnTriggerFail = new TriggerConditionDto
+                    {
+                        Triggers = new List<string> { "CE_Test" },
+                        Condition = "ANY",
+                        Structure = new PayableStructureDto
+                            { Type = "SEQ", Tranches = new List<string> { "A", "B" } }
+                    }
+                },
+                new() { Type = "PRINCIPAL", Source = "unscheduled", UseStructure = "scheduled" },
+                new() { Type = "PRINCIPAL", Source = "recovery", UseStructure = "scheduled" },
+                new()
+                {
+                    Type = "WRITEDOWN",
+                    Structure = new PayableStructureDto
+                        { Type = "SEQ", Tranches = new List<string> { "B", "A" } }
+                }
+            }
+        };
+
+        var rules = UnifiedWaterfallBuilder.BuildPayRules(waterfall);
+
+        rules.Select(r => r.RuleName).Should().OnlyHaveUniqueItems();
+        rules.Should().Contain(r => r.RuleName == "SchedPrinPass");
+        rules.Should().Contain(r => r.RuleName == "PrepayPrinPass");
+        rules.Should().Contain(r => r.RuleName == "RecovPrinPass");
+    }
+
+    [Fact]
     public void BuildPayRules_SupplementalReductionStep_GeneratesSupplConfig()
     {
         var waterfall = CreateMinimalWaterfall();
