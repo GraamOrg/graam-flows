@@ -83,6 +83,13 @@ public static class UnifiedWaterfallBuilder
                         "recovery" => "SET_RECOV_STRUCT",
                         _ => "SET_SCHED_STRUCT"
                     };
+                    var prefix = source switch
+                    {
+                        "scheduled" => "Sched",
+                        "unscheduled" => "Prepay",
+                        "recovery" => "Recov",
+                        _ => "Prin"
+                    };
 
                     // Handle useStructure reference
                     var effectiveStep = step;
@@ -93,8 +100,10 @@ public static class UnifiedWaterfallBuilder
                     // Store this step for potential future references
                     if (effectiveStep.Default != null) principalStructures[source] = effectiveStep;
 
-                    // Generate rules (with trigger conditions if present)
-                    rules.AddRange(BuildPrincipalStepRules(effectiveStep, setFunc, groupName, ref priority));
+                    // Generate rules (with trigger conditions if present).
+                    // Prefix is derived from the *current* step's source, not effectiveStep's,
+                    // so useStructure references produce distinct rule names per source.
+                    rules.AddRange(BuildPrincipalStepRules(effectiveStep, setFunc, prefix, groupName, ref priority));
                     break;
 
                 case "WRITEDOWN":
@@ -214,17 +223,11 @@ public static class UnifiedWaterfallBuilder
     private static List<PayRuleDto> BuildPrincipalStepRules(
         WaterfallStepDto step,
         string setStructFunc,
+        string prefix,
         string groupName,
         ref int priority)
     {
         var rules = new List<PayRuleDto>();
-        var prefix = step.Source?.ToLower() switch
-        {
-            "scheduled" => "Sched",
-            "unscheduled" => "Prepay",
-            "recovery" => "Recov",
-            _ => "Prin"
-        };
 
         // Multi-branch rules array (new format for complex deals like STACR)
         if (step.Rules != null && step.Rules.Count > 0)

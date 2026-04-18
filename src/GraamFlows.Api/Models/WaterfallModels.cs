@@ -199,6 +199,12 @@ public class TrancheDto
     public string? FloaterIndex { get; set; } // Libor1M, Sofr30Avg, etc.
     public double Cap { get; set; } = 100.0;
     public double Floor { get; set; } = 0.0;
+    /// <summary>
+    /// Payments per year (12 = monthly, 4 = quarterly, 2 = semi-annual, 1 = annual).
+    /// This is NOT months between payments. Must match the cadence of the collateral
+    /// cashflows — <c>/api/calccollateral</c> emits monthly cashflows, so tranches
+    /// settled from that output should use 12.
+    /// </summary>
     public int PayFrequency { get; set; } = 12;
     public int PayDelay { get; set; } = 0;
     public int PayDay { get; set; } = 25;
