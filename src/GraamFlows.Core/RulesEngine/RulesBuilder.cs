@@ -59,6 +59,18 @@ public static class RulesBuilder
 
         foreach (var rule in payRules)
         {
+            if (rule == null)
+            {
+                Console.Error.WriteLine($"[RulesBuilder] Skipping null payRule entry");
+                continue;
+            }
+            if (rule.Formula == null)
+            {
+                Console.Error.WriteLine(
+                    $"[RulesBuilder] Skipping payRule '{rule.RuleName ?? "?"}' " +
+                    $"(class={rule.ClassGroupName ?? "?"}) — Formula is null");
+                continue;
+            }
             var ruleName = GetRuleName(rule);
             rulesHostCode.Append($"public void {ruleName}() {{ {rule.Formula.Replace("'", "\"")}; }}\n");
         }
@@ -66,6 +78,18 @@ public static class RulesBuilder
         // triggers
         foreach (var trigger in triggers)
         {
+            if (trigger == null)
+            {
+                Console.Error.WriteLine($"[RulesBuilder] Skipping null trigger entry");
+                continue;
+            }
+            if (trigger.TriggerFormula == null)
+            {
+                Console.Error.WriteLine(
+                    $"[RulesBuilder] Skipping trigger '{trigger.TriggerName ?? "?"}' " +
+                    $"(type={trigger.TriggerType ?? "?"}) — TriggerFormula is null");
+                continue;
+            }
             var triggerName = GetTriggerName(trigger);
             if (trigger.TriggerType == "FORMULA_VOID")
                 rulesHostCode.Append(
@@ -84,6 +108,13 @@ public static class RulesBuilder
         // tranche coupon formula
         foreach (var tranche in tranches.Where(tran => tran.CouponTypeEnum == CouponType.Formula))
         {
+            if (tranche.CouponFormula == null)
+            {
+                Console.Error.WriteLine(
+                    $"[RulesBuilder] Skipping tranche '{tranche.TrancheName ?? "?"}' formula coupon " +
+                    "— CouponFormula is null");
+                continue;
+            }
             var cpnFormulaName = GetTrancheCpnFormulaName(tranche);
             rulesHostCode.Append(
                 $"public double {cpnFormulaName}() {{ return {tranche.CouponFormula.Replace("'", "\"")}; }}\n");

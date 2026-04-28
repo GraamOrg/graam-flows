@@ -132,9 +132,27 @@ static string SnakeToCamel(string name)
     if (!name.Contains('_'))
         return name; // Already camelCase or single word — no change
 
+    // Preserve leading underscores. Caller convention: keys with a
+    // leading "_" are private/narrative-only and must NOT collide with
+    // a public DTO property of the same camelCased name. e.g. harmony
+    // emits `_triggers` (an array of LLM-extracted trigger narratives)
+    // alongside `triggers` (the engine-runnable list). Without this
+    // guard, both get rewritten to `Triggers` and the deserializer
+    // takes the last-occurring duplicate — the narrative array, whose
+    // entries have no `triggerFormula` and inherit
+    // TriggerDto.TriggerType="FORMULA_CONDITION" by default. The
+    // resulting `null` formula then crashes RulesBuilder.BuildCode.
+    var leadingUnderscores = 0;
+    while (leadingUnderscores < name.Length && name[leadingUnderscores] == '_')
+        leadingUnderscores++;
+
+    if (leadingUnderscores >= name.Length)
+        return name; // all underscores — leave alone
+
     var sb = new StringBuilder(name.Length);
+    sb.Append('_', leadingUnderscores);
     var capitalizeNext = false;
-    for (var i = 0; i < name.Length; i++)
+    for (var i = leadingUnderscores; i < name.Length; i++)
     {
         var c = name[i];
         if (c == '_')
