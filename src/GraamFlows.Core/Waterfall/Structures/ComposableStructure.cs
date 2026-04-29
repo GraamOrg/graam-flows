@@ -301,6 +301,10 @@ public class ComposableStructure : BaseStructure
         // Update Certificate tranche balance to reflect current OC (Pool - Notes)
         // Called AFTER all principal payments so both pool and note balances are at end-of-period values
         dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
+
+        // Derive MACR / exchangeable-class cashflows from their real-tranche components.
+        // Runs LAST so every source (notes + certificate) has its period values finalized.
+        PayExchangeables(adjPeriodCf.CashflowDate, new[] { dynGroup }, new[] { adjPeriodCf }, out _);
     }
 
     /// <summary>

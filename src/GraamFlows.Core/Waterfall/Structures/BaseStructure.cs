@@ -188,6 +188,8 @@ public abstract class BaseStructure : IWaterfall
                     GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).ScheduledPrincipal));
                 var wd = parentClass.Sum(pc =>
                     GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).Writedown));
+                var intr = parentClass.Sum(pc =>
+                    GetExchangeShare(dynGroup, exchClass, pc, ClassInterest(pc, cashflowDate)));
 
                 if (sp + usp > exchClass.Balance)
                     exchClass.Pay(cashflowDate, exchClass.Balance, 0);
@@ -198,6 +200,8 @@ public abstract class BaseStructure : IWaterfall
                     exchClass.Writedown(cashflowDate, exchClass.Balance);
                 else
                     exchClass.Writedown(cashflowDate, wd);
+
+                AllocateExchangeInterest(exchClass, cashflowDate, intr);
             }
 
             foreach (var exchClass in nestedExchClasses)
@@ -209,6 +213,9 @@ public abstract class BaseStructure : IWaterfall
                     GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).ScheduledPrincipal));
                 var wd = parentClass.Sum(pc =>
                     GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).Writedown));
+                var intr = parentClass.Sum(pc =>
+                    GetExchangeShare(dynGroup, exchClass, pc, ClassInterest(pc, cashflowDate)));
+
                 if (sp + usp > exchClass.Balance)
                     exchClass.Pay(cashflowDate, exchClass.Balance, 0);
                 else
@@ -218,6 +225,8 @@ public abstract class BaseStructure : IWaterfall
                     exchClass.Writedown(cashflowDate, exchClass.Balance);
                 else
                     exchClass.Writedown(cashflowDate, wd);
+
+                AllocateExchangeInterest(exchClass, cashflowDate, intr);
             }
 
             // pay exchange off group
@@ -281,6 +290,55 @@ public abstract class BaseStructure : IWaterfall
         var pctShare = exchShare.Quantity / parentClass.Tranche.OriginalBalance;
         var cashflow = prin * pctShare;
         return cashflow;
+    }
+
+    /// <summary>
+    /// Sum the parent class's per-period interest across its DynamicTranches.
+    /// Interest is written to DynamicTranche cashflows only (never the
+    /// DynamicClass-level cashflow), so a class-level .Interest read would be
+    /// zero even after a full waterfall pass.
+    /// </summary>
+    private static double ClassInterest(DynamicClass dynClass, DateTime cashflowDate)
+    {
+        if (dynClass.DynamicTranches == null || !dynClass.DynamicTranches.Any())
+            return dynClass.GetCashflow(cashflowDate).Interest;
+        return dynClass.DynamicTranches.Sum(dt => dt.GetCashflow(cashflowDate).Interest);
+    }
+
+    /// <summary>
+    /// Distribute derived exchange-class interest onto the class's per-period
+    /// records. Writes to both the DynamicClass cashflow (for class-level
+    /// analytics / ClassCashflows) and the underlying DynamicTranches (for
+    /// TrancheCashflows). DynamicTranche allocation mirrors
+    /// AllocatePrincipalToTranches — pro-rata by current tranche balance.
+    /// </summary>
+    private static void AllocateExchangeInterest(DynamicClass exchClass, DateTime cashflowDate, double interest)
+    {
+        if (Math.Abs(interest) < 0.0001)
+            return;
+
+        // Class-level cashflow — for ClassCashflows consumers and totals.
+        exchClass.GetCashflow(cashflowDate).Interest += interest;
+
+        // Tranche-level cashflows — what DealCashflows.TrancheCashflows exposes.
+        if (exchClass.DynamicTranches == null || !exchClass.DynamicTranches.Any())
+            return;
+
+        var totalTranBal = exchClass.DynamicTranches.Sum(dt => dt.Balance);
+        var totalOrigBal = exchClass.DynamicTranches.Sum(dt => dt.Tranche.OriginalBalance);
+
+        foreach (var dynTran in exchClass.DynamicTranches)
+        {
+            double allocPct;
+            if (Math.Abs(totalTranBal) < 0.01)
+                allocPct = totalOrigBal > 0
+                    ? dynTran.Tranche.OriginalBalance / totalOrigBal
+                    : 0;
+            else
+                allocPct = dynTran.Balance / totalTranBal;
+
+            dynTran.GetCashflow(cashflowDate).Interest += interest * allocPct;
+        }
     }
 
     public void ExecutePayRules(IDeal deal, DynamicGroup dynGroup, IPayRuleExecutor payRuleExecutor,

@@ -136,6 +136,72 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>
+    /// Adds an MACR exchangeable class that derives its cashflows from the given
+    /// real-tranche components. Each component contributes a Quantity (dollars)
+    /// of the real tranche; for a 100% pass-through MACR, Quantity equals the
+    /// real tranche's OriginalBalance.
+    ///
+    /// Wires up:
+    ///   - Tranche row with TrancheType="Exchanged", OriginalBalance=sum of quantities
+    ///   - DealStructure row with PayFrom="Exchange" and ExchangableTranche=comma-list
+    ///   - One ExchShare per (exchange, real) pair with the given Quantity
+    /// </summary>
+    public TestDealBuilder WithExchangeClass(string name,
+        IEnumerable<(string TrancheName, double Quantity)> components,
+        int subOrder = 200)
+    {
+        var comps = components.ToList();
+        var totalBalance = comps.Sum(c => c.Quantity);
+
+        _deal.Tranches.Add(new Tranche
+        {
+            TrancheName = name,
+            DealName = _deal.DealName,
+            OriginalBalance = totalBalance,
+            Factor = 1.0,
+            CouponType = "None",
+            FixedCoupon = 0,
+            TrancheType = "Exchanged",
+            CashflowType = "PI",
+            ClassReference = name,
+            FirstPayDate = _firstPayDate,
+            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            LegalMaturityDate = _firstPayDate.AddYears(10),
+            StatedMaturityDate = _firstPayDate.AddYears(8),
+            PayFrequency = 12,
+            PayDelay = 0,
+            PayDay = _firstPayDate.Day,
+            DayCount = "30/360",
+            BusinessDayConvention = "Following",
+            HolidayCalendar = "Settlement",
+            Deal = _deal
+        });
+
+        _deal.DealStructures.Add(new DealStructure
+        {
+            DealName = _deal.DealName,
+            ClassGroupName = name,
+            SubordinationOrder = subOrder,
+            PayFrom = "Exchange",
+            ExchangableTranche = string.Join(",", comps.Select(c => c.TrancheName)),
+            GroupNum = "1"
+        });
+
+        foreach (var (trancheName, quantity) in comps)
+        {
+            _deal.ExchShares.Add(new ExchShare
+            {
+                DealName = _deal.DealName,
+                ClassGroupName = name,
+                TrancheName = trancheName,
+                Quantity = quantity
+            });
+        }
+
+        return this;
+    }
+
     public TestDealBuilder WithCertificateTranche(string name = "Certificates", int subOrder = 99)
     {
         _deal.Tranches.Add(new Tranche
