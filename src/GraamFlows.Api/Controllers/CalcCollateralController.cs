@@ -38,6 +38,34 @@ public class CalcCollateralController : ControllerBase
             var anchorAbsT = DateUtil.CalcAbsT(request.ProjectionDate);
             var assumps = CreateAssumptions(request.ProjectionDate, anchorAbsT, request.Assumptions);
 
+            // Per-asset override (graam-flows#5). When request.AssetAssumptions
+            // is non-empty, replace the assumption mill with a function that
+            // resolves per asset: dictionary entry → per-asset IAssetAssumptions
+            // (with any null field falling through to deal-level); absent
+            // entry → deal-level. Engine layer is per-asset capable as of this
+            // PR — see CfCore.GenerateAssetCashflows.
+            Func<IAsset, IAssetAssumptions> assumpFunc;
+            if (request.AssetAssumptions is { Count: > 0 } perAsset)
+            {
+                // The uniform constructor of DealLevelAssumptions sets
+                // .Assumptions directly. CreateAssumptions above always uses
+                // that constructor, so direct field access avoids the
+                // null-dereference hazard of GetAssumptionsForAsset(null).
+                var dealLevel = assumps.Assumptions;
+                var perAssetResolved = new Dictionary<string, IAssetAssumptions>(perAsset.Count);
+                foreach (var (assetId, dto) in perAsset)
+                    perAssetResolved[assetId] = BuildAssetAssumptions(anchorAbsT, dealLevel, request.Assumptions, dto);
+                _logger.LogInformation("CalcCollateral: per-asset assumptions for {Count} of {Total} assets",
+                    perAssetResolved.Count, assets.Count);
+                assumpFunc = asset => perAssetResolved.TryGetValue(asset.AssetId ?? asset.AssetName, out var aa)
+                    ? aa
+                    : dealLevel;
+            }
+            else
+            {
+                assumpFunc = assumps.GetAssumptionsForAsset;
+            }
+
             // Create a simple rate provider (for ARMs)
             var rateProvider = new ConstantRateProvider(5.0); // Default 5% rate for ARMs
 
@@ -46,7 +74,7 @@ public class CalcCollateralController : ControllerBase
                 assets,
                 request.ProjectionDate,
                 null, // No redemption date function
-                assumps.GetAssumptionsForAsset,
+                assumpFunc,
                 rateProvider
             );
 
@@ -138,6 +166,53 @@ public class CalcCollateralController : ControllerBase
         return DealLevelAssumptions.CreateConstAssumptions(
             projectionDate, anchorAbsT,
             dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, dto.Advancing);
+    }
+
+    /// <summary>
+    /// Build an <see cref="IAssetAssumptions"/> for one asset by merging the
+    /// per-asset DTO over the deal-level fallback. Any field the per-asset DTO
+    /// leaves null inherits from the deal-level <paramref name="dealLevel"/>.
+    /// PrepaymentType is always inherited from the deal-level (it's a mode,
+    /// not a per-asset toggle — see CfCore.GenerateAssetCashflows).
+    /// </summary>
+    private static IAssetAssumptions BuildAssetAssumptions(
+        int anchorAbsT,
+        IAssetAssumptions dealLevel,
+        AssumptionsDto dealDto,
+        AssetAssumptionDto perAsset)
+    {
+        // Resolve each rate as: per-asset vector > per-asset scalar >
+        // deal-level vector (already in dealLevel.* if dealDto carried it) >
+        // deal-level scalar (also in dealLevel.*). For the fallthrough cases
+        // we just reuse the deal-level IAnchorableVector directly — same
+        // object the engine would have built without an override.
+        IAnchorableVector ResolveRate(
+            double[]? overrideVector,
+            double? overrideScalar,
+            IAnchorableVector dealLevelVector,
+            double divisor = 1.0)
+        {
+            if (overrideVector is { Length: > 0 })
+                return new ArrayVector(anchorAbsT, overrideVector);
+            if (overrideScalar.HasValue)
+                return new ConstVector(anchorAbsT, overrideScalar.Value);
+            return dealLevelVector;
+        }
+
+        var vpr = ResolveRate(perAsset.CprVector, perAsset.Cpr, dealLevel.Prepayment);
+        var cdr = ResolveRate(perAsset.CdrVector, perAsset.Cdr, dealLevel.DefaultRate);
+        var sev = ResolveRate(perAsset.SeverityVector, perAsset.Severity, dealLevel.Severity);
+        var delinq = ResolveRate(perAsset.DelinquencyVector, perAsset.Delinquency, dealLevel.DelinqRate);
+        var adv = ResolveRate(perAsset.AdvancingVector, perAsset.Advancing, dealLevel.DelinqAdvPctInt);
+
+        // Inherit PrepaymentType / DefaultType / DelinqRateType from deal-level —
+        // these are modes, not per-asset overrides. ForbearanceRecovery* also
+        // pass through unchanged (no per-asset override field today).
+        return new AssetAssumptions(
+            dealLevel.PrepaymentType, vpr,
+            dealLevel.DefaultType, cdr, sev,
+            dealLevel.DelinqRateType, delinq, adv, adv,
+            dealLevel.ForbearanceRecoveryPrepay, dealLevel.ForbearanceRecoveryDefault, dealLevel.ForbearanceRecoveryMaturity);
     }
 
     private static IAsset ConvertToAsset(AssetDto dto)
