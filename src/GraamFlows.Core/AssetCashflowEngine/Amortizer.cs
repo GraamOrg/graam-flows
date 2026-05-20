@@ -10,25 +10,31 @@ public static class Amortizer
 {
     /// <summary>
     ///     Generate aggregated cashflows for a group of assets using array-based processing.
+    ///
+    ///     Assumption arrays are jagged 2-D: outer index is asset (matches <see cref="AssetDataArrays"/>
+    ///     ordering), inner index is period. Uniform-per-group assumptions are expressed by passing
+    ///     the same row reference (or value-identical rows) for every asset. Per-asset assumptions
+    ///     (graam-flows#5) are expressed by giving each asset a distinct row.
     /// </summary>
-    /// <param name="absTime">Optional ABS prepay rate array. When provided, prepay is calculated as absTime[period] * originalBalance
-    /// instead of smmTime[period] * currentBalance. This matches the ABS convention where prepay is expressed as
-    /// a percentage of original balance per period.</param>
+    /// <param name="absTime">Optional ABS prepay rate matrix. When provided, prepay is calculated as
+    /// absTime[assetIndex][period] * originalBalance instead of smmTime[assetIndex][period] * currentBalance.
+    /// This matches the ABS convention where prepay is expressed as a percentage of original balance
+    /// per period.</param>
     public static CashflowResultArrays GenerateCashflows(
         AssetDataArrays assetData,
         int startTime,
         int endTime,
-        double[] smmTime,
-        double[] mdrTime,
-        double[] sevTime,
-        double[] delTime,
-        double[] delAdvIntTime,
-        double[] delAdvPrinTime,
-        double[] forbRecovPpayTime,
-        double[] forbRecovMaturityTime,
-        double[] forbRecovDefaultTime,
+        double[][] smmTime,
+        double[][] mdrTime,
+        double[][] sevTime,
+        double[][] delTime,
+        double[][] delAdvIntTime,
+        double[][] delAdvPrinTime,
+        double[][] forbRecovPpayTime,
+        double[][] forbRecovMaturityTime,
+        double[][] forbRecovDefaultTime,
         double[][] allMarketRates,
-        double[]? absTime = null)
+        double[][]? absTime = null)
     {
         var maxPeriods = Math.Min(endTime - startTime + 1, 720);
         var results = new CashflowResultArrays(maxPeriods);
@@ -150,16 +156,18 @@ public static class Amortizer
                 if (period >= maxPeriods)
                     break;
 
-                // Get assumption values for this period
-                var smm = smmTime[period];
-                var mdr = mdrTime[period];
-                var sev = sevTime[period];
-                var del = delTime[period];
-                var delAdvInt = delAdvIntTime[period];
-                var delAdvPrin = delAdvPrinTime[period];
-                var forbRecovPpay = forbRecovPpayTime[period];
-                var forbRecovMaturity = forbRecovMaturityTime[period];
-                var forbRecovDefault = forbRecovDefaultTime[period];
+                // Get assumption values for this asset at this period. Outer
+                // index is asset (per graam-flows#5: per-asset assumptions);
+                // inner index is period.
+                var smm = smmTime[assetIndex][period];
+                var mdr = mdrTime[assetIndex][period];
+                var sev = sevTime[assetIndex][period];
+                var del = delTime[assetIndex][period];
+                var delAdvInt = delAdvIntTime[assetIndex][period];
+                var delAdvPrin = delAdvPrinTime[assetIndex][period];
+                var forbRecovPpay = forbRecovPpayTime[assetIndex][period];
+                var forbRecovMaturity = forbRecovMaturityTime[assetIndex][period];
+                var forbRecovDefault = forbRecovDefaultTime[assetIndex][period];
 
                 // FRM cashflow generation
                 if (age > term)
@@ -271,8 +279,8 @@ public static class Amortizer
                 double unschedPrin;
                 if (absTime != null)
                 {
-                    // ABS prepay: percentage of original balance per period
-                    var absRate = absTime[period];
+                    // ABS prepay: percentage of original balance per period (per-asset)
+                    var absRate = absTime[assetIndex][period];
                     var maxPrepay = Math.Max(schedBal - schedPrin + unadvPrincipal - defPrin, 0);
                     unschedPrin = Math.Min(absRate * rawOriginalBalance[assetIndex], maxPrepay);
                 }

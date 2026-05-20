@@ -70,33 +70,59 @@ public class CfCore
             // Convert assets to parallel arrays
             var assetData = new AssetDataArrays(groupAssets);
 
-            // Get assumptions from first asset (assumes uniform assumptions per group)
-            var firstAssetAssumps = groupAssets.Count > 0 ? assumpFunc?.Invoke(groupAssets[0]) : null;
+            // Per-asset assumption resolution (graam-flows#5). Previously this
+            // code called assumpFunc only on the first asset and applied those
+            // assumptions to every asset in the group. The IAssumptionMill
+            // abstraction was already keyed by asset, but the engine was
+            // discarding the per-asset signal before the amortizer saw it.
+            // Now we resolve each asset's IAssetAssumptions independently and
+            // build a per-asset row in each rate matrix. Uniform-per-group
+            // callers still work transparently: every row ends up identical
+            // (and BuildAssumptionArray is cheap).
+            var assetAssumps = new IAssetAssumptions[groupAssets.Count];
+            for (var i = 0; i < groupAssets.Count; i++)
+                assetAssumps[i] = assumpFunc?.Invoke(groupAssets[i]);
 
-            // Get prepayment type
+            var firstAssetAssumps = groupAssets.Count > 0 ? assetAssumps[0] : null;
+
+            // Prepayment type is a deal-level mode (selects the ABS-vs-SMM
+            // conversion path in the amortizer), not a per-asset toggle.
+            // Resolve from the first asset; mixing prepay types within a
+            // single group is not supported.
             var prepaymentType = firstAssetAssumps?.PrepaymentType ?? Objects.TypeEnum.PrepaymentTypeEnum.CPR;
 
-            // Build assumption arrays
-            // For ABS prepayment type, use time-varying ABS-to-SMM conversion
-            // SMM = ABS / (100 - ABS * (n-1)) where n is the period number (1-indexed)
-            // This formula is mathematically exact for the ABS convention where a constant fraction
-            // of the original NUMBER of receivables prepay each month.
-            var smmTime = prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.ABS
-                ? BuildAbsAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, poolAgeOffset, wam)
-                : BuildAssumptionArray(firstAssetAssumps?.Prepayment, maxPeriods, startTime, true);
-            var mdrTime = BuildAssumptionArray(firstAssetAssumps?.DefaultRate, maxPeriods, startTime, true);
-            var sevTime = BuildAssumptionArray(firstAssetAssumps?.Severity, maxPeriods, startTime, false, 100.0);
-            var delTime = BuildAssumptionArray(firstAssetAssumps?.DelinqRate, maxPeriods, startTime, false, 100.0);
-            var delAdvIntTime = BuildAssumptionArray(firstAssetAssumps?.DelinqAdvPctInt, maxPeriods, startTime, false,
-                1.0, 100.0);
-            var delAdvPrinTime = BuildAssumptionArray(firstAssetAssumps?.DelinqAdvPctPrin, maxPeriods, startTime, false,
-                1.0, 100.0);
-            var forbRecovPpayTime = BuildForbearanceArray(firstAssetAssumps?.ForbearanceRecoveryPrepay, maxPeriods,
-                startTime, -1.0);
-            var forbRecovMaturityTime = BuildForbearanceArray(firstAssetAssumps?.ForbearanceRecoveryMaturity,
-                maxPeriods, startTime, 1.0);
-            var forbRecovDefaultTime = BuildForbearanceArray(firstAssetAssumps?.ForbearanceRecoveryDefault, maxPeriods,
-                startTime, -1.0);
+            // Build per-asset assumption matrices. Each is jagged double[][]:
+            // outer index is asset (aligned to groupAssets / assetData),
+            // inner index is period. For ABS prepayment type, use the
+            // time-varying ABS-to-SMM conversion (formula docs above on
+            // BuildAbsAssumptionArray). All other rate types use the standard
+            // annual→monthly conversion.
+            var assetCount = groupAssets.Count;
+            var smmTime = new double[assetCount][];
+            var mdrTime = new double[assetCount][];
+            var sevTime = new double[assetCount][];
+            var delTime = new double[assetCount][];
+            var delAdvIntTime = new double[assetCount][];
+            var delAdvPrinTime = new double[assetCount][];
+            var forbRecovPpayTime = new double[assetCount][];
+            var forbRecovMaturityTime = new double[assetCount][];
+            var forbRecovDefaultTime = new double[assetCount][];
+
+            for (var i = 0; i < assetCount; i++)
+            {
+                var aa = assetAssumps[i];
+                smmTime[i] = prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.ABS
+                    ? BuildAbsAssumptionArray(aa?.Prepayment, maxPeriods, startTime, poolAgeOffset, wam)
+                    : BuildAssumptionArray(aa?.Prepayment, maxPeriods, startTime, true);
+                mdrTime[i] = BuildAssumptionArray(aa?.DefaultRate, maxPeriods, startTime, true);
+                sevTime[i] = BuildAssumptionArray(aa?.Severity, maxPeriods, startTime, false, 100.0);
+                delTime[i] = BuildAssumptionArray(aa?.DelinqRate, maxPeriods, startTime, false, 100.0);
+                delAdvIntTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctInt, maxPeriods, startTime, false, 1.0, 100.0);
+                delAdvPrinTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctPrin, maxPeriods, startTime, false, 1.0, 100.0);
+                forbRecovPpayTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryPrepay, maxPeriods, startTime, -1.0);
+                forbRecovMaturityTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryMaturity, maxPeriods, startTime, 1.0);
+                forbRecovDefaultTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryDefault, maxPeriods, startTime, -1.0);
+            }
 
             // Build market rate arrays
             var allMarketRates = BuildMarketRateArrays(rateProvider, firstProjDate, maxPeriods);

@@ -6,6 +6,39 @@ public class CalcCollateralRequest
     public List<AssetDto> Assets { get; set; } = new();
     public DateTime ProjectionDate { get; set; }
     public AssumptionsDto Assumptions { get; set; } = new();
+
+    /// <summary>
+    /// Optional per-asset assumption overrides keyed by AssetId. When provided,
+    /// each entry's values override the deal-level <see cref="Assumptions"/> for
+    /// that specific asset. Assets without an entry fall back to deal-level.
+    /// See graam-flows#5: per-loan CDR/CPR/severity vectors from a loan-level
+    /// model (e.g. logit-predicted default probabilities scored per loan).
+    /// </summary>
+    public Dictionary<string, AssetAssumptionDto>? AssetAssumptions { get; set; }
+}
+
+/// <summary>
+/// Per-asset assumption override. Mirrors the rate fields of <see cref="AssumptionsDto"/>
+/// but scoped to a single asset. Any field left null falls through to the
+/// deal-level value. PrepaymentType is intentionally not exposed — it's a
+/// deal-level mode (selects the ABS-vs-SMM conversion path in the engine),
+/// not a per-asset toggle.
+/// </summary>
+public class AssetAssumptionDto
+{
+    // Scalar overrides (used if vector is not provided for that key)
+    public double? Cpr { get; set; }
+    public double? Cdr { get; set; }
+    public double? Severity { get; set; }
+    public double? Delinquency { get; set; }
+    public double? Advancing { get; set; }
+
+    // Per-period vector overrides — if provided, override the scalar above for this asset.
+    public double[]? CprVector { get; set; }
+    public double[]? CdrVector { get; set; }
+    public double[]? SeverityVector { get; set; }
+    public double[]? DelinquencyVector { get; set; }
+    public double[]? AdvancingVector { get; set; }
 }
 
 public class AssetDto
