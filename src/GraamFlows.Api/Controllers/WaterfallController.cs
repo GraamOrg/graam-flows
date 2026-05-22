@@ -637,31 +637,18 @@ public class WaterfallController : ControllerBase
             }
         }
 
-        // Convert trigger results. `Period` is the 1-based index of the
-        // trigger's cashflow date in the projection schedule — NOT a
-        // flat row counter (which, for an N-trigger deal, ran 1..N×P
-        // across the flattened list). Triggers tested on the same date
-        // share a period; `RequiredValue` surfaces the threshold so a
-        // downstream report can show "actual X vs required Y".
+        // Convert trigger results — see TriggerResultDtoConverter for
+        // the period-by-date derivation and date normalization. Period
+        // is a 1-based index over the distinct cashflow dates that
+        // appear in TriggerResults; triggers tested on the same date
+        // share a period number.
         if (dealCashflows.TriggerResults != null)
         {
-            var periodByDate = dealCashflows.TriggerResults
-                .Select(tr => tr.CashflowDate)
-                .Distinct()
-                .OrderBy(d => d)
-                .Select((d, i) => new { d, period = i + 1 })
-                .ToDictionary(x => x.d, x => x.period);
+            var periodByDate = TriggerResultDtoConverter.BuildPeriodByDateIndex(
+                dealCashflows.TriggerResults.Select(tr => tr.CashflowDate));
             foreach (var tr in dealCashflows.TriggerResults)
             {
-                response.TriggerResults.Add(new TriggerResultDto
-                {
-                    Period = periodByDate[tr.CashflowDate],
-                    CashflowDate = tr.CashflowDate,
-                    TriggerName = tr.TriggerName,
-                    Triggered = tr.Passed,
-                    Value = tr.ActualValue,
-                    RequiredValue = tr.RequiredValue
-                });
+                response.TriggerResults.Add(TriggerResultDtoConverter.ToDto(tr, periodByDate));
             }
         }
 
