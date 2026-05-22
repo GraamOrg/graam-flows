@@ -494,20 +494,28 @@ public class WaterfallRunner
             }
         }
 
-        // Convert trigger results
+        // Convert trigger results — see WaterfallController for the
+        // same Period-by-date derivation. The flat period++ counter
+        // is wrong on a multi-trigger deal (flattened across triggers,
+        // it runs 1..N×P).
         if (dealCashflows.TriggerResults != null)
         {
-            var period = 0;
+            var periodByDate = dealCashflows.TriggerResults
+                .Select(tr => tr.CashflowDate)
+                .Distinct()
+                .OrderBy(d => d)
+                .Select((d, i) => new { d, period = i + 1 })
+                .ToDictionary(x => x.d, x => x.period);
             foreach (var tr in dealCashflows.TriggerResults)
             {
-                period++;
                 result.TriggerResults.Add(new TriggerResultDto
                 {
-                    Period = period,
+                    Period = periodByDate[tr.CashflowDate],
                     CashflowDate = tr.CashflowDate,
                     TriggerName = tr.TriggerName,
                     Triggered = tr.Passed,
-                    Value = tr.ActualValue
+                    Value = tr.ActualValue,
+                    RequiredValue = tr.RequiredValue
                 });
             }
         }
