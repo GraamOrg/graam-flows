@@ -550,11 +550,21 @@ public class TrancheCashflowDto
 
 public class TriggerResultDto
 {
+    /// <summary>1-based cashflow period — the index of <see cref="CashflowDate"/>
+    /// in the projection schedule. All triggers tested on the same date
+    /// share the same period number.</summary>
     public int Period { get; set; }
     public DateTime CashflowDate { get; set; }
     public string TriggerName { get; set; } = "";
+    /// <summary>True when the trigger test PASSED this period — the
+    /// engine's <see cref="DataObjects.TriggerResult.Passed"/>.</summary>
     public bool Triggered { get; set; }
+    /// <summary>The actual numeric value the trigger test produced this
+    /// period (e.g. realized delinquency, cumulative net loss).</summary>
     public double? Value { get; set; }
+    /// <summary>The threshold the trigger compared against (e.g. the
+    /// configured delinquency cutoff, the schedule's loss cap).</summary>
+    public double? RequiredValue { get; set; }
 }
 
 public class WaterfallSummaryDto

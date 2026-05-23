@@ -494,21 +494,15 @@ public class WaterfallRunner
             }
         }
 
-        // Convert trigger results
+        // Convert trigger results via the shared TriggerResultDtoConverter
+        // helper — same period-by-date semantics as WaterfallController.
         if (dealCashflows.TriggerResults != null)
         {
-            var period = 0;
+            var periodByDate = TriggerResultDtoConverter.BuildPeriodByDateIndex(
+                dealCashflows.TriggerResults.Select(tr => tr.CashflowDate));
             foreach (var tr in dealCashflows.TriggerResults)
             {
-                period++;
-                result.TriggerResults.Add(new TriggerResultDto
-                {
-                    Period = period,
-                    CashflowDate = tr.CashflowDate,
-                    TriggerName = tr.TriggerName,
-                    Triggered = tr.Passed,
-                    Value = tr.ActualValue
-                });
+                result.TriggerResults.Add(TriggerResultDtoConverter.ToDto(tr, periodByDate));
             }
         }
 

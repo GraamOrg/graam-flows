@@ -637,21 +637,18 @@ public class WaterfallController : ControllerBase
             }
         }
 
-        // Convert trigger results
+        // Convert trigger results — see TriggerResultDtoConverter for
+        // the period-by-date derivation and date normalization. Period
+        // is a 1-based index over the distinct cashflow dates that
+        // appear in TriggerResults; triggers tested on the same date
+        // share a period number.
         if (dealCashflows.TriggerResults != null)
         {
-            var period = 0;
+            var periodByDate = TriggerResultDtoConverter.BuildPeriodByDateIndex(
+                dealCashflows.TriggerResults.Select(tr => tr.CashflowDate));
             foreach (var tr in dealCashflows.TriggerResults)
             {
-                period++;
-                response.TriggerResults.Add(new TriggerResultDto
-                {
-                    Period = period,
-                    CashflowDate = tr.CashflowDate,
-                    TriggerName = tr.TriggerName,
-                    Triggered = tr.Passed,
-                    Value = tr.ActualValue
-                });
+                response.TriggerResults.Add(TriggerResultDtoConverter.ToDto(tr, periodByDate));
             }
         }
 
