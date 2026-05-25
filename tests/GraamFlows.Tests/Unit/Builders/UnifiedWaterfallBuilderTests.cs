@@ -90,6 +90,71 @@ public class UnifiedWaterfallBuilderTests
         rules.Should().Contain(r => r.Formula.Contains("PASSED('CE_Test')"));
     }
 
+    /// <summary>
+    /// Issue #9 (exposed by graam-harmony#1054): the fallback rule (no <c>When</c>)
+    /// must be guarded with the negation of all prior conditions. Without this guard
+    /// the fallback's unconditional formula runs every period under "last matching
+    /// wins" semantics and overwrites whatever the prior conditional rules just set
+    /// — so PRORATA seniors gated on credit triggers would always be reverted to the
+    /// sequential fallback. Mirrors the same negation pattern in
+    /// <see cref="UnifiedWaterfallBuilder.BuildComputedVariableRules"/>.
+    /// </summary>
+    [Fact]
+    public void BuildPayRules_MultiBranchFallback_IsGuardedByNegatedPriorConditions()
+    {
+        var waterfall = CreateMinimalWaterfall();
+        var principalStep = waterfall.Steps.First(s => s.Type == "PRINCIPAL" && s.Source == "scheduled");
+        principalStep.Default = null;
+        principalStep.Rules = new List<WaterfallRuleDto>
+        {
+            new()
+            {
+                When = new RuleConditionDto
+                {
+                    Pass = new List<string> { "DelinquencyTest", "CumNetLossTest" }
+                },
+                Structure = new PayableStructureDto
+                {
+                    Type = "SEQ",
+                    Children = new List<PayableStructureDto>
+                    {
+                        new()
+                        {
+                            Type = "PRORATA",
+                            Tranches = new List<string> { "A1", "A2", "A3" }
+                        }
+                    }
+                }
+            },
+            new()
+            {
+                // Fallback — no When clause. Must be emitted as
+                // `if (!(prior)) SET_SCHED_STRUCT(...)` so it only fires when the
+                // prior conditional rule did not match.
+                Structure = new PayableStructureDto
+                {
+                    Type = "SEQ",
+                    Tranches = new List<string> { "A1", "A2", "A3" }
+                }
+            }
+        };
+
+        var rules = UnifiedWaterfallBuilder.BuildPayRules(waterfall);
+
+        // The conditional rule is unchanged — gated on PASSED(...).
+        rules.Should().Contain(r =>
+            r.Formula.Contains("if (PASSED('DelinquencyTest,CumNetLossTest'))") &&
+            r.Formula.Contains("PRORATA"));
+
+        // The fallback's formula must be guarded by the negation of the prior
+        // condition. Without this guard the unconditional SET_SCHED_STRUCT(SEQ(...))
+        // would run every period and overwrite the conditional PRORATA above.
+        var fallbackRule = rules.Single(r =>
+            r.Formula.Contains("SET_SCHED_STRUCT") &&
+            !r.Formula.Contains("PRORATA"));
+        fallbackRule.Formula.Should().StartWith("if (!(PASSED('DelinquencyTest,CumNetLossTest')))");
+    }
+
     [Fact]
     public void BuildPayRules_ComputedVariables_GeneratesSetVarRules()
     {

@@ -290,6 +290,14 @@ public static class UnifiedWaterfallBuilder
     ///     Builds PayRules from a multi-branch rules array.
     ///     Each rule becomes a separate PayRule with its condition compiled to DSL.
     ///     Rules are emitted in order - last matching rule wins (Payscen convention).
+    ///
+    ///     Fallback rules (no <c>When</c>) are guarded with the negation of all prior
+    ///     conditions so they only fire when none of the prior conditional rules
+    ///     matched. Without this guard the fallback's unconditional formula would
+    ///     execute every period and overwrite whatever the prior conditional rules
+    ///     just set (issue #9, exposed by graam-harmony#1054 where the sequential
+    ///     fallback overwrote the conditional PRORATA seniors). Mirrors the same
+    ///     negation pattern used by <see cref="BuildComputedVariableRules"/>.
     /// </summary>
     private static List<PayRuleDto> BuildMultiBranchRules(
         List<WaterfallRuleDto> branchRules,
@@ -299,6 +307,7 @@ public static class UnifiedWaterfallBuilder
         ref int priority)
     {
         var rules = new List<PayRuleDto>();
+        var priorConditions = new List<string>();
 
         for (var i = 0; i < branchRules.Count; i++)
         {
@@ -310,6 +319,14 @@ public static class UnifiedWaterfallBuilder
             {
                 var condition = BuildConditionExpression(branch.When);
                 formula = $"if ({condition}) {formula}";
+                priorConditions.Add(condition);
+            }
+            else if (priorConditions.Count > 0)
+            {
+                // Fallback rule: negate all prior conditions so it only fires
+                // when none of the prior conditional rules matched.
+                var negation = string.Join(" && ", priorConditions.Select(c => $"!({c})"));
+                formula = $"if ({negation}) {formula}";
             }
 
             rules.Add(new PayRuleDto
