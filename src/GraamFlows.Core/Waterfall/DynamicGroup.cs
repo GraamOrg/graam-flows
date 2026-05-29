@@ -2,6 +2,7 @@
 using GraamFlows.Objects.TypeEnum;
 using GraamFlows.RulesEngine;
 using GraamFlows.Util;
+using GraamFlows.Util.Collections;
 using GraamFlows.Util.Functions;
 using GraamFlows.Waterfall.MarketTranche;
 
@@ -149,7 +150,10 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             if (dealStructure.GroupNum == "0")
                 HasCrossedGroups = true;
 
-            var classTranche = Deal.Tranches.Single(t => t.TrancheName == dealStructure.ClassGroupName);
+            var classTranche = Deal.Tranches.SingleByName(
+                t => t.TrancheName,
+                dealStructure.ClassGroupName,
+                $"DynamicGroup.Initialize (group '{GroupNum}'): dealStructure.ClassGroupName not found in Deal.Tranches");
             var dynamicTranches = Deal.Tranches.Where(tran => tran.ClassReference == dealStructure.ClassGroupName)
                 .Select(tran =>
                     MarketTrancheFactory.GetDynamicMarketTranche(FormulaExecutor, this, tran, FirstProjectionDate));

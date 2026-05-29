@@ -1,5 +1,6 @@
 ﻿using GraamFlows.Objects.DataObjects;
 using GraamFlows.Util;
+using GraamFlows.Util.Collections;
 using GraamFlows.Waterfall;
 
 namespace GraamFlows.Triggers;
@@ -18,12 +19,19 @@ public class MinimumCreditEnhancementTrigger : Trigger
             throw new DealModelingException(trigger.DealName,
                 "MinimumCreditEnhancementTrigger needs to have the Class Group to test in param2");
 
-        var dealStructure = deal.DealStructures.SingleOrDefault(ds =>
-            ds.ClassGroupName.Equals(testClass, StringComparison.InvariantCultureIgnoreCase));
-
         MinimumCreditEnhancementValue = ceValue;
-        DealStructure = dealStructure ??
-                        throw new DealModelingException(trigger.DealName, $"Class {testClass} is not valid!");
+        try
+        {
+            DealStructure = deal.DealStructures.SingleByName(
+                ds => ds.ClassGroupName,
+                testClass,
+                $"MinimumCreditEnhancementTrigger (deal '{trigger.DealName}'): TriggerParam2 ClassGroupName",
+                StringComparison.InvariantCultureIgnoreCase);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new DealModelingException(trigger.DealName, ex.Message);
+        }
         ClassName = testClass;
     }
 
