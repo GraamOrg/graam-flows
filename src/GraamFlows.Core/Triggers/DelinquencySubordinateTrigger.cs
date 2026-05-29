@@ -58,7 +58,23 @@ public class DelinquencySubordinateTrigger : Trigger
         double subBalance;
         if (_seniorTranche != null)
         {
-            var seniorTranche = group.ClassByName(_seniorTranche);
+            // Pre-fix: `group.ClassByName(_seniorTranche)` would return null
+            // on a mismatched/typo'd TriggerParam2, then NRE on the next
+            // line with no clue what was missing or what was available.
+            // Route through SingleByName so the error names the senior
+            // tranche and lists the deal's dynamic classes. (harmony #1164.)
+            DynamicClass seniorTranche;
+            try
+            {
+                seniorTranche = group.DynamicClasses.SingleByName(
+                    dc => dc.Tranche.TrancheName,
+                    _seniorTranche,
+                    $"DelinquencySubordinateTrigger (deal '{group.Deal.DealName}', group '{group.GroupNum}'): TriggerParam2 seniorTranche");
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new DealModelingException(group.Deal.DealName, ex.Message);
+            }
             subBalance = seniorTranche.SubordinateBalance();
         }
         else

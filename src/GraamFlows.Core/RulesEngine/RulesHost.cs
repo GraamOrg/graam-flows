@@ -5,6 +5,7 @@ using GraamFlows.Objects.DataObjects;
 using GraamFlows.Objects.TypeEnum;
 using GraamFlows.Triggers;
 using GraamFlows.Util;
+using GraamFlows.Util.Collections;
 using GraamFlows.Util.Functions;
 using GraamFlows.Waterfall;
 using GraamFlows.Waterfall.MarketTranche;
@@ -700,9 +701,10 @@ namespace GraamFlows.RulesEngine
             {
                 foreach (var tranName in tranDelim.Split(','))
                 {
-                    var tran = _allTranches.SingleOrDefault(t => t.Tranche.TrancheName == tranName);
-                    if (tran == null)
-                        throw new DealModelingException(DynamicGroup.Deal.DealName, $"Cant find {tranName}");
+                    var tran = _allTranches.SingleByName(
+                        t => t.Tranche.TrancheName,
+                        tranName,
+                        $"RulesHost.COUPON (deal '{DynamicGroup.Deal.DealName}'): tranche reference");
                     var tranCf = tran.GetCashflow(_cfDate);
                     interest += tran.Interest(tranCf, _rateProvider, _allTranches);
                 }
@@ -723,7 +725,7 @@ namespace GraamFlows.RulesEngine
         private double COUPON(string tranche, double weight)
         {
             double interest = 0;
-            var tran = _allTranches.Single(t => t.Tranche.TrancheName == tranche);
+            var tran = LookupTranche(tranche, "RulesHost.COUPON");
             var tranCf = tran.GetCashflow(_cfDate);
             interest += tran.Interest(tranCf, _rateProvider, _allTranches) * weight;
 
@@ -735,12 +737,12 @@ namespace GraamFlows.RulesEngine
             double interest = 0;
 
             // tranche 1
-            var tran = _allTranches.Single(t => t.Tranche.TrancheName == tranche1);
+            var tran = LookupTranche(tranche1, "RulesHost.COUPON");
             var tranCf = tran.GetCashflow(_cfDate);
             interest += tran.Interest(tranCf, _rateProvider, _allTranches) * weight1;
 
             // tranche 2
-            tran = _allTranches.Single(t => t.Tranche.TrancheName == tranche2);
+            tran = LookupTranche(tranche2, "RulesHost.COUPON");
             tranCf = tran.GetCashflow(_cfDate);
             interest += tran.Interest(tranCf, _rateProvider, _allTranches) * weight2;
 
@@ -752,17 +754,17 @@ namespace GraamFlows.RulesEngine
             double interest = 0;
 
             // tranche 1
-            var tran = _allTranches.Single(t => t.Tranche.TrancheName == tranche1);
+            var tran = LookupTranche(tranche1, "RulesHost.COUPON");
             var tranCf = tran.GetCashflow(_cfDate);
             interest += tran.Interest(tranCf, _rateProvider, _allTranches) * weight1;
 
             // tranche 2
-            tran = _allTranches.Single(t => t.Tranche.TrancheName == tranche2);
+            tran = LookupTranche(tranche2, "RulesHost.COUPON");
             tranCf = tran.GetCashflow(_cfDate);
             interest += tran.Interest(tranCf, _rateProvider, _allTranches) * weight2;
 
             // tranche 3
-            tran = _allTranches.Single(t => t.Tranche.TrancheName == tranche3);
+            tran = LookupTranche(tranche3, "RulesHost.COUPON");
             tranCf = tran.GetCashflow(_cfDate);
             interest += tran.Interest(tranCf, _rateProvider, _allTranches) * weight3;
 
@@ -772,12 +774,18 @@ namespace GraamFlows.RulesEngine
         private double INTEREST(string tranche, double weight)
         {
             double interest = 0;
-            var tran = _allTranches.Single(t => t.Tranche.TrancheName == tranche);
+            var tran = LookupTranche(tranche, "RulesHost.INTEREST");
             var tranCf = tran.GetCashflow(_cfDate);
             interest += tran.Interest(tranCf, _rateProvider, _allTranches) * weight;
             _dynamicTranche.IsInterest = true;
             return interest;
         }
+
+        private DynamicTranche LookupTranche(string tranche, string contextLabel) =>
+            _allTranches.SingleByName(
+                t => t.Tranche.TrancheName,
+                tranche,
+                $"{contextLabel} (deal '{DynamicGroup.Deal.DealName}'): tranche reference");
 
         private double INTEREST(string tranche1, double weight1, string tranche2, double weight2)
         {
@@ -811,9 +819,10 @@ namespace GraamFlows.RulesEngine
             {
                 foreach (var tranName in tranDelim.Split(','))
                 {
-                    var tran = _allTranches.SingleOrDefault(t => t.Tranche.TrancheName == tranName);
-                    if (tran == null)
-                        throw new DealModelingException(DynamicGroup.Deal.DealName, $"Cant find {tranName}");
+                    var tran = _allTranches.SingleByName(
+                        t => t.Tranche.TrancheName,
+                        tranName,
+                        $"RulesHost.WAC (deal '{DynamicGroup.Deal.DealName}'): tranche reference");
                     var tranCf = tran.GetCashflow(_cfDate);
                     interest += tran.Interest(tranCf, _rateProvider, _allTranches);
                     balance += tran.BeginBalance(_cfDate);
