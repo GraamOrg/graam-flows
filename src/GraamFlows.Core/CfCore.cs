@@ -91,6 +91,11 @@ public class CfCore
             // single group is not supported.
             var prepaymentType = firstAssetAssumps?.PrepaymentType ?? Objects.TypeEnum.PrepaymentTypeEnum.CPR;
 
+            // Default convention is a deal-level mode too (CDR de-annualizes,
+            // MDR is a direct monthly hazard). Resolve from the first asset for
+            // the same reason as prepaymentType. harmony #1226.
+            var defaultType = firstAssetAssumps?.DefaultType ?? Objects.TypeEnum.DefaultTypeEnum.CDR;
+
             // Build per-asset assumption matrices. Each is jagged double[][]:
             // outer index is asset (aligned to groupAssets / assetData),
             // inner index is period. For ABS prepayment type, use the
@@ -111,10 +116,21 @@ public class CfCore
             for (var i = 0; i < assetCount; i++)
             {
                 var aa = assetAssumps[i];
-                smmTime[i] = prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.ABS
-                    ? BuildAbsAssumptionArray(aa?.Prepayment, maxPeriods, startTime, poolAgeOffset, wam)
-                    : BuildAssumptionArray(aa?.Prepayment, maxPeriods, startTime, true);
-                mdrTime[i] = BuildAssumptionArray(aa?.DefaultRate, maxPeriods, startTime, true);
+                // Prepay: ABS uses the time-varying ABS→SMM conversion; SMM is a
+                // direct monthly hazard (no de-annualization, harmony #1226);
+                // CPR/PercentCPR/PSA de-annualize the annual rate as before.
+                smmTime[i] = prepaymentType switch
+                {
+                    Objects.TypeEnum.PrepaymentTypeEnum.ABS =>
+                        BuildAbsAssumptionArray(aa?.Prepayment, maxPeriods, startTime, poolAgeOffset, wam),
+                    Objects.TypeEnum.PrepaymentTypeEnum.SMM =>
+                        BuildAssumptionArray(aa?.Prepayment, maxPeriods, startTime, false),
+                    _ => BuildAssumptionArray(aa?.Prepayment, maxPeriods, startTime, true)
+                };
+                // Default: MDR is a direct monthly hazard (no de-annualization,
+                // harmony #1226); CDR de-annualizes the annual rate as before.
+                mdrTime[i] = BuildAssumptionArray(aa?.DefaultRate, maxPeriods, startTime,
+                    defaultType != Objects.TypeEnum.DefaultTypeEnum.MDR);
                 sevTime[i] = BuildAssumptionArray(aa?.Severity, maxPeriods, startTime, false, 100.0);
                 delTime[i] = BuildAssumptionArray(aa?.DelinqRate, maxPeriods, startTime, false, 100.0);
                 delAdvIntTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctInt, maxPeriods, startTime, false, 1.0, 100.0);

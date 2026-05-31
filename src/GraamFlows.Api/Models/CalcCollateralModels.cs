@@ -87,9 +87,16 @@ public class AssumptionsDto
     public double Delinquency { get; set; } = 0.0; // Delinquency rate %
     public double Advancing { get; set; } = 100.0; // Advancing rate %
 
-    // Prepayment convention: "CPR" (default, % of current balance) or "ABS" (% of original balance).
-    // Auto ABS deals use "ABS"; RMBS/agency deals use "CPR".
+    // Prepayment convention: "CPR" (default, % of current balance), "ABS" (% of
+    // original balance), or "SMM" (direct monthly prepay hazard, no de-annualization).
+    // Auto ABS deals use "ABS"; RMBS/agency deals use "CPR"; loan-level monthly
+    // hazard models (harmony #1226) use "SMM".
     public string PrepaymentType { get; set; } = "CPR";
+
+    // Default convention: "CDR" (default, annual rate, de-annualized to monthly)
+    // or "MDR" (direct monthly default hazard, no de-annualization). Loan-level
+    // monthly hazard models (harmony #1226) use "MDR".
+    public string DefaultType { get; set; } = "CDR";
 
     // Weighted average remaining term (months) — used for ABS-to-SMM amortization adjustment.
     public int Wam { get; set; } = 0;

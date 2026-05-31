@@ -10,7 +10,12 @@ public class AssetAssumptions : IAssetAssumptions
     public AssetAssumptions(PrepaymentTypeEnum prepaymentType, IAnchorableVector ppaySpeed, DefaultTypeEnum defaultType,
         IAnchorableVector defaultRate, IAnchorableVector severityRate)
     {
-        if (prepaymentType == PrepaymentTypeEnum.SMM || prepaymentType == PrepaymentTypeEnum.PercentCPR)
+        // PercentCPR is an annual-rate convention that we eagerly normalize to
+        // CPR here (the input is an SMM-shaped fraction the parser produced).
+        // SMM, by contrast, is a *direct monthly* hazard the engine must honor
+        // as-is (harmony #1226): we preserve both the raw vector and the SMM
+        // type so CfCore can skip the annual→monthly de-annualization.
+        if (prepaymentType == PrepaymentTypeEnum.PercentCPR)
         {
             Prepayment = ppaySpeed.transform(MathUtil.ConvertToCpr);
             PrepaymentType = PrepaymentTypeEnum.CPR;
@@ -21,16 +26,11 @@ public class AssetAssumptions : IAssetAssumptions
             PrepaymentType = prepaymentType;
         }
 
-        if (defaultType != DefaultTypeEnum.CDR)
-        {
-            DefaultRate = defaultRate.transform(MathUtil.ConvertToCpr);
-            DefaultType = DefaultTypeEnum.CDR;
-        }
-        else
-        {
-            DefaultType = defaultType;
-            DefaultRate = defaultRate;
-        }
+        // CDR is de-annualized downstream; MDR is a direct monthly default
+        // hazard (harmony #1226) that must flow through untouched so CfCore
+        // can skip the de-annualization for it.
+        DefaultType = defaultType;
+        DefaultRate = defaultRate;
 
         Severity = severityRate;
         DelinqRate = new ConstVector(0);
