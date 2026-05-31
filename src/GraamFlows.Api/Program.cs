@@ -5,6 +5,16 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Lift the Kestrel request-body cap entirely. The default 30,000,000-byte
+// MaxRequestBodySize is an ASP.NET Core wire-size default, NOT an engine limit —
+// the engine runs on the same box. Loan-level tapes (every loan sent with its own
+// scored curves, no replining) can exceed 30MB; clients gzip the body so the
+// compressed wire bytes stay small. See GraamOrg/graam-harmony#1226.
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = null);
+
+// Decompress gzip'd request bodies transparently (clients set Content-Encoding: gzip).
+builder.Services.AddRequestDecompression();
+
 // Add services to the container
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -41,6 +51,11 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseCors();
+
+// Decompress gzip'd request bodies. MUST run BEFORE the snake_case-normalization
+// middleware below, which reads the entire body as UTF-8 text — if it ran first it
+// would read raw gzip bytes as a string and corrupt the payload. (#1226)
+app.UseRequestDecompression();
 
 // Normalize incoming JSON keys: convert snake_case to camelCase so the API
 // accepts both "original_balance" and "originalBalance" transparently.
