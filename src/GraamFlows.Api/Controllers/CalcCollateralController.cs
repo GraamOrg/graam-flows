@@ -120,15 +120,14 @@ public class CalcCollateralController : ControllerBase
                 ? new ArrayVector(anchorAbsT, dto.AdvancingVector)
                 : (IAnchorableVector)new ConstVector(anchorAbsT, dto.Advancing);
 
-            var prepayType = string.Equals(dto.PrepaymentType, "ABS", StringComparison.OrdinalIgnoreCase)
-                ? PrepaymentTypeEnum.ABS
-                : PrepaymentTypeEnum.CPR;
+            var prepayType = ParsePrepaymentType(dto.PrepaymentType);
+            var defaultType = ParseDefaultType(dto.DefaultType);
             var delinqType = prepayType == PrepaymentTypeEnum.ABS
                 ? DelinqRateTypeEnum.PctOrigBal
                 : DelinqRateTypeEnum.PctCurrBal;
 
             var assetAssumps = new AssetAssumptions(prepayType, vpr,
-                DefaultTypeEnum.CDR, cdr, sev,
+                defaultType, cdr, sev,
                 delinqType, delinq, adv, adv);
             return new DealLevelAssumptions(projectionDate, assetAssumps)
             {
@@ -163,9 +162,42 @@ public class CalcCollateralController : ControllerBase
                 dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, 0, dto.Wam);
         }
 
+        var scalarPrepayType = ParsePrepaymentType(dto.PrepaymentType);
+        var scalarDefaultType = ParseDefaultType(dto.DefaultType);
+
+        // Direct-monthly hazards (SMM/MDR) can't flow through the CPR/CDR
+        // CreateConstAssumptions helper without being de-annualized, so build
+        // the AssetAssumptions explicitly when either mode is requested.
+        if (scalarPrepayType == PrepaymentTypeEnum.SMM || scalarDefaultType == DefaultTypeEnum.MDR)
+        {
+            var assetAssumps = new AssetAssumptions(
+                scalarPrepayType, new ConstVector(anchorAbsT, dto.Cpr),
+                scalarDefaultType, new ConstVector(anchorAbsT, dto.Cdr),
+                new ConstVector(anchorAbsT, dto.Severity),
+                DelinqRateTypeEnum.PctCurrBal, new ConstVector(anchorAbsT, dto.Delinquency),
+                new ConstVector(anchorAbsT, dto.Advancing), new ConstVector(anchorAbsT, dto.Advancing));
+            return new DealLevelAssumptions(projectionDate, assetAssumps);
+        }
+
         return DealLevelAssumptions.CreateConstAssumptions(
             projectionDate, anchorAbsT,
             dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, dto.Advancing);
+    }
+
+    private static PrepaymentTypeEnum ParsePrepaymentType(string? prepaymentType)
+    {
+        if (string.Equals(prepaymentType, "ABS", StringComparison.OrdinalIgnoreCase))
+            return PrepaymentTypeEnum.ABS;
+        if (string.Equals(prepaymentType, "SMM", StringComparison.OrdinalIgnoreCase))
+            return PrepaymentTypeEnum.SMM;
+        return PrepaymentTypeEnum.CPR;
+    }
+
+    private static DefaultTypeEnum ParseDefaultType(string? defaultType)
+    {
+        return string.Equals(defaultType, "MDR", StringComparison.OrdinalIgnoreCase)
+            ? DefaultTypeEnum.MDR
+            : DefaultTypeEnum.CDR;
     }
 
     /// <summary>
