@@ -83,18 +83,14 @@ public class CfCore
             for (var i = 0; i < groupAssets.Count; i++)
                 assetAssumps[i] = assumpFunc?.Invoke(groupAssets[i]);
 
-            var firstAssetAssumps = groupAssets.Count > 0 ? assetAssumps[0] : null;
-
-            // Prepayment type is a deal-level mode (selects the ABS-vs-SMM
-            // conversion path in the amortizer), not a per-asset toggle.
-            // Resolve from the first asset; mixing prepay types within a
-            // single group is not supported.
-            var prepaymentType = firstAssetAssumps?.PrepaymentType ?? Objects.TypeEnum.PrepaymentTypeEnum.CPR;
-
-            // Default convention is a deal-level mode too (CDR de-annualizes,
-            // MDR is a direct monthly hazard). Resolve from the first asset for
-            // the same reason as prepaymentType. harmony #1226.
-            var defaultType = firstAssetAssumps?.DefaultType ?? Objects.TypeEnum.DefaultTypeEnum.CDR;
+            // PrepaymentType (ABS-vs-SMM-vs-CPR conversion path) and DefaultType
+            // (CDR de-annualize vs. MDR direct monthly hazard) are resolved
+            // per-asset inside the loop below, off each asset's own
+            // IAssetAssumptions. Previously these were resolved once from the
+            // first asset and applied to the whole group, which silently
+            // mis-converted any asset whose mode differed from asset[0]'s
+            // (graam-flows#15). The per-asset loop already exists (graam-flows#5),
+            // so per-asset resolution is the natural home. harmony #1226.
 
             // Build per-asset assumption matrices. Each is jagged double[][]:
             // outer index is asset (aligned to groupAssets / assetData),
@@ -116,6 +112,13 @@ public class CfCore
             for (var i = 0; i < assetCount; i++)
             {
                 var aa = assetAssumps[i];
+
+                // Resolve each asset's prepay/default mode from its own
+                // assumptions so a heterogeneous group converts each asset
+                // correctly (graam-flows#15).
+                var prepaymentType = aa?.PrepaymentType ?? Objects.TypeEnum.PrepaymentTypeEnum.CPR;
+                var defaultType = aa?.DefaultType ?? Objects.TypeEnum.DefaultTypeEnum.CDR;
+
                 // Prepay: ABS uses the time-varying ABS→SMM conversion; SMM is a
                 // direct monthly hazard (no de-annualization, harmony #1226);
                 // CPR/PercentCPR/PSA de-annualize the annual rate as before.
