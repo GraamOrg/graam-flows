@@ -31,6 +31,13 @@ public class WaterfallController : ControllerBase
         _logger.LogInformation("Waterfall: deal {DealName}, {TrancheCount} tranches, {CollateralCashflowCount} collateral cashflows, type {WaterfallType}",
             request.Deal.DealName, request.Deal.Tranches.Count, request.CollateralCashflows.Count, request.Deal.WaterfallType);
 
+        var validationError = ValidateRequest(request);
+        if (validationError != null)
+        {
+            _logger.LogWarning("Waterfall rejected: {ValidationError}", validationError);
+            return BadRequest(new { error = validationError });
+        }
+
         try
         {
             // Build deal from DTO, applying factors if provided
@@ -406,6 +413,58 @@ public class WaterfallController : ControllerBase
         return deal;
     }
 
+    /// <summary>
+    /// Validates a waterfall request before it reaches the engine. Returns a human-readable
+    /// error string if the request is malformed, or null if it is well-formed. This keeps bad
+    /// input from producing a hard crash or silently garbage cashflows inside the engine.
+    /// </summary>
+    private static string? ValidateRequest(WaterfallRequest request)
+    {
+        if (request.CollateralCashflows == null || request.CollateralCashflows.Count == 0)
+            return "No collateral cashflows supplied.";
+
+        if (request.Deal?.Tranches == null || request.Deal.Tranches.Count == 0)
+            return "Deal has no tranches.";
+
+        for (var i = 0; i < request.CollateralCashflows.Count; i++)
+        {
+            var cf = request.CollateralCashflows[i];
+            var bad = FirstNonFinite(
+                ("ScheduledPrincipal", cf.ScheduledPrincipal),
+                ("UnscheduledPrincipal", cf.UnscheduledPrincipal),
+                ("DefaultedPrincipal", cf.DefaultedPrincipal),
+                ("RecoveryPrincipal", cf.RecoveryPrincipal),
+                ("BeginBalance", cf.BeginBalance),
+                ("Balance", cf.Balance),
+                ("Interest", cf.Interest),
+                ("NetInterest", cf.NetInterest),
+                ("ForbearanceLiquidated", cf.ForbearanceLiquidated),
+                ("ForbearanceRecovery", cf.ForbearanceRecovery),
+                ("ForbearanceUnscheduled", cf.ForbearanceUnscheduled));
+            if (bad != null)
+                return $"Collateral cashflow at index {i} ({cf.CashflowDate:yyyy-MM-dd}) has a non-finite {bad} value.";
+        }
+
+        foreach (var tranche in request.Deal.Tranches)
+        {
+            var bad = FirstNonFinite(
+                ("OriginalBalance", tranche.OriginalBalance),
+                ("Factor", tranche.Factor));
+            if (bad != null)
+                return $"Tranche '{tranche.TrancheName}' has a non-finite {bad} value.";
+        }
+
+        return null;
+    }
+
+    private static string? FirstNonFinite(params (string Name, double Value)[] fields)
+    {
+        foreach (var (name, value) in fields)
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return name;
+        return null;
+    }
+
     private static CollateralCashflows ConvertCollateralCashflows(List<PeriodCashflowDto> dtos)
     {
         var periodCashflows = new List<PeriodCashflows>();
@@ -429,6 +488,7 @@ public class WaterfallController : ControllerBase
                 DelinqBalance = dto.DelinqBalance,
                 ForbearanceRecovery = dto.ForbearanceRecovery,
                 ForbearanceLiquidated = dto.ForbearanceLiquidated,
+                ForbearanceUnscheduled = dto.ForbearanceUnscheduled,
                 WAC = dto.Wac,
                 WAM = dto.Wam,
                 WALA = dto.Wala,

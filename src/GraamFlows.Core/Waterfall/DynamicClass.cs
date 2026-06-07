@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Xml.Linq;
+﻿using System.Xml.Linq;
 using GraamFlows.Objects.DataObjects;
 using GraamFlows.Objects.TypeEnum;
 using GraamFlows.Util;
@@ -330,9 +329,18 @@ public class DynamicClass : IPayable
 
     public TrancheCashflow Writedown(DateTime cashflowDate, double writedownAmt)
     {
+        // Reject non-finite input outright — silently clamping NaN/Infinity would
+        // corrupt the balance and cascade into every downstream period.
+        if (double.IsNaN(writedownAmt) || double.IsInfinity(writedownAmt))
+            throw new DealModelingException(Tranche.DealName,
+                $"Invalid writedown amount '{writedownAmt}' requested for class {Tranche.TrancheName} on {cashflowDate:MM/dd/yyyy}");
+
+        // A class can only absorb writedowns up to its remaining balance. Any excess
+        // (collateral losses exceeding the note, or losses at deal termination once
+        // subordinates are already written to zero) is legitimately unabsorbed and is
+        // capped here. This previously tripped a Debug.Assert that fail-fasted the
+        // entire process on otherwise-valid deals when run as a Debug build.
         var totalWritedown = Math.Min(writedownAmt, Balance);
-        var residual = totalWritedown - writedownAmt;
-        Debug.Assert(Math.Abs(residual) < 10);
 
         var adjDate = AdjustedCashflowDate(cashflowDate);
         var beginBal = Balance;
@@ -452,7 +460,9 @@ public class DynamicClass : IPayable
             return;
 
         var cf = GetCashflow(cfDate);
-        Debug.Assert(Math.Abs(Balance - cf.Balance) < .001);
+        if (Math.Abs(Balance - cf.Balance) >= .001)
+            throw new DealModelingException(Tranche.DealName,
+                $"Class {Tranche.TrancheName} live balance {Balance:#,##0.##} is out of sync with its cashflow balance {cf.Balance:#,##0.##} on {cfDate:MM/dd/yyyy}");
         _transCf = cf.Copy();
     }
 

@@ -174,6 +174,39 @@ public class ComposableStructureTests
             "A should not have more writedowns than B");
     }
 
+    [Fact]
+    public void Writedown_ExceedsNoteBalance_ClampsWithoutCrashing()
+    {
+        // Regression for the synthetic_loan_passthrough hard crash: a period's
+        // collateral loss (defaulted principal net of recovery) exceeds the single
+        // note's remaining balance. This previously tripped Debug.Assert in
+        // DynamicClass.Writedown, fail-fasting the whole process. The class must
+        // instead clamp the writedown to its balance and continue.
+        var collateral = new TestCollateralBuilder()
+            .WithGroupNum("1")
+            .WithPeriod(
+                date: FirstPayDate,
+                beginBalance: 10_000_000,
+                scheduledPrincipal: 0,
+                unscheduledPrincipal: 0,
+                interest: 50_000,
+                defaultedPrincipal: 12_000_000, // exceeds the 10M note
+                recoveryPrincipal: 0)           // 100% severity, nothing to offset
+            .Build();
+
+        var run = () => new TestDealBuilder()
+            .WithTranche("A", 10_000_000, 5.0, subOrder: 0)
+            .WithSequentialWaterfall("A")
+            .BuildAndRun(collateral);
+
+        run.Should().NotThrow("writedowns exceeding the note balance must clamp, not crash the process");
+
+        var (_, cf) = run();
+        var aCumWd = GetCashflows(cf, "A").Max(c => c.Value.CumWritedown);
+        aCumWd.Should().BeLessOrEqualTo(10_000_000 + 1,
+            "a note can absorb at most its own balance in writedowns");
+    }
+
     #endregion
 
     #region Cashflow Conservation
