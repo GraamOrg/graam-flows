@@ -71,7 +71,14 @@ public class DynamicClass : IPayable
         foreach (var dynTran in DynamicTranches)
         {
             var cf = dynTran.GetCashflow(cfDate);
-            var interestDue = dynTran.Interest(cf, rateProvider, allTranchesList) + cf.AccumInterestShortfall;
+            // ResidualInterest (XS / excess-spread) sweeps whatever interest is
+            // left after the coupon-bearing classes are paid — Payscen
+            // TrancheAllocator parity (CalculateTrancheInterest: `interest =
+            // availableInterest`). Its coupon is 0, so balance × coupon would
+            // otherwise pay it nothing.
+            var interestDue = dynTran.Tranche.CouponTypeEnum == CouponType.ResidualInterest
+                ? availableFunds - interestPaid
+                : dynTran.Interest(cf, rateProvider, allTranchesList) + cf.AccumInterestShortfall;
             var toPay = Math.Min(interestDue, availableFunds - interestPaid);
 
             if (toPay > 0)

@@ -76,6 +76,70 @@ public class ComposableStructureTests
         bCf.Interest.Should().BeApproximately(20_000_000 * 0.06 / 12, 50000);
     }
 
+    [Fact]
+    public void Interest_ResidualInterestTranche_SweepsExcessSpread()
+    {
+        // Collateral WAC (8%) exceeds the bond coupons (5% / 6%), so there is
+        // excess spread every period. An XS tranche with
+        // CouponType=ResidualInterest, placed last in the interest SEQ, should
+        // sweep whatever interest remains after the coupon classes are paid —
+        // Payscen TrancheAllocator parity. Before this fix the composable path
+        // paid it balance × coupon = 0 and dropped the excess on the floor.
+        var collateral = CreateCollateral(3, 100_000_000, wacPct: 8.0);
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithTranche("XS", 0, 0.0, subOrder: 2,
+                cashflowType: "IO", couponType: "ResidualInterest")
+            .WithSequentialWaterfall("A", "B", "XS")
+            .BuildAndRun(collateral);
+
+        var aCf = GetFirstCashflow(cf, "A");
+        var bCf = GetFirstCashflow(cf, "B");
+        var xsCf = GetFirstCashflow(cf, "XS");
+
+        var netInterest = collateral.PeriodCashflows
+            .OrderBy(p => p.CashflowDate).First().NetInterest;
+
+        // Coupon classes are unchanged by the sweep.
+        aCf.Interest.Should().BeApproximately(80_000_000 * 0.05 / 12, 50000);
+        bCf.Interest.Should().BeApproximately(20_000_000 * 0.06 / 12, 50000);
+
+        // XS sweeps the remainder: net interest minus the coupon classes.
+        xsCf.Interest.Should().BeGreaterThan(0, "XS should receive the excess spread");
+        xsCf.Interest.Should().BeApproximately(
+            netInterest - aCf.Interest - bCf.Interest, 1.0);
+
+        // Conservation: every dollar of net interest is distributed (nothing
+        // dropped) once a residual sweeper is present.
+        (aCf.Interest + bCf.Interest + xsCf.Interest)
+            .Should().BeApproximately(netInterest, 1.0);
+    }
+
+    [Fact]
+    public void Interest_NoResidualTranche_ExcessNotOverDistributed()
+    {
+        // Backwards-compat guard: with no ResidualInterest tranche, coupon
+        // classes still take only their due and the excess is NOT force-fed to
+        // anyone (it flows back as undistributed). A + B must stay at coupon.
+        var collateral = CreateCollateral(1, 100_000_000, wacPct: 8.0);
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(collateral);
+
+        var aCf = GetFirstCashflow(cf, "A");
+        var bCf = GetFirstCashflow(cf, "B");
+        var netInterest = collateral.PeriodCashflows
+            .OrderBy(p => p.CashflowDate).First().NetInterest;
+
+        aCf.Interest.Should().BeApproximately(80_000_000 * 0.05 / 12, 50000);
+        bCf.Interest.Should().BeApproximately(20_000_000 * 0.06 / 12, 50000);
+        // Excess spread exists but is not distributed to the coupon classes.
+        (aCf.Interest + bCf.Interest).Should().BeLessThan(netInterest);
+    }
+
     #endregion
 
     #region Principal Distribution
