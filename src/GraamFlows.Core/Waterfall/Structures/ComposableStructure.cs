@@ -387,13 +387,20 @@ public class ComposableStructure : BaseStructure
         // Draw from reserve to cover shortfall
         var paidFromReserve = DrawFromReserve(dynGroup, shortfall);
 
-        // Pay interest with augmented funds
-        var totalFundsForInterest = paidFromAvailable + paidFromReserve;
-        dynGroup.InterestPayable.PayInterest(null, periodCf.CashflowDate,
+        // Pass ALL available interest (plus any reserve top-up) into the
+        // structure — not just the coupon due — so a terminal ResidualInterest
+        // tranche (XS / excess spread) can sweep whatever is left after the
+        // coupon-bearing classes. Coupon classes still take only their due, so
+        // with no residual sweeper the excess flows back unchanged via the
+        // PayInterest return value (Payscen TrancheAllocator parity).
+        var totalFundsForInterest = availableInterest + paidFromReserve;
+        var paid = dynGroup.InterestPayable.PayInterest(null, periodCf.CashflowDate,
             totalFundsForInterest, rateProvider, allTranches);
 
-        // Return remaining available interest (reserve draw doesn't add to remaining)
-        return availableInterest - paidFromAvailable;
+        // Remaining = available pool interest not consumed (reserve top-up isn't
+        // pool money, so exclude it from what we treat as "paid from available").
+        var paidFromPool = Math.Max(0, paid - paidFromReserve);
+        return availableInterest - paidFromPool;
     }
 
     /// <summary>
@@ -456,10 +463,15 @@ public class ComposableStructure : BaseStructure
         var due = child.InterestDue(periodCf.CashflowDate, rateProvider, allTranches);
         var paidFromAvailable = Math.Min(availableInterest, due);
         var paidFromReserve = DrawFromReserve(dynGroup, due - paidFromAvailable);
-        child.PayInterest(null, periodCf.CashflowDate,
-            paidFromAvailable + paidFromReserve, rateProvider, allTranches);
+        // Pass all available interest (plus reserve top-up) so a ResidualInterest
+        // child sweeps the remainder; coupon classes take only their due, so the
+        // excess flows back unchanged when there's no sweeper. Mirrors
+        // PayInterestStep (Payscen TrancheAllocator parity).
+        var paid = child.PayInterest(null, periodCf.CashflowDate,
+            availableInterest + paidFromReserve, rateProvider, allTranches);
 
-        return availableInterest - paidFromAvailable;
+        var paidFromPool = Math.Max(0, paid - paidFromReserve);
+        return availableInterest - paidFromPool;
     }
 
     /// <summary>
