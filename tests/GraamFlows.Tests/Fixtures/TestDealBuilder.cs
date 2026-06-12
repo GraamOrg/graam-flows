@@ -99,6 +99,45 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>
+    ///     Adds an extra tranche into an EXISTING class (shared ClassReference)
+    ///     without a new DealStructure — producing a multi-tranche (combined /
+    ///     exchangeable) class, so a single recipient resolves to >1
+    ///     DynamicTranche. Used to exercise the EXCESS_RELEASE split.
+    /// </summary>
+    public TestDealBuilder WithTrancheInClass(string className, string trancheName,
+        double balance, double couponPct, string cashflowType = "PI",
+        string couponType = "Fixed", string trancheType = "Offered")
+    {
+        _balanceAtIssuance += balance;
+
+        _deal.Tranches.Add(new Tranche
+        {
+            TrancheName = trancheName,
+            DealName = _deal.DealName,
+            OriginalBalance = balance,
+            Factor = 1.0,
+            CouponType = couponType,
+            FixedCoupon = couponPct,
+            TrancheType = trancheType,
+            CashflowType = cashflowType,
+            ClassReference = className,
+            FirstPayDate = _firstPayDate,
+            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            LegalMaturityDate = _firstPayDate.AddYears(10),
+            StatedMaturityDate = _firstPayDate.AddYears(8),
+            PayFrequency = 12,
+            PayDelay = 0,
+            PayDay = _firstPayDate.Day,
+            DayCount = "30/360",
+            BusinessDayConvention = "Following",
+            HolidayCalendar = "Settlement",
+            Deal = _deal
+        });
+
+        return this;
+    }
+
     public TestDealBuilder WithExpenseTranche(string name, double formulaAmount, int subOrder = 99)
     {
         _deal.Tranches.Add(new Tranche

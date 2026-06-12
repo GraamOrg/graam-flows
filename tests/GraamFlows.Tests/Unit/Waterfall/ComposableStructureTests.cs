@@ -223,6 +223,69 @@ public class ComposableStructureTests
     }
 
     [Fact]
+    public void ExcessRelease_NestedStructure_StillYieldsXs()
+    {
+        // A nested release — SEQ(SEQ(XS), R) — must still resolve XS as the first
+        // recipient. Earlier a flat GetChildren().OfType<DynamicClass>() missed
+        // the inner SequentialStructure and silently dropped XS, reopening #1714.
+        var collateral = CreateCollateral(6, 100_000_000, wacPct: 10.0);
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 100_000_000, 4.0, subOrder: 0)
+            .WithTranche("XS", 100_000_000, 0.0, subOrder: 1,
+                cashflowType: "IO", couponType: "ResidualInterest")
+            .WithCertificateTranche("R", subOrder: 2)
+            .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("ReleaseStruct",
+                "SET_RELEASE_STRUCT(SEQ(SEQ(SINGLE('XS')), SINGLE('R')))")
+            .BuildAndRun(collateral);
+
+        var xsInt = GetCashflows(cf, "XS").Sum(c => c.Value.Interest);
+        var rInt = GetCashflows(cf, "R").Sum(c => c.Value.Interest);
+
+        xsInt.Should().BeGreaterThan(0,
+            "nested SEQ(SEQ(XS), R) still resolves XS as the first recipient");
+        rInt.Should().Be(0, "R is after XS → it gets nothing once XS sweeps the excess");
+    }
+
+    [Fact]
+    public void ExcessRelease_MultiTrancheRecipient_DoesNotMintInterest()
+    {
+        // A recipient class wrapping >1 tranche (combined / exchangeable) must
+        // receive the release ONCE, split across its tranches — not the full
+        // remainder once per tranche, which minted money (a 2-tranche class
+        // doubled the excess). The engine forbids >1 ResidualInterest strip, so
+        // the combined recipient here is a 2-tranche Certificate class.
+        // Conservation: total interest distributed equals collateral net interest.
+        var collateral = CreateCollateral(6, 100_000_000, wacPct: 10.0);
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 100_000_000, 4.0, subOrder: 0)
+            .WithCertificateTranche("R", subOrder: 1)
+            .WithTrancheInClass("R", "R2", 0.0, 0.0,
+                cashflowType: "PI", couponType: "None", trancheType: "Certificate")
+            .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("ReleaseStruct", "SET_RELEASE_STRUCT(SEQ(SINGLE('R')))")
+            .BuildAndRun(collateral);
+
+        var aInt = GetCashflows(cf, "A").Sum(c => c.Value.Interest);
+        var rInt = GetCashflows(cf, "R").Sum(c => c.Value.Interest);
+        var r2Int = GetCashflows(cf, "R2").Sum(c => c.Value.Interest);
+        var netInterest = collateral.PeriodCashflows.Sum(p => p.NetInterest);
+
+        (rInt + r2Int).Should().BeGreaterThan(0, "the combined R class sweeps the excess");
+        // Without the split, the 2-tranche R class would book ~2× the excess.
+        (aInt + rInt + r2Int).Should().BeApproximately(netInterest, 1.0,
+            "the R class sweeps the excess exactly once — no interest is minted");
+    }
+
+    [Fact]
     public void Interest_NoResidualTranche_ExcessNotOverDistributed()
     {
         // Backwards-compat guard: with no ResidualInterest tranche, coupon
