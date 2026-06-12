@@ -532,11 +532,10 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         foreach (var dynTran in ioClass.DynamicTranches)
         {
             var cf = dynTran.GetCashflow(cashflowDate);
-            // Notional paydown tracks the pool; recorded as principal so WAL is
-            // notional-weighted. The IO holder receives no principal cash.
-            var paydown = cf.BeginBalance - poolEndBalance;
-            if (paydown > 0)
-                cf.ScheduledPrincipal += paydown;
+            // The notional tracks the pool via the BALANCE schedule only. The IO
+            // holder receives no principal cash (Principal stays 0): price/yield
+            // run on interest alone, and WAL is derived from the balance change
+            // (PrevBalance − Balance) when IsIo is set — market convention.
             dynTran.SetBalance(poolEndBalance);
             cf.Balance = poolEndBalance;
         }

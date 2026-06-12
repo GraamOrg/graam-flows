@@ -175,7 +175,7 @@ public class PricingController : ControllerBase
             Frequency = frequency,
             StartAccrualPeriod = parms.StartAccrualPeriod ?? DateTime.MinValue,
             PayDelay = parms.PayDelay,
-            IsIo = false
+            IsIo = parms.IsIo
         };
     }
 

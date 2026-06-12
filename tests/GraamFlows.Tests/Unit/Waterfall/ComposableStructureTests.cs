@@ -180,6 +180,11 @@ public class ComposableStructureTests
             // Effective coupon is finite — never Infinity/NaN from a zero face.
             double.IsNaN(xs.EffectiveCoupon).Should().BeFalse();
             double.IsInfinity(xs.EffectiveCoupon).Should().BeFalse();
+            // Interest-only: the holder receives NO principal. The notional
+            // tracks the pool via the balance schedule, not principal cashflows;
+            // WAL is derived from the balance change (IsIo) at pricing time.
+            (xs.ScheduledPrincipal + xs.UnscheduledPrincipal).Should().Be(0,
+                "an IO tranche receives no principal cash");
         }
 
         matched.Should().BeGreaterThan(5, "most XS periods should map to a pool period");
