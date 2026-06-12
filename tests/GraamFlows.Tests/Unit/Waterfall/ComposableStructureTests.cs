@@ -2,6 +2,7 @@ using FluentAssertions;
 using GraamFlows.Objects.DataObjects;
 using GraamFlows.Tests.Fixtures;
 using GraamFlows.Tests.Helpers;
+using GraamFlows.Util;
 using Xunit;
 
 namespace GraamFlows.Tests.Unit.Waterfall;
@@ -114,6 +115,29 @@ public class ComposableStructureTests
         // dropped) once a residual sweeper is present.
         (aCf.Interest + bCf.Interest + xsCf.Interest)
             .Should().BeApproximately(netInterest, 1.0);
+    }
+
+    [Fact]
+    public void Interest_TwoResidualInterestTranches_ThrowsAtBuild()
+    {
+        // Two ResidualInterest tranches in one interest group is a config error:
+        // the sweep (DynamicClass.PayInterest) gives the FIRST residual all the
+        // remaining interest, silently zeroing the second (first-wins). Cash
+        // still conserves and nothing throws at runtime, so the misconfig is
+        // invisible — validation must fail loudly at deal build instead.
+        var collateral = CreateCollateral(3, 100_000_000, wacPct: 8.0);
+        var build = () => new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("XS1", 0, 0.0, subOrder: 1,
+                cashflowType: "IO", couponType: "ResidualInterest")
+            .WithTranche("XS2", 0, 0.0, subOrder: 2,
+                cashflowType: "IO", couponType: "ResidualInterest")
+            .WithSequentialWaterfall("A", "XS1", "XS2")
+            .BuildAndRun(collateral);
+
+        build.Should().Throw<DealModelingException>()
+            .WithMessage("*ResidualInterest*at most one*")
+            .WithMessage("*XS1*XS2*");
     }
 
     [Fact]
