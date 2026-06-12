@@ -787,24 +787,30 @@ public class ComposableStructure : BaseStructure
         if (availableInterest <= 0)
             return;
 
-        // Find certificate classes and record excess interest directly
-        var certificateClasses = dynGroup.DynamicClasses
-            .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
-            .ToList();
+        // Release the excess to the EXCESS_RELEASE structure's classes IN ORDER.
+        // e.g. SEQ(XS, R) sends the excess to the XS excess-spread strip first,
+        // then R — earlier this ignored the structure and dumped it onto every
+        // Certificate class, so an XS strip listed first got nothing while the
+        // residual Certificate scooped it all (#1714). The first recipient (the
+        // excess-spread / residual sweeper) takes the remainder as interest.
+        var recipients = (dynGroup.ReleasePayable?.GetChildren().OfType<DynamicClass>().ToList()
+                          ?? new List<DynamicClass>());
+        if (!recipients.Any())
+            // No release structure — fall back to the OC certificate(s).
+            recipients = dynGroup.DynamicClasses
+                .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+                .ToList();
 
-        if (certificateClasses.Any())
+        var remaining = availableInterest;
+        foreach (var cls in recipients)
         {
-            // Record excess interest on certificate cashflows
-            foreach (var certClass in certificateClasses)
-            {
-                var cf = certClass.GetCashflow(periodCf.CashflowDate);
-                cf.Interest += availableInterest;
-            }
-        }
-        else if (dynGroup.ReleasePayable != null)
-        {
-            // Fallback: use PaySp for non-certificate release payables
-            dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, availableInterest, () => { });
+            if (remaining <= 0.01)
+                break;
+            // Credit the per-TRANCHE cashflow — the output (TrancheCashflows)
+            // reads dynTran.Cashflows, not the class cashflow.
+            foreach (var dynTran in cls.DynamicTranches)
+                dynTran.GetCashflow(periodCf.CashflowDate).Interest += remaining;
+            remaining = 0; // first (residual) recipient sweeps the excess
         }
     }
 
