@@ -141,6 +141,55 @@ public class ComposableStructureTests
     }
 
     [Fact]
+    public void Notional_IoTranche_TracksPoolBalance_FiniteCoupon()
+    {
+        // An IO / excess-spread tranche (XS) carries a notional that tracks the
+        // pool balance instead of amortizing via the principal waterfall.
+        // Without it the balance is 0, so coupon % / price / yield divide by a
+        // zero face. XS is in the INTEREST SEQ (sweeps the spread) but NOT in
+        // PRINCIPAL / WRITEDOWN — it is interest-only.
+        const double startBal = 100_000_000.0;
+        var collateral = CreateCollateral(12, startBal, wacPct: 8.0, cdrPct: 2.0); // losses too
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithTranche("XS", startBal, 0.0, subOrder: 2,
+                cashflowType: "IO", couponType: "ResidualInterest")
+            .WithPayRule("InterestStruct",
+                "SET_INTEREST_STRUCT(SEQ(SINGLE('A'), SINGLE('B'), SINGLE('XS')))")
+            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A'), SINGLE('B')))")
+            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A'), SINGLE('B')))")
+            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A'), SINGLE('B')))")
+            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('B'), SINGLE('A')))")
+            .BuildAndRun(collateral);
+
+        var poolByDate = collateral.PeriodCashflows.ToDictionary(p => p.CashflowDate, p => p);
+        var xsCfs = GetCashflows(cf, "XS").OrderBy(c => c.Key).ToList();
+        xsCfs.Should().NotBeEmpty();
+
+        var matched = 0;
+        foreach (var kv in xsCfs)
+        {
+            if (!poolByDate.TryGetValue(kv.Key, out var pool))
+                continue;
+            matched++;
+            var xs = kv.Value;
+            // Notional tracks the pool balance to the dollar (incl. losses).
+            xs.BeginBalance.Should().BeApproximately(pool.BeginBalance, 1.0,
+                $"XS notional must equal the pool balance at {kv.Key:yyyy-MM}");
+            // Effective coupon is finite — never Infinity/NaN from a zero face.
+            double.IsNaN(xs.EffectiveCoupon).Should().BeFalse();
+            double.IsInfinity(xs.EffectiveCoupon).Should().BeFalse();
+        }
+
+        matched.Should().BeGreaterThan(5, "most XS periods should map to a pool period");
+        // The notional amortizes with the pool — it is NOT frozen at original face.
+        xsCfs.Last().Value.BeginBalance.Should().BeLessThan(startBal);
+        // And it receives the swept excess spread.
+        xsCfs.Sum(c => c.Value.Interest).Should().BeGreaterThan(0);
+    }
+
+    [Fact]
     public void Interest_NoResidualTranche_ExcessNotOverDistributed()
     {
         // Backwards-compat guard: with no ResidualInterest tranche, coupon

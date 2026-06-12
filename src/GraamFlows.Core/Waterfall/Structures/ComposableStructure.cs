@@ -199,6 +199,12 @@ public class ComposableStructure : BaseStructure
     {
         var cfAlloc = BeginPeriod(deal, dynGroup, adjPeriodCf);
 
+        // Notional (IO) tranches track the pool balance, not the principal
+        // waterfall. Set their begin balance to the pool's begin balance BEFORE
+        // interest so the effective coupon reflects the excess spread on the
+        // pool (and never divides by a zero face).
+        dynGroup.InitNotionalBalances(adjPeriodCf.BeginBalance, adjPeriodCf.CashflowDate);
+
         // Track available funds through the waterfall
         var availableInterest = cfAlloc.Interest;
         var availableSchedPrin = cfAlloc.SchedPrin;
@@ -320,6 +326,11 @@ public class ComposableStructure : BaseStructure
         // Update Certificate tranche balance to reflect current OC (Pool - Notes)
         // Called AFTER all principal payments so both pool and note balances are at end-of-period values
         dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
+
+        // Settle notional (IO) tranches to the pool's end balance so the
+        // notional amortizes with the pool (real WAL); the IO holder gets no
+        // principal cash.
+        dynGroup.SettleNotionalBalances(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
     }
 
     /// <summary>

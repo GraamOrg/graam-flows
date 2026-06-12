@@ -75,6 +75,10 @@ public class DynamicTranche : DynamicClass
         var coupon = Coupon(rateProvider, trancheCashflow.CashflowDate, allTranches);
         trancheCashflow.Coupon = coupon;
         var effCoupon = interest / (balance * .01 * frac);
+        // Guard a zero/near-zero face (IO notional before it's set, paid-off
+        // tranche) — interest / 0 is Infinity/NaN. Payscen parity.
+        if (double.IsNaN(effCoupon) || double.IsInfinity(effCoupon))
+            effCoupon = 0;
         trancheCashflow.EffectiveCoupon = effCoupon;
         trancheCashflow.Interest = interest;
         trancheCashflow.Interest += trancheCashflow.InterestShortfallPayback;

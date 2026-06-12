@@ -501,6 +501,47 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         }
     }
 
+    // ---- Notional (IO) balance tracking ----
+    // An interest-only / excess-spread tranche (e.g. XS) carries a NOTIONAL
+    // that tracks a reference balance — the pool — instead of amortizing via
+    // the principal waterfall. Its balance can't be 0 or analytics (coupon %,
+    // price, yield, WAL) divide by a zero face. We set the notional to the
+    // pool balance: begin = pool begin BEFORE interest (so the effective
+    // coupon reflects the excess spread on the pool), end = pool end AFTER
+    // principal (so the notional amortizes with the pool, giving a real WAL).
+    private IEnumerable<DynamicClass> NotionalClasses() =>
+        DynamicClasses.Where(dc => dc.Tranche.CashflowTypeEnum == CashflowType.InterestOnly);
+
+    public void InitNotionalBalances(double poolBeginBalance, DateTime cashflowDate)
+    {
+        // Set the per-TRANCHE balance (interest's effective coupon reads the
+        // tranche cashflow's BeginBalance, not the class's).
+        foreach (var ioClass in NotionalClasses())
+        foreach (var dynTran in ioClass.DynamicTranches)
+        {
+            dynTran.SetBalance(poolBeginBalance);
+            var cf = dynTran.GetCashflow(cashflowDate);
+            cf.BeginBalance = poolBeginBalance;
+            cf.Balance = poolBeginBalance;
+        }
+    }
+
+    public void SettleNotionalBalances(double poolEndBalance, DateTime cashflowDate)
+    {
+        foreach (var ioClass in NotionalClasses())
+        foreach (var dynTran in ioClass.DynamicTranches)
+        {
+            var cf = dynTran.GetCashflow(cashflowDate);
+            // Notional paydown tracks the pool; recorded as principal so WAL is
+            // notional-weighted. The IO holder receives no principal cash.
+            var paydown = cf.BeginBalance - poolEndBalance;
+            if (paydown > 0)
+                cf.ScheduledPrincipal += paydown;
+            dynTran.SetBalance(poolEndBalance);
+            cf.Balance = poolEndBalance;
+        }
+    }
+
     public void Advance(DateTime cashflowDate)
     {
         foreach (var dynClass in DynamicClasses)
