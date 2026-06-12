@@ -145,7 +145,16 @@ public static class Amortizer
             else if (debtService > 0)
                 scheduledPayment = debtService;
             else
-                scheduledPayment = Math.Round(AmortizingPayment(origBalance, rate, term) * 100.0) / 100.0;
+            {
+                // No debtService and no original balance supplied — amortize off
+                // the current balance rather than AmortizingPayment(0, …) = 0,
+                // which would yield a sub-interest payment and capitalize interest
+                // into principal every period (the pool balance grows). The engine
+                // models no negative-amortization product, so a zero original
+                // balance is a misconfiguration; fall back to the current balance.
+                var amortBalance = origBalance > 0 ? origBalance : balance;
+                scheduledPayment = Math.Round(AmortizingPayment(amortBalance, rate, term) * 100.0) / 100.0;
+            }
 
             for (var absT = startTime; absT <= endTime; absT++)
             {
@@ -238,7 +247,14 @@ public static class Amortizer
                     else
                     {
                         var actualPayment = age < term ? scheduledPayment : cashflowBalance + interestPaid;
-                        principal = Math.Min(actualPayment - interestPaid, cashflowBalance);
+                        // Backstop: scheduled principal can never be negative. A
+                        // payment below the period's interest would capitalize
+                        // interest into principal (balance grows) — the engine has
+                        // no negative-amortization product, so a sub-interest
+                        // payment is always a misconfiguration. Clamp at zero. For
+                        // a normal amortizing payment (payment > interest) the Max
+                        // is a no-op, so well-formed loans are unaffected.
+                        principal = Math.Min(Math.Max(actualPayment - interestPaid, 0), cashflowBalance);
 
                         cashflowPrevBalance = cashflowBalance;
                         cashflowBalance -= principal;
