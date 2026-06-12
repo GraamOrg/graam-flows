@@ -28,6 +28,11 @@ public class PricingParamsDto
     public string Compounding { get; set; } = "SemiAnnual";
     public DateTime? StartAccrualPeriod { get; set; } // for accrued interest calc
     public int PayDelay { get; set; } = 0;
+
+    // Interest-only tranche: the holder receives no principal (Principal=0), so
+    // WAL is computed from the balance change (PrevBalance − Balance) rather than
+    // principal cashflows. See Cashflow.WeightedAverageLife().
+    public bool IsIo { get; set; } = false;
 }
 
 // ============== Response Models ==============
