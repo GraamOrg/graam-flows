@@ -787,25 +787,70 @@ public class ComposableStructure : BaseStructure
         if (availableInterest <= 0)
             return;
 
-        // Find certificate classes and record excess interest directly
-        var certificateClasses = dynGroup.DynamicClasses
-            .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
-            .ToList();
+        // Release the excess to the EXCESS_RELEASE structure's classes IN ORDER.
+        // e.g. SEQ(XS, R) sends the excess to the XS excess-spread strip first,
+        // then R — earlier this ignored the structure and dumped it onto every
+        // Certificate class, so an XS strip listed first got nothing while the
+        // residual Certificate scooped it all (#1714). The first recipient (the
+        // excess-spread / residual sweeper) takes the remainder as interest.
+        //
+        // Descend the structure recursively (ordered) so a nested SEQ/PRORATA
+        // release — SEQ(SEQ(XS), R) — still yields XS as the first recipient
+        // rather than silently dropping it (a flat OfType<DynamicClass>() misses
+        // the inner SequentialStructure and reopens #1714).
+        var recipients = ReleaseRecipientsInOrder(dynGroup.ReleasePayable).ToList();
+        if (!recipients.Any())
+            // No release structure — fall back to the OC certificate(s).
+            recipients = dynGroup.DynamicClasses
+                .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+                .ToList();
 
-        if (certificateClasses.Any())
+        var remaining = availableInterest;
+        foreach (var cls in recipients)
         {
-            // Record excess interest on certificate cashflows
-            foreach (var certClass in certificateClasses)
+            if (remaining <= 0.01)
+                break;
+            var tranches = cls.DynamicTranches;
+            if (tranches == null || tranches.Count == 0)
+                continue;
+            // Credit the per-TRANCHE cashflow (the output reads dynTran.Cashflows,
+            // not the class wrapper). Split the release across the recipient
+            // class's tranches — balance-weighted, even split when balances are 0
+            // — so a multi-tranche (combined / exchangeable) class receives the
+            // amount ONCE, not once per tranche (which would mint money).
+            var totalBal = tranches.Sum(t => t.GetCashflow(periodCf.CashflowDate).BeginBalance);
+            foreach (var dynTran in tranches)
             {
-                var cf = certClass.GetCashflow(periodCf.CashflowDate);
-                cf.Interest += availableInterest;
+                var cf = dynTran.GetCashflow(periodCf.CashflowDate);
+                var share = totalBal > 0.01
+                    ? remaining * (cf.BeginBalance / totalBal)
+                    : remaining / tranches.Count;
+                cf.Interest += share;
             }
+            remaining = 0; // first (residual) recipient sweeps the excess
         }
-        else if (dynGroup.ReleasePayable != null)
+    }
+
+    /// <summary>
+    ///     Leaf recipient classes of an EXCESS_RELEASE structure, in order,
+    ///     descending nested SEQ / PRORATA payables. A DynamicClass is a leaf;
+    ///     any other payable is a container whose ordered children are walked.
+    /// </summary>
+    private static IEnumerable<DynamicClass> ReleaseRecipientsInOrder(IPayable payable)
+    {
+        if (payable == null)
+            yield break;
+        if (payable is DynamicClass dc)
         {
-            // Fallback: use PaySp for non-certificate release payables
-            dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, availableInterest, () => { });
+            yield return dc;
+            yield break;
         }
+        var children = payable.GetChildren();
+        if (children == null)
+            yield break;
+        foreach (var child in children)
+        foreach (var leaf in ReleaseRecipientsInOrder(child))
+            yield return leaf;
     }
 
     /// <summary>
