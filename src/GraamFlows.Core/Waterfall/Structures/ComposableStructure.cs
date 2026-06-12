@@ -168,6 +168,25 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.WritedownPayable == null)
             throw new DealModelingException(deal.DealName,
                 "ComposableStructure requires WRITEDOWN step in waterfall. Add SET_WRITEDOWN_STRUCT rule.");
+
+        // At most one ResidualInterest (XS / excess-spread) tranche per interest
+        // group. The interest sweep (DynamicClass.PayInterest) gives the first
+        // such tranche `availableFunds - interestPaid` — i.e. ALL remaining
+        // interest — so a second residual in the same group is silently zeroed
+        // (first-wins). Cash still conserves and nothing throws, so the error is
+        // invisible at runtime; fail loudly at deal build instead. Mirrors the
+        // SingleOrDefault contract the legacy TrancheAllocator relied on (which
+        // threw on duplicates). Scoped per group, so a multi-group deal may
+        // legitimately carry one residual each.
+        var residualTranches = dynGroup.DynamicClasses
+            .SelectMany(dc => dc.DynamicTranches)
+            .Where(dt => dt.Tranche.CouponTypeEnum == CouponType.ResidualInterest)
+            .ToList();
+        if (residualTranches.Count > 1)
+            throw new DealModelingException(deal.DealName,
+                $"Interest group has {residualTranches.Count} ResidualInterest (excess-spread) tranches " +
+                $"({string.Join(", ", residualTranches.Select(dt => dt.Tranche.TrancheName))}); at most one is " +
+                "supported — the interest sweep pays all residual to the first, silently zeroing the rest.");
     }
 
     /// <summary>
