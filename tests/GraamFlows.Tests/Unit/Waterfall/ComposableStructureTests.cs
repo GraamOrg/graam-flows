@@ -118,6 +118,45 @@ public class ComposableStructureTests
     }
 
     [Fact]
+    public void Interest_ExcessServicingStrip_PaidFromServicingFeeAndWalNeutral()
+    {
+        // The Class A-IO-S excess-servicing strip draws its strip from the
+        // period servicing fee — which was already removed from collateral
+        // interest before the waterfall — so it must NOT reduce interest to the
+        // offered classes. Run an identical deal with and without the strip and
+        // confirm the offered classes are byte-for-byte unchanged while the
+        // strip is paid the servicing fee.
+        var baseline = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(3, 100_000_000, wacPct: 8.0));
+
+        var withStrip = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithExcessServicingStrip("AIOS", 100_000_000)
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(3, 100_000_000, wacPct: 8.0));
+
+        var collateral = CreateCollateral(3, 100_000_000, wacPct: 8.0);
+        var firstServiceFee = collateral.PeriodCashflows
+            .OrderBy(p => p.CashflowDate).First().ServiceFee;
+
+        // Strip is paid the servicing fee.
+        var aiosCf = GetFirstCashflow(withStrip.Cashflows, "AIOS");
+        aiosCf.Interest.Should().BeApproximately(firstServiceFee, 1.0,
+            "the excess-servicing strip receives the period servicing fee");
+        firstServiceFee.Should().BeGreaterThan(0);
+
+        // Offered classes are unchanged by the strip (WAL-neutral).
+        GetFirstCashflow(withStrip.Cashflows, "A").Interest
+            .Should().BeApproximately(GetFirstCashflow(baseline.Cashflows, "A").Interest, 0.01);
+        GetFirstCashflow(withStrip.Cashflows, "B").Interest
+            .Should().BeApproximately(GetFirstCashflow(baseline.Cashflows, "B").Interest, 0.01);
+    }
+
+    [Fact]
     public void Interest_TwoResidualInterestTranches_ThrowsAtBuild()
     {
         // Two ResidualInterest tranches in one interest group is a config error:

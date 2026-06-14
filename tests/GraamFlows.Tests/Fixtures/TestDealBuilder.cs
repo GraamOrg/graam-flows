@@ -100,6 +100,49 @@ public class TestDealBuilder
     }
 
     /// <summary>
+    ///     Adds an excess-servicing IO strip (Class A-IO-S) — a notional IO
+    ///     Reference tranche whose DealStructure pays from ExcessServicing, so
+    ///     ComposableStructure pays it from the period servicing fee.
+    /// </summary>
+    public TestDealBuilder WithExcessServicingStrip(string name, double notional, int subOrder = 100)
+    {
+        _deal.Tranches.Add(new Tranche
+        {
+            TrancheName = name,
+            DealName = _deal.DealName,
+            OriginalBalance = notional,
+            Factor = 1.0,
+            CouponType = "None",
+            FixedCoupon = 0,
+            TrancheType = "Reference",
+            CashflowType = "IO",
+            ClassReference = name,
+            FirstPayDate = _firstPayDate,
+            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            LegalMaturityDate = _firstPayDate.AddYears(10),
+            StatedMaturityDate = _firstPayDate.AddYears(8),
+            PayFrequency = 12,
+            PayDelay = 0,
+            PayDay = _firstPayDate.Day,
+            DayCount = "30/360",
+            BusinessDayConvention = "Following",
+            HolidayCalendar = "Settlement",
+            Deal = _deal
+        });
+
+        _deal.DealStructures.Add(new DealStructure
+        {
+            DealName = _deal.DealName,
+            ClassGroupName = name,
+            SubordinationOrder = subOrder,
+            PayFrom = "ExcessServicing",
+            GroupNum = "1"
+        });
+
+        return this;
+    }
+
+    /// <summary>
     ///     Adds an extra tranche into an EXISTING class (shared ClassReference)
     ///     without a new DealStructure — producing a multi-tranche (combined /
     ///     exchangeable) class, so a single recipient resolves to >1

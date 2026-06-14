@@ -35,10 +35,37 @@ public static class UnifiedWaterfallBuilder
                 SubordinationOrder = writedownIdx >= 0
                     ? writedownOrder.Count - writedownIdx
                     : idx,
-                PayFrom = "Sequential",
+                PayFrom = PayFromForTranche(t),
                 GroupNum = "1"
             };
         }).ToList();
+    }
+
+    /// <summary>
+    ///     Pick the DealStructure pay source for a tranche. Tranches default to
+    ///     "Sequential" (the unified-waterfall steps drive their order), but an
+    ///     excess-servicing IO strip (Class A-IO-S) must pay from
+    ///     "ExcessServicing" so it draws its strip from the servicing fee —
+    ///     capped at the fee collected and WITHOUT reducing interest to the
+    ///     offered classes (see <c>TrancheAllocator</c>). It is identified as a
+    ///     non-residual IO strip that is either explicitly a Reference tranche
+    ///     or carries an "IOS" class name; the excess-SPREAD strip (Class XS)
+    ///     is a ResidualInterest IO and is deliberately excluded so it keeps
+    ///     the interest sweep.
+    /// </summary>
+    private static string PayFromForTranche(TrancheDto t)
+    {
+        var isIo = string.Equals(t.CashflowType, "IO", StringComparison.OrdinalIgnoreCase);
+        var isResidualInterest =
+            string.Equals(t.CouponType, "ResidualInterest", StringComparison.OrdinalIgnoreCase);
+        var name = (t.TrancheName ?? "").ToUpperInvariant().Replace("-", "");
+        var isReference =
+            string.Equals(t.TrancheType, "Reference", StringComparison.OrdinalIgnoreCase);
+
+        if (isIo && !isResidualInterest && (isReference || name.Contains("IOS")))
+            return "ExcessServicing";
+
+        return "Sequential";
     }
 
     /// <summary>

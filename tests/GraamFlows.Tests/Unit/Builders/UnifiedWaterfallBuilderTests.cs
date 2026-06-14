@@ -215,6 +215,48 @@ public class UnifiedWaterfallBuilderTests
     }
 
     [Fact]
+    public void BuildDealStructures_ServicingIoStrip_PaysFromExcessServicing()
+    {
+        // A Class A-IO-S servicing strip (IO + Reference) must draw its strip
+        // from the servicing fee, so it routes PayFrom = ExcessServicing — not
+        // the default Sequential — while the offered classes stay Sequential.
+        var waterfall = CreateMinimalWaterfall();
+        var tranches = new List<TrancheDto>
+        {
+            new() { TrancheName = "A" },
+            new() { TrancheName = "AIOS", CashflowType = "IO", TrancheType = "Reference" }
+        };
+
+        var structures = UnifiedWaterfallBuilder.BuildDealStructures(waterfall, tranches);
+
+        structures.First(s => s.ClassGroupName == "AIOS").PayFrom.Should().Be("ExcessServicing");
+        structures.First(s => s.ClassGroupName == "A").PayFrom.Should().Be("Sequential");
+    }
+
+    [Fact]
+    public void BuildDealStructures_ExcessSpreadXs_StaysSequentialNotExcessServicing()
+    {
+        // The Class XS excess-SPREAD strip is also an IO, but it is the
+        // ResidualInterest sweeper — it must NOT be diverted to ExcessServicing.
+        var waterfall = CreateMinimalWaterfall();
+        var tranches = new List<TrancheDto>
+        {
+            new() { TrancheName = "A" },
+            new()
+            {
+                TrancheName = "XS",
+                CashflowType = "IO",
+                TrancheType = "Offered",
+                CouponType = "ResidualInterest"
+            }
+        };
+
+        var structures = UnifiedWaterfallBuilder.BuildDealStructures(waterfall, tranches);
+
+        structures.First(s => s.ClassGroupName == "XS").PayFrom.Should().Be("Sequential");
+    }
+
+    [Fact]
     public void BuildDealStructures_AllGroupNumOne()
     {
         var waterfall = CreateMinimalWaterfall();
