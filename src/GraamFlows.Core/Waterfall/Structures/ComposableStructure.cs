@@ -245,6 +245,13 @@ public class ComposableStructure : BaseStructure
             }
         }
 
+        // Pay the excess-servicing IO strip (Class A-IO-S) out of the period
+        // servicing fee before the offered-class waterfall. The fee is already
+        // removed from collateral interest, so this neither appears in
+        // `availableInterest` nor reduces it — it's a redirect of the servicing
+        // fee, independent of the execution-order steps below.
+        PayExcessServicingStep(dynGroup, rateProvider, adjPeriodCf, allTranches);
+
         // Execute steps in order
         var waterfallOrder = deal.WaterfallOrder;
         var interleavedDone = false;
@@ -694,6 +701,44 @@ public class ComposableStructure : BaseStructure
     /// 2. If OC above target: Pay the pre-calculated OC release to certificates
     /// Returns remaining available interest after turbo/release.
     /// </summary>
+    /// <summary>
+    ///     Pay the excess-servicing IO strip (Class A-IO-S) its strip from the
+    ///     period servicing fee. The strip is identified by
+    ///     <c>DealStructure.PayFrom == ExcessServicing</c> (assigned by
+    ///     <see cref="GraamFlows.Api.Transformers.UnifiedWaterfallBuilder"/> for a
+    ///     non-residual Reference/IOS IO tranche). The servicing fee was already
+    ///     deducted from collateral interest before the waterfall, so paying the
+    ///     strip from it neither reduces nor draws on the interest available to the
+    ///     offered classes — it is a redirect of the fee, mirroring the reference
+    ///     deal models' <c>serv_fee_rate</c> strip. The amount is the tranche's own
+    ///     coupon on its notional when one is supplied, otherwise the full servicing
+    ///     fee, capped at the fee actually collected.
+    /// </summary>
+    private void PayExcessServicingStep(DynamicGroup dynGroup, IRateProvider rateProvider,
+        PeriodCashflows periodCf, IEnumerable<DynamicTranche> allTranches)
+    {
+        var serviceFee = periodCf.ServiceFee;
+        if (serviceFee <= 0)
+            return;
+
+        var allTranchesList = allTranches?.ToList();
+        var stripTranches = dynGroup.DynamicClasses
+            .SelectMany(dc => dc.DynamicTranches)
+            .Where(dt => dt.DealStructure != null &&
+                         dt.DealStructure.PayFromEnum == PayFromEnum.ExcessServicing);
+
+        foreach (var dynTran in stripTranches)
+        {
+            var cf = dynTran.GetCashflow(periodCf.CashflowDate);
+            var stripDue = dynTran.Interest(cf, rateProvider, allTranchesList);
+            if (stripDue <= 0)
+                stripDue = serviceFee;
+            var toPay = Math.Min(stripDue, serviceFee);
+            if (toPay > 0)
+                dynTran.PayInterest(cf, rateProvider, null, allTranchesList, toPay);
+        }
+    }
+
     private double PayExcessTurboStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf,
         double availableInterest)
     {
