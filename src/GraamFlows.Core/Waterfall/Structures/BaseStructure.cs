@@ -198,6 +198,8 @@ public abstract class BaseStructure : IWaterfall
                     exchClass.Writedown(cashflowDate, exchClass.Balance);
                 else
                     exchClass.Writedown(cashflowDate, wd);
+
+                PayExchangeInterest(dynGroup, exchClass, parentClass, cashflowDate);
             }
 
             foreach (var exchClass in nestedExchClasses)
@@ -218,6 +220,8 @@ public abstract class BaseStructure : IWaterfall
                     exchClass.Writedown(cashflowDate, exchClass.Balance);
                 else
                     exchClass.Writedown(cashflowDate, wd);
+
+                PayExchangeInterest(dynGroup, exchClass, parentClass, cashflowDate);
             }
 
             // pay exchange off group
@@ -281,6 +285,41 @@ public abstract class BaseStructure : IWaterfall
         var pctShare = exchShare.Quantity / parentClass.Tranche.OriginalBalance;
         var cashflow = prin * pctShare;
         return cashflow;
+    }
+
+    /// <summary>
+    ///     An exchangeable (combined / recombinable / MACR) class receives the
+    ///     proportional sum of its component tranches' interest — the same
+    ///     exchange-share basis used for principal — because a holder of the
+    ///     combined class holds slices of each underlying and collects each
+    ///     underlying's coupon. Interest is credited to the exchange class's own
+    ///     tranche cashflow(s) (balance-weighted across them, even split at zero
+    ///     balance) so the output reads it directly.
+    /// </summary>
+    private void PayExchangeInterest(DynamicGroup dynGroup, DynamicClass exchClass,
+        IEnumerable<DynamicClass> parentClass, DateTime cashflowDate)
+    {
+        // Interest is credited to the component's DynamicTranche cashflows, not the
+        // DynamicClass wrapper (which aggregates principal but not interest), so read
+        // it from the tranches before applying the exchange share.
+        var interest = parentClass.Sum(pc =>
+            GetExchangeShare(dynGroup, exchClass, pc,
+                pc.DynamicTranches.Sum(t => t.GetCashflow(cashflowDate).Interest)));
+        if (Math.Abs(interest) < 1e-9)
+            return;
+
+        var tranches = exchClass.DynamicTranches;
+        if (tranches == null || tranches.Count == 0)
+            return;
+
+        var totalBal = tranches.Sum(t => t.GetCashflow(cashflowDate).BeginBalance);
+        foreach (var dynTran in tranches)
+        {
+            var cf = dynTran.GetCashflow(cashflowDate);
+            cf.Interest += totalBal > 0.01
+                ? interest * (cf.BeginBalance / totalBal)
+                : interest / tranches.Count;
+        }
     }
 
     public void ExecutePayRules(IDeal deal, DynamicGroup dynGroup, IPayRuleExecutor payRuleExecutor,

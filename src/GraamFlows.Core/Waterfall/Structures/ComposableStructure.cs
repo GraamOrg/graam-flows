@@ -59,6 +59,12 @@ public class ComposableStructure : BaseStructure
                 ? period.Sum(p => p.NetInterest) / totalBeginBalance * 1200
                 : 0;
 
+            // Accumulate the adjusted per-group cashflows and trigger results for
+            // this period so the exchangeable / notional overlay can run after all
+            // groups' primary distribution completes (ported from MutableStructure).
+            var periodCfList = new List<PeriodCashflows>();
+            var periodTriggerValues = new List<TriggerValue>();
+
             foreach (var periodCfGroup in period.GroupBy(g => g.GroupNum))
             {
                 var periodCf = periodCfGroup.Single();
@@ -126,7 +132,21 @@ public class ComposableStructure : BaseStructure
 
                 dynGroup.Advance(adjPeriodCf.CashflowDate);
                 periodCf.EffectiveWac = adjPeriodCf.EffectiveWac;
+
+                periodTriggerValues.AddRange(triggerValues);
+                periodCfList.Add(adjPeriodCf);
             }
+
+            // MACR / exchangeable + notional overlay (ported from MutableStructure).
+            // After every group's primary distribution for this period, derive the
+            // exchangeable (combined / recombinable) classes and notional classes as
+            // proportional views of their component tranches' cashflows. These classes
+            // have PayFrom=Exchange/Notional and are excluded from the cash-consuming
+            // DealClasses, so they mirror — never double-count — the primaries.
+            var periodDynGroups = dynDeal.DynamicGroups.ToList();
+            PayExchangeables(period.Key, periodDynGroups, periodCfList, out _);
+            PayExchangeableStructures(period.Key, periodCfList, periodDynGroups, payRuleExecutor, periodTriggerValues);
+            PayNotionalClasses(period.Key, periodDynGroups, periodCfList);
         }
 
         var dealCashflows = dynDeal.DynamicGroups.CreateDealCashflows(cashflows, assumps);

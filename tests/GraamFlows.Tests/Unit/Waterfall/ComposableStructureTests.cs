@@ -581,6 +581,80 @@ public class ComposableStructureTests
             .Build();
     }
 
+    #region Exchangeable / MACR classes
+
+    [Fact]
+    public void ExchangeClass_MirrorsSumOfComponents_PrincipalAndInterest()
+    {
+        // A MACR / combined class "AB" holds 100% of A and 100% of B. Its cashflow
+        // must equal the sum of A's and B's cashflows — principal AND interest —
+        // every period. The exchange overlay (PayExchangeables + PayExchangeInterest)
+        // derives it from the components; before that overlay was invoked from
+        // ComposableStructure the class produced zero.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithExchangeClass("AB", subOrder: 50, "A", "B")
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 8.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var ab = GetCashflows(cf, "AB");
+
+        ab.Should().NotBeEmpty("the exchange class must produce cashflows");
+
+        double Prin(TrancheCashflow c) => c.ScheduledPrincipal + c.UnscheduledPrincipal;
+        foreach (var date in a.Keys)
+        {
+            var expectedPrin = Prin(a[date]) + Prin(b[date]);
+            var expectedInt = a[date].Interest + b[date].Interest;
+            Prin(ab[date]).Should().BeApproximately(expectedPrin, 0.01,
+                $"AB principal must equal A+B on {date:yyyy-MM-dd}");
+            ab[date].Interest.Should().BeApproximately(expectedInt, 0.01,
+                $"AB interest must equal A+B on {date:yyyy-MM-dd}");
+        }
+
+        // Lifetime totals tie as well.
+        (ab.Values.Sum(Prin)).Should().BeApproximately(
+            a.Values.Sum(Prin) + b.Values.Sum(Prin), 0.01);
+        (ab.Values.Sum(c => c.Interest)).Should().BeApproximately(
+            a.Values.Sum(c => c.Interest) + b.Values.Sum(c => c.Interest), 0.01);
+    }
+
+    [Fact]
+    public void ExchangeClass_DoesNotDoubleCount_ComponentsUnchanged()
+    {
+        // Adding the exchange overlay class must not divert cash from the primaries:
+        // the components' cashflows are identical with and without the MACR class.
+        var collateral = CreateCollateral(6, 100_000_000, wacPct: 8.0);
+        var baseRun = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(collateral);
+        var withMacr = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithExchangeClass("AB", subOrder: 50, "A", "B")
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(collateral);
+
+        double Prin(TrancheCashflow c) => c.ScheduledPrincipal + c.UnscheduledPrincipal;
+        foreach (var name in new[] { "A", "B" })
+        {
+            var baseline = GetCashflows(baseRun.Cashflows, name);
+            var withEx = GetCashflows(withMacr.Cashflows, name);
+            baseline.Values.Sum(Prin).Should().BeApproximately(withEx.Values.Sum(Prin), 0.01,
+                $"{name} principal must be unchanged by the exchange overlay");
+            baseline.Values.Sum(c => c.Interest).Should().BeApproximately(
+                withEx.Values.Sum(c => c.Interest), 0.01,
+                $"{name} interest must be unchanged by the exchange overlay");
+        }
+    }
+
+    #endregion
+
     private static TrancheCashflow GetFirstCashflow(DealCashflows dealCashflows, string trancheName)
     {
         var match = dealCashflows.TrancheCashflows.First(t => t.Key.TrancheName == trancheName);
