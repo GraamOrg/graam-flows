@@ -157,6 +157,76 @@ public class ComposableStructureTests
     }
 
     [Fact]
+    public void Interest_PreFirstPayStub_ReTimedToOneMonthPerDistribution()
+    {
+        // Repro of graam-harmony #2748. The pool is projected from the closing/
+        // cutoff date, so its first period lands a full month BEFORE the first pay
+        // date. The amortizer emits a full month of interest for every period, so
+        // without re-timing the first-pay fold sums that stub month INTO the first
+        // paying period and the residual (XS) sweeps ~2 months of collateral
+        // interest in period 0 — paying out more than the pool earned. After the
+        // fix each collateral month funds exactly one distribution.
+        const double bal = 100_000_000;
+        var collateral = CreateCollateralBeforeFirstPay(4, bal, wacPct: 8.0);
+        var collOrdered = collateral.PeriodCashflows.OrderBy(p => p.CashflowDate).ToList();
+
+        // Sanity: the repro really has a pre-first-pay stub period.
+        collOrdered[0].CashflowDate.Should().BeBefore(FirstPayDate);
+
+        var (deal, run) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithExcessServicingStrip("AIOS", bal)
+            .WithTranche("XS", 0, 0.0, subOrder: 2,
+                cashflowType: "IO", couponType: "ResidualInterest")
+            .WithSequentialWaterfall("A", "B", "XS")
+            .BuildAndRun(collateral);
+
+        var a = GetCashflows(run, "A");
+        var b = GetCashflows(run, "B");
+        var xs = GetCashflows(run, "XS");
+        var aios = GetCashflows(run, "AIOS");
+
+        var payDates = a.Keys.OrderBy(d => d).ToList();
+        var firstPay = payDates.First();
+
+        // Each distribution is funded by exactly ONE collateral month (the i-th
+        // collateral period, re-timed onto the i-th pay date): the interest paid
+        // to all tranches never exceeds that single month's collateral interest.
+        for (var i = 0; i < payDates.Count && i < collOrdered.Count; i++)
+        {
+            var d = payDates[i];
+            var distributed =
+                (a.TryGetValue(d, out var ac) ? ac.Interest : 0) +
+                (b.TryGetValue(d, out var bc) ? bc.Interest : 0) +
+                (xs.TryGetValue(d, out var xc) ? xc.Interest : 0) +
+                (aios.TryGetValue(d, out var ic) ? ic.Interest : 0);
+            distributed.Should().BeLessOrEqualTo(collOrdered[i].Interest + 1.0,
+                $"distribution {i} ({d:yyyy-MM-dd}) must not exceed one collateral month");
+        }
+
+        // First distribution == ONE collateral month (the stub period), split
+        // coll - seniors - AIOS, NOT two months.
+        var stub = collOrdered[0];
+        aios[firstPay].Interest.Should().BeApproximately(stub.ServiceFee, 1.0,
+            "the strip receives one month of servicing fee");
+        xs[firstPay].Interest.Should().BeApproximately(
+            stub.NetInterest - a[firstPay].Interest - b[firstPay].Interest, 1.0,
+            "XS = one month net interest - seniors (no folded stub month)");
+        xs[firstPay].Interest.Should().BeLessThan(stub.NetInterest,
+            "the residual can never exceed a single month of pool interest");
+
+        // Conservation: over the run, all distributed interest ties to the
+        // collateral interest of the periods that were distributed (nothing
+        // dropped, nothing double-counted).
+        var distributedTotal = new[] { a, b, xs, aios }
+            .Sum(t => t.Where(kv => kv.Key <= payDates.Last()).Sum(kv => kv.Value.Interest));
+        var collateralTotal = collOrdered.Take(payDates.Count).Sum(p => p.Interest);
+        distributedTotal.Should().BeApproximately(collateralTotal, 5.0,
+            "total distributed interest ties to collateral interest — conserved");
+    }
+
+    [Fact]
     public void Interest_TwoResidualInterestTranches_ThrowsAtBuild()
     {
         // Two ResidualInterest tranches in one interest group is a config error:
@@ -578,6 +648,21 @@ public class ComposableStructureTests
             .WithGroupNum("1")
             .WithConstantCashflows(FirstPayDate, numPeriods, startingBalance,
                 cpr: TestConstants.DefaultCpr, cdr: cdrPct, wac: wacPct)
+            .Build();
+    }
+
+    /// <summary>
+    ///     Collateral projected ONE month BEFORE the first pay date — the pool was
+    ///     projected from the closing/cutoff date, so period 0 lands ahead of the
+    ///     first distribution (a full-month "stub").
+    /// </summary>
+    private static CollateralCashflows CreateCollateralBeforeFirstPay(int numPeriods,
+        double startingBalance, double wacPct = 8.0)
+    {
+        return new TestCollateralBuilder()
+            .WithGroupNum("1")
+            .WithConstantCashflows(ProjectionDate, numPeriods, startingBalance,
+                cpr: TestConstants.DefaultCpr, cdr: 0.0, wac: wacPct)
             .Build();
     }
 
