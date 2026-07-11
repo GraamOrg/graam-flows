@@ -221,7 +221,8 @@ public class WaterfallRunner
             {
                 deal.DealStructures.Clear();
                 var generatedStructures =
-                    UnifiedWaterfallBuilder.BuildDealStructures(dto.UnifiedWaterfall, dto.Tranches);
+                    UnifiedWaterfallBuilder.BuildDealStructures(dto.UnifiedWaterfall, dto.Tranches,
+                        dto.ExchangeShares);
                 foreach (var dsDto in generatedStructures)
                 {
                     var ds = new DealStructure
@@ -230,7 +231,8 @@ public class WaterfallRunner
                         ClassGroupName = dsDto.ClassGroupName,
                         SubordinationOrder = dsDto.SubordinationOrder,
                         PayFrom = dsDto.PayFrom,
-                        GroupNum = dsDto.GroupNum
+                        GroupNum = dsDto.GroupNum,
+                        ExchangableTranche = dsDto.ExchangableTranche
                     };
                     deal.DealStructures.Add(ds);
                 }
