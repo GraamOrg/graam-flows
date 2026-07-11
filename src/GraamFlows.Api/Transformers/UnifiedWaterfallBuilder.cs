@@ -14,7 +14,8 @@ public static class UnifiedWaterfallBuilder
     /// </summary>
     public static List<DealStructureDto> BuildDealStructures(
         UnifiedWaterfallDto waterfall,
-        List<TrancheDto> tranches)
+        List<TrancheDto> tranches,
+        List<ExchangeShareDto>? exchangeShares = null)
     {
         // Find WRITEDOWN step and extract subordination order
         var writedownStep = waterfall.Steps.FirstOrDefault(s =>
@@ -24,10 +25,21 @@ public static class UnifiedWaterfallBuilder
             ? ExtractTrancheOrder(writedownStep.Structure)
             : new List<string>();
 
+        // Map each exchange (combinable/MACR) class to the comma-joined list of its
+        // component tranche names. PayExchangeables/ClassesByNameOrTag expect this
+        // "A1A,A1B" format (split on ',') on the exchange class's DealStructure.
+        var exchangeComponents = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (exchangeShares != null)
+            foreach (var es in exchangeShares)
+                if (!string.IsNullOrEmpty(es.ExchangeTranche) && es.Shares.Count > 0)
+                    exchangeComponents[es.ExchangeTranche] =
+                        string.Join(",", es.Shares.Select(s => s.TrancheName));
+
         // Create DealStructure for each tranche
         return tranches.Select((t, idx) =>
         {
             var writedownIdx = writedownOrder.IndexOf(t.TrancheName);
+            exchangeComponents.TryGetValue(t.TrancheName, out var exchangableTranche);
             return new DealStructureDto
             {
                 ClassGroupName = t.TrancheName,
@@ -36,7 +48,8 @@ public static class UnifiedWaterfallBuilder
                     ? writedownOrder.Count - writedownIdx
                     : idx,
                 PayFrom = PayFromForTranche(t),
-                GroupNum = "1"
+                GroupNum = "1",
+                ExchangableTranche = exchangableTranche
             };
         }).ToList();
     }
@@ -51,7 +64,10 @@ public static class UnifiedWaterfallBuilder
     ///     non-residual IO strip that is either explicitly a Reference tranche
     ///     or carries an "IOS" class name; the excess-SPREAD strip (Class XS)
     ///     is a ResidualInterest IO and is deliberately excluded so it keeps
-    ///     the interest sweep.
+    ///     the interest sweep. An <c>Exchanged</c> (combinable / MACR) class pays
+    ///     from "Exchange" so the exchange overlay (<c>PayExchangeables</c>) derives
+    ///     its cashflow from its component tranches instead of leaving it flat at
+    ///     its issuance balance.
     /// </summary>
     private static string PayFromForTranche(TrancheDto t)
     {
@@ -61,6 +77,9 @@ public static class UnifiedWaterfallBuilder
         var name = (t.TrancheName ?? "").ToUpperInvariant().Replace("-", "");
         var isReference =
             string.Equals(t.TrancheType, "Reference", StringComparison.OrdinalIgnoreCase);
+
+        if (string.Equals(t.TrancheType, "Exchanged", StringComparison.OrdinalIgnoreCase))
+            return "Exchange";
 
         if (isIo && !isResidualInterest && (isReference || name.Contains("IOS")))
             return "ExcessServicing";

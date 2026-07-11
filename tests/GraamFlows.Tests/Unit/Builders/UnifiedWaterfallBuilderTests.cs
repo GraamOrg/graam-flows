@@ -257,6 +257,45 @@ public class UnifiedWaterfallBuilderTests
     }
 
     [Fact]
+    public void BuildDealStructures_ExchangedTranche_PaysFromExchangeWithComponents()
+    {
+        // An Exchanged (combinable / MACR) class must route PayFrom = "Exchange"
+        // AND carry its component tranches on ExchangableTranche (comma-joined,
+        // the format PayExchangeables/ClassesByNameOrTag splits on) so the
+        // exchange overlay derives its cashflow. The unified-waterfall transform
+        // previously dropped both, leaving the class flat at issuance forever
+        // (graam-harmony#2808).
+        var waterfall = CreateMinimalWaterfall();
+        var tranches = new List<TrancheDto>
+        {
+            new() { TrancheName = "A1A" },
+            new() { TrancheName = "A1B" },
+            new() { TrancheName = "A1", TrancheType = "Exchanged" }
+        };
+        var exchangeShares = new List<ExchangeShareDto>
+        {
+            new()
+            {
+                ExchangeTranche = "A1",
+                Shares = new List<ExShareDto>
+                {
+                    new() { TrancheName = "A1A", ShareAmount = 60_000_000 },
+                    new() { TrancheName = "A1B", ShareAmount = 40_000_000 }
+                }
+            }
+        };
+
+        var structures = UnifiedWaterfallBuilder.BuildDealStructures(waterfall, tranches, exchangeShares);
+
+        var a1 = structures.First(s => s.ClassGroupName == "A1");
+        a1.PayFrom.Should().Be("Exchange");
+        a1.ExchangableTranche.Should().Be("A1A,A1B");
+        // Non-exchange components keep the default sequential routing and no overlay.
+        structures.First(s => s.ClassGroupName == "A1A").PayFrom.Should().Be("Sequential");
+        structures.First(s => s.ClassGroupName == "A1A").ExchangableTranche.Should().BeNull();
+    }
+
+    [Fact]
     public void BuildDealStructures_AllGroupNumOne()
     {
         var waterfall = CreateMinimalWaterfall();
