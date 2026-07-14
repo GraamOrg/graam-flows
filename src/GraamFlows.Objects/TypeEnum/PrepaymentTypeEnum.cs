@@ -12,7 +12,13 @@ public enum PrepaymentTypeEnum
 public enum DefaultTypeEnum
 {
     CDR,
-    MDR
+    MDR,
+
+    // Monthly default as a percentage of the ORIGINAL balance. Unlike MDR
+    // (a hazard on the current performing balance), each period's default
+    // dollars are rate * originalBalance, capped at the remaining performing
+    // balance. Standard consumer-ABS loss convention.
+    ORIGMDR
 }
 
 public enum DelinqRateTypeEnum

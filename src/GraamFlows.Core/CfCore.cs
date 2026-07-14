@@ -109,6 +109,12 @@ public class CfCore
             var forbRecovMaturityTime = new double[assetCount][];
             var forbRecovDefaultTime = new double[assetCount][];
 
+            // ORIGMDR default series (monthly fraction of ORIGINAL balance),
+            // per-asset. Allocated lazily so groups with no ORIGMDR asset keep
+            // the null fast-path in the amortizer. Elements stay null for
+            // assets using CDR/MDR.
+            double[][]? origMdrTime = null;
+
             for (var i = 0; i < assetCount; i++)
             {
                 var aa = assetAssumps[i];
@@ -132,8 +138,21 @@ public class CfCore
                 };
                 // Default: MDR is a direct monthly hazard (no de-annualization,
                 // harmony #1226); CDR de-annualizes the annual rate as before.
-                mdrTime[i] = BuildAssumptionArray(aa?.DefaultRate, maxPeriods, startTime,
-                    defaultType != Objects.TypeEnum.DefaultTypeEnum.MDR);
+                // ORIGMDR is a monthly rate on the ORIGINAL balance — also
+                // already-monthly (no de-annualization), but applied against
+                // original (not current) balance inside the amortizer, so it
+                // travels in its own series and mdrTime is zeroed for the asset.
+                if (defaultType == Objects.TypeEnum.DefaultTypeEnum.ORIGMDR)
+                {
+                    origMdrTime ??= new double[assetCount][];
+                    origMdrTime[i] = BuildAssumptionArray(aa?.DefaultRate, maxPeriods, startTime, false);
+                    mdrTime[i] = new double[maxPeriods];
+                }
+                else
+                {
+                    mdrTime[i] = BuildAssumptionArray(aa?.DefaultRate, maxPeriods, startTime,
+                        defaultType != Objects.TypeEnum.DefaultTypeEnum.MDR);
+                }
                 sevTime[i] = BuildAssumptionArray(aa?.Severity, maxPeriods, startTime, false, 100.0);
                 delTime[i] = BuildAssumptionArray(aa?.DelinqRate, maxPeriods, startTime, false, 100.0);
                 delAdvIntTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctInt, maxPeriods, startTime, false, 1.0, 100.0);
@@ -160,7 +179,8 @@ public class CfCore
                 forbRecovPpayTime,
                 forbRecovMaturityTime,
                 forbRecovDefaultTime,
-                allMarketRates);
+                allMarketRates,
+                origMdrTime: origMdrTime);
 
             // Convert results to PeriodCashflows and add to deal cashflows
             var periodCashflows = results.ToPeriodCashflows(firstProjDate, groupNum);

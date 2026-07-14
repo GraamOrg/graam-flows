@@ -20,6 +20,10 @@ public static class Amortizer
     /// absTime[assetIndex][period] * originalBalance instead of smmTime[assetIndex][period] * currentBalance.
     /// This matches the ABS convention where prepay is expressed as a percentage of original balance
     /// per period.</param>
+    /// <param name="origMdrTime">Optional ORIGMDR default matrix (per-asset, monthly fraction of
+    /// original balance). When an asset's inner array is non-null, that period's default is
+    /// origMdrTime[assetIndex][period] * originalBalance (capped at the performing balance) instead
+    /// of mdrTime[assetIndex][period] * currentBalance (percent-of-original default basis).</param>
     public static CashflowResultArrays GenerateCashflows(
         AssetDataArrays assetData,
         int startTime,
@@ -34,7 +38,8 @@ public static class Amortizer
         double[][] forbRecovMaturityTime,
         double[][] forbRecovDefaultTime,
         double[][] allMarketRates,
-        double[][]? absTime = null)
+        double[][]? absTime = null,
+        double[][]? origMdrTime = null)
     {
         var maxPeriods = Math.Min(endTime - startTime + 1, 720);
         var results = new CashflowResultArrays(maxPeriods);
@@ -270,6 +275,19 @@ public static class Amortizer
                 // Dynamic asset calculations
                 var beginBalance = balance;
                 var schedBal = balance;
+
+                // ORIGMDR: default dollars are a fraction of the ORIGINAL balance,
+                // not the current performing balance. Capped at the performing
+                // balance, then re-expressed as
+                // an effective current-balance hazard so every downstream use of
+                // `mdr` (scheduled-principal reduction, survival factor,
+                // forbearance writedown, defPrin) stays consistent.
+                if (origMdrTime?[assetIndex] != null)
+                {
+                    var origDefaultDollars = Math.Min(origMdrTime[assetIndex][period] * origBalance, schedBal);
+                    mdr = schedBal > 0 ? origDefaultDollars / schedBal : 0.0;
+                }
+
                 var dqFactor = cashflowPrevBalance * survivalFactor > 0
                     ? schedBal / (cashflowPrevBalance * survivalFactor)
                     : 1.0;
