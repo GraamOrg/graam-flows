@@ -168,7 +168,9 @@ public class CalcCollateralController : ControllerBase
         // Direct-monthly hazards (SMM/MDR) can't flow through the CPR/CDR
         // CreateConstAssumptions helper without being de-annualized, so build
         // the AssetAssumptions explicitly when either mode is requested.
-        if (scalarPrepayType == PrepaymentTypeEnum.SMM || scalarDefaultType == DefaultTypeEnum.MDR)
+        if (scalarPrepayType == PrepaymentTypeEnum.SMM ||
+            scalarDefaultType == DefaultTypeEnum.MDR ||
+            scalarDefaultType == DefaultTypeEnum.ORIGMDR)
         {
             var assetAssumps = new AssetAssumptions(
                 scalarPrepayType, new ConstVector(anchorAbsT, dto.Cpr),
@@ -195,9 +197,11 @@ public class CalcCollateralController : ControllerBase
 
     private static DefaultTypeEnum ParseDefaultType(string? defaultType)
     {
-        return string.Equals(defaultType, "MDR", StringComparison.OrdinalIgnoreCase)
-            ? DefaultTypeEnum.MDR
-            : DefaultTypeEnum.CDR;
+        if (string.Equals(defaultType, "MDR", StringComparison.OrdinalIgnoreCase))
+            return DefaultTypeEnum.MDR;
+        if (string.Equals(defaultType, "ORIGMDR", StringComparison.OrdinalIgnoreCase))
+            return DefaultTypeEnum.ORIGMDR;
+        return DefaultTypeEnum.CDR;
     }
 
     /// <summary>
