@@ -23,6 +23,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="Integration\Data\paid\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\GraamFlows.Core\GraamFlows.Core.csproj" />
     <ProjectReference Include="..\..\src\GraamFlows.Domain\GraamFlows.Domain.csproj" />
     <ProjectReference Include="..\..\src\GraamFlows.Api\GraamFlows.Api.csproj" />

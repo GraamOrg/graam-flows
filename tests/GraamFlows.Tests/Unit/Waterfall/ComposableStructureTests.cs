@@ -363,12 +363,12 @@ public class ComposableStructureTests
     [Fact]
     public void ExcessRelease_MultiTrancheRecipient_DoesNotMintInterest()
     {
-        // A recipient class wrapping >1 tranche (combined / exchangeable) must
-        // receive the release ONCE, split across its tranches — not the full
-        // remainder once per tranche, which minted money (a 2-tranche class
-        // doubled the excess). The engine forbids >1 ResidualInterest strip, so
-        // the combined recipient here is a 2-tranche Certificate class.
-        // Conservation: total interest distributed equals collateral net interest.
+        // A Certificate recipient's excess release lands on its CLASS cashflow, because
+        // ConvertToResponse serializes Certificate classes from ClassCashflows (their per-tranche
+        // cashflows are skipped) and UpdateCertificateBalance writes the class cashflow. Crediting
+        // the per-tranche cashflow dropped the excess from the output (graam-flows#32). A class is
+        // ONE cashflow, so a multi-tranche (combined / exchangeable) Certificate cannot mint the
+        // excess. Conservation: total interest distributed equals collateral net interest.
         var collateral = CreateCollateral(6, 100_000_000, wacPct: 10.0);
         var (deal, cf) = new TestDealBuilder()
             .WithTranche("A", 100_000_000, 4.0, subOrder: 0)
@@ -384,13 +384,13 @@ public class ComposableStructureTests
             .BuildAndRun(collateral);
 
         var aInt = GetCashflows(cf, "A").Sum(c => c.Value.Interest);
-        var rInt = GetCashflows(cf, "R").Sum(c => c.Value.Interest);
-        var r2Int = GetCashflows(cf, "R2").Sum(c => c.Value.Interest);
+        // Certificate excess is on the CLASS cashflow (what ConvertToResponse serializes).
+        var rInt = GetClassCashflows(cf, "R").Sum(c => c.Value.Interest);
         var netInterest = collateral.PeriodCashflows.Sum(p => p.NetInterest);
 
-        (rInt + r2Int).Should().BeGreaterThan(0, "the combined R class sweeps the excess");
-        // Without the split, the 2-tranche R class would book ~2× the excess.
-        (aInt + rInt + r2Int).Should().BeApproximately(netInterest, 1.0,
+        rInt.Should().BeGreaterThan(0, "the combined R class sweeps the excess onto its class cashflow");
+        // The class receives the excess exactly ONCE — no per-tranche double-credit.
+        (aInt + rInt).Should().BeApproximately(netInterest, 1.0,
             "the R class sweeps the excess exactly once — no interest is minted");
     }
 
@@ -750,6 +750,15 @@ public class ComposableStructureTests
         DealCashflows dealCashflows, string trancheName)
     {
         var match = dealCashflows.TrancheCashflows.FirstOrDefault(t => t.Key.TrancheName == trancheName);
+        return match.Value?.Cashflows ?? new Dictionary<DateTime, TrancheCashflow>();
+    }
+
+    // CLASS-level cashflows — what ConvertToResponse serializes for a Certificate/OC class (whose
+    // per-tranche cashflows it skips). Certificate excess-release lands here (graam-flows#32).
+    private static Dictionary<DateTime, TrancheCashflow> GetClassCashflows(
+        DealCashflows dealCashflows, string trancheName)
+    {
+        var match = dealCashflows.ClassCashflows.FirstOrDefault(t => t.Key.TrancheName == trancheName);
         return match.Value?.Cashflows ?? new Dictionary<DateTime, TrancheCashflow>();
     }
 

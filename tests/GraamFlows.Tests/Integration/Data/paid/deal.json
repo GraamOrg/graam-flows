@@ -1,0 +1,551 @@
+{
+  "triggers": [],
+  "tranches": [
+    {
+      "fixedCoupon": 4.212,
+      "floaterSpread": null,
+      "originalBalance": 128200000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "K1+ (sf)",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "Fixed",
+      "trancheName": "A1",
+      "trancheType": "Offered",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "A1",
+      "legalMaturityDate": null,
+      "_creditEnhancement": 0.8036,
+      "subordinationOrder": 0
+    },
+    {
+      "fixedCoupon": 4.516,
+      "floaterSpread": null,
+      "originalBalance": 94400000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "AAA (sf)",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "Fixed",
+      "trancheName": "A2",
+      "trancheType": "Offered",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "A2",
+      "legalMaturityDate": null,
+      "_creditEnhancement": 0.6463,
+      "subordinationOrder": 1
+    },
+    {
+      "fixedCoupon": 4.924,
+      "floaterSpread": null,
+      "originalBalance": 168300000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "AA- (sf)",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "Fixed",
+      "trancheName": "B",
+      "trancheType": "Offered",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "B",
+      "legalMaturityDate": null,
+      "_creditEnhancement": 0.3658,
+      "subordinationOrder": 2
+    },
+    {
+      "fixedCoupon": 5.037,
+      "floaterSpread": null,
+      "originalBalance": 35400000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "A- (sf)",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "Fixed",
+      "trancheName": "C",
+      "trancheType": "Offered",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "C",
+      "legalMaturityDate": null,
+      "_creditEnhancement": 0.3068,
+      "subordinationOrder": 3
+    },
+    {
+      "fixedCoupon": 5.291,
+      "floaterSpread": null,
+      "originalBalance": 24600000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "BBB- (sf)",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "Fixed",
+      "trancheName": "D",
+      "trancheType": "Offered",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "D",
+      "legalMaturityDate": null,
+      "_creditEnhancement": 0.2658,
+      "subordinationOrder": 4
+    },
+    {
+      "fixedCoupon": 8.473,
+      "floaterSpread": null,
+      "originalBalance": 105300000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "BB- (sf)",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "Fixed",
+      "trancheName": "E",
+      "trancheType": "Offered",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "E",
+      "legalMaturityDate": null,
+      "_creditEnhancement": 0.0903,
+      "subordinationOrder": 5
+    },
+    {
+      "fixedCoupon": 10.832,
+      "floaterSpread": null,
+      "originalBalance": 10200000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "B+ (sf)",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "Fixed",
+      "trancheName": "F1",
+      "trancheType": "Offered",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "F1",
+      "legalMaturityDate": null,
+      "_creditEnhancement": 0.0733,
+      "subordinationOrder": 6
+    },
+    {
+      "fixedCoupon": 12.0,
+      "floaterSpread": null,
+      "originalBalance": 19800000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "B- (sf)",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "Fixed",
+      "trancheName": "F2",
+      "trancheType": "Offered",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "F2",
+      "legalMaturityDate": null,
+      "_creditEnhancement": 0.0403,
+      "subordinationOrder": 7
+    },
+    {
+      "fixedCoupon": null,
+      "floaterSpread": null,
+      "originalBalance": 13800000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "_rating": "NR",
+      "dayCount": "30/360",
+      "payDelay": 0,
+      "couponType": "None",
+      "trancheName": "CERTIFICATE",
+      "trancheType": "Certificate",
+      "cashflowType": "PI",
+      "firstPayDate": "2026-05-01",
+      "floaterIndex": null,
+      "couponFormula": null,
+      "classReference": "CERTIFICATE",
+      "legalMaturityDate": null,
+      "subordinationOrder": 8
+    },
+    {
+      "originalBalance": 900000.0,
+      "groupNum": "1",
+      "payDay": 1,
+      "dayCount": "Actual/360",
+      "payDelay": 0,
+      "couponType": "None",
+      "trancheName": "RESERVE",
+      "trancheType": "CapFundsReserve",
+      "cashflowType": "Reserve",
+      "firstPayDate": "2026-05-01",
+      "reserveConfig": {
+        "targetPct": 0.0015,
+        "targetBase": "CutoffPoolBalance",
+        "capAtNoteBalance": true,
+        "cutoffPoolBalance": 600000000
+      },
+      "classReference": "RESERVE",
+      "subordinationOrder": 9
+    }
+  ],
+  "scheduledVariables": [],
+  "issuer": "Pagaya AI Debt Trust 2026-2",
+  "trustee": null,
+  "dealName": "PAID_2026-2_600mm-Base-0319",
+  "dealType": "Sequential",
+  "expenses": [],
+  "wavgRate": 18.49,
+  "wavgTerm": null,
+  "loanCount": null,
+  "variables": [],
+  "cutoffDate": "2026-04-01",
+  "closingDate": "2026-04-01",
+  "expectedWal": {
+    "B": 2.84,
+    "C": 3.65,
+    "D": 3.88,
+    "E": 4.36,
+    "A1": 0.68,
+    "A2": 1.72,
+    "F1": 4.77,
+    "F2": 4.88,
+    "RESERVE": 0.0,
+    "CERTIFICATE": 4.7
+  },
+  "dealNameShort": null,
+  "ocTargetConfig": {
+    "floorAmt": 0,
+    "floorPct": 0.023,
+    "targetType": "Trigger",
+    "baseBalance": "Collateral",
+    "formulaType": "greater_of",
+    "targetValue": 0.023,
+    "cutoffBalance": 600000000,
+    "targetDescription": "2.30% of aggregate Collateral Balance"
+  },
+  "poolInformation": {
+    "aggregateBalance": 600000000,
+    "weightedAverageCoupon": 18.49
+  },
+  "firstPaymentDate": "2026-05-01",
+  "unifiedWaterfall": {
+    "steps": [
+      {
+        "type": "INTEREST",
+        "structure": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "SINGLE",
+              "tranche": "A1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "A2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "C"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "D"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "E"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F2"
+            }
+          ]
+        }
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "scheduled",
+        "default": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "SINGLE",
+              "tranche": "A1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "A2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "C"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "D"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "E"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "CERTIFICATE"
+            }
+          ]
+        }
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "unscheduled",
+        "default": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "SINGLE",
+              "tranche": "A1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "A2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "C"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "D"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "E"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "CERTIFICATE"
+            }
+          ]
+        }
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "recovery",
+        "default": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "SINGLE",
+              "tranche": "A1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "A2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "C"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "D"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "E"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "CERTIFICATE"
+            }
+          ]
+        }
+      },
+      {
+        "type": "WRITEDOWN",
+        "structure": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "SINGLE",
+              "tranche": "CERTIFICATE"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "E"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "D"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "C"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "A2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "A1"
+            }
+          ]
+        }
+      },
+      {
+        "type": "RESERVE_DEPOSIT",
+        "tranche": "RESERVE",
+        "description": "Deposit to reserve account each period"
+      },
+      {
+        "type": "EXCESS_TURBO",
+        "ocTarget": {
+          "floorAmt": 0,
+          "floorPct": 0.023,
+          "targetPct": 0.023,
+          "formulaType": "greater_of",
+          "cutoffBalance": 600000000
+        },
+        "structure": {
+          "type": "SEQ",
+          "children": [
+            {
+              "type": "SINGLE",
+              "tranche": "A1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "A2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "B"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "C"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "D"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "E"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F1"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "F2"
+            },
+            {
+              "type": "SINGLE",
+              "tranche": "CERTIFICATE"
+            }
+          ]
+        }
+      },
+      {
+        "type": "EXCESS_RELEASE",
+        "structure": {
+          "type": "SINGLE",
+          "tranche": "CERTIFICATE"
+        }
+      }
+    ],
+    "executionOrder": [
+      "INTEREST",
+      "PRINCIPAL_SCHEDULED",
+      "PRINCIPAL_UNSCHEDULED",
+      "PRINCIPAL_RECOVERY",
+      "WRITEDOWN",
+      "RESERVE_DEPOSIT",
+      "EXCESS_TURBO",
+      "EXCESS_RELEASE"
+    ]
+  },
+  "balanceAtIssuance": 600000000,
+  "collateralBalance": 600000000
+}

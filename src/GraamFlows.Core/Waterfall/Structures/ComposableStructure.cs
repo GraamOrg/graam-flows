@@ -945,14 +945,30 @@ public class ComposableStructure : BaseStructure
         {
             if (remaining <= 0.01)
                 break;
+
+            // WHERE the released interest must land depends on how the recipient is serialized:
+            //   - A Certificate / OC class is output from its CLASS cashflow — ConvertToResponse
+            //     SKIPS Certificate per-tranche cashflows (they track balance in ClassCashflows),
+            //     and UpdateCertificateBalance writes that same class cashflow. Crediting the
+            //     per-tranche cashflow here dropped the excess from the output entirely: the
+            //     certificate showed $0 interest and ~all net interest went unaccounted
+            //     (graam-flows#32, harmony PAID 2026-2). Credit the class cashflow so the release
+            //     lands where the output reads it (UpdateCertificateBalance only touches
+            //     balance/principal, never Interest, so the two don't conflict).
+            if (cls.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+            {
+                cls.GetCashflow(periodCf.CashflowDate).Interest += remaining;
+                remaining = 0;
+                continue;
+            }
+
+            //   - Any other recipient (an XS / residual-interest strip) is output from its
+            //     per-TRANCHE cashflows. Split the release across the recipient class's tranches —
+            //     balance-weighted, even split when balances are 0 — so a multi-tranche (combined /
+            //     exchangeable) class receives the amount ONCE, not once per tranche (#1714).
             var tranches = cls.DynamicTranches;
             if (tranches == null || tranches.Count == 0)
                 continue;
-            // Credit the per-TRANCHE cashflow (the output reads dynTran.Cashflows,
-            // not the class wrapper). Split the release across the recipient
-            // class's tranches — balance-weighted, even split when balances are 0
-            // — so a multi-tranche (combined / exchangeable) class receives the
-            // amount ONCE, not once per tranche (which would mint money).
             var totalBal = tranches.Sum(t => t.GetCashflow(periodCf.CashflowDate).BeginBalance);
             foreach (var dynTran in tranches)
             {
