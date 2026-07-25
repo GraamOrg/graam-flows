@@ -94,16 +94,20 @@ public class PerAssetDirectMonthlyHazardTests
         var period0 = response.Cashflows.Where(cf => cf.Period == 1).ToList();
         period0.Should().HaveCountGreaterThanOrEqualTo(1);
 
-        // Sum across the group's period-0 cashflows: 10,000 per asset × 2.
+        // Sum across the group's period-0 cashflows: a direct 1% monthly default
+        // on each asset's post-scheduled-principal balance (≈ 9,990 each), per the
+        // reference calc standard (graam-harmony #3449) where default and prepay
+        // are parallel off balance-after-scheduled-principal.
+        var expectedDefault = 0.01 * period0.Sum(cf => cf.BeginBalance - cf.ScheduledPrincipal);
         var totalP0Default = period0.Sum(cf => cf.DefaultedPrincipal);
-        totalP0Default.Should().BeApproximately(20_000.00, 2.0 * Tolerance,
+        totalP0Default.Should().BeApproximately(expectedDefault, 2.0 * Tolerance,
             "per-asset cdrVector=1.0 with deal-level defaultType=MDR is a direct 1% " +
-            "monthly default on each $1MM asset (10,000 each); if the deal-level MDR " +
-            "mode were NOT inherited per-asset, CfCore would de-annualize 1% to ~837");
+            "monthly default on each $1MM asset; if the deal-level MDR mode were NOT " +
+            "inherited per-asset, CfCore would de-annualize 1% to ~837");
 
         // And at 100% severity the loss equals the defaulted principal.
         var totalP0Loss = period0.Sum(cf => cf.CollateralLoss);
-        totalP0Loss.Should().BeApproximately(20_000.00, 2.0 * Tolerance,
+        totalP0Loss.Should().BeApproximately(expectedDefault, 2.0 * Tolerance,
             "100% severity → full defaulted principal is lost");
     }
 
