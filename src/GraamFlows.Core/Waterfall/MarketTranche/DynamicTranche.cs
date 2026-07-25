@@ -160,6 +160,15 @@ public class DynamicTranche : DynamicClass
                 wac = 0;
             coupon = wac;
         }
+        else if (Tranche.CouponTypeEnum == CouponType.NetWac)
+        {
+            // Net-WAC passthrough sub (e.g. NQM B-2/B-3): the class accrues at the
+            // collateral pool's net WAC for the period. DynamicGroup.CollateralNetWac
+            // is set by ComposableStructure at the top of each period, before the
+            // waterfall runs, and is already in percent (NetInterest / BeginBalance
+            // * 1200) — the same unit as Fixed/TrancheWac coupons.
+            coupon = DynamicGroup.CollateralNetWac;
+        }
         else if (Tranche.CouponTypeEnum == CouponType.Formula)
         {
             FormulaExecutor.ResetTrancheFormulas(this, rateProvider, cfDate, allTranches);

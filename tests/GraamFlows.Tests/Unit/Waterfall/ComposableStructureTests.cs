@@ -118,6 +118,36 @@ public class ComposableStructureTests
     }
 
     [Fact]
+    public void Interest_NetWacSub_AccruesAtCollateralNetWac()
+    {
+        // Repro of graam-harmony #3436. NQM subordinates (B-2/B-3) carry a "Net WAC"
+        // passthrough coupon: the class accrues at the collateral pool's net WAC
+        // (gross WAC less servicing), not a fixed/floating rate. Before this fix the
+        // engine rejected the coupon type outright ("NetWAC is not a valid cashflow
+        // type") at Tranche.CouponTypeEnum. Collateral WAC 8.0 less 0.25 servicing =
+        // 7.75% net WAC; the senior takes its 5% first and there is ample interest
+        // left for the sub's full net-WAC accrual.
+        var collateral = CreateCollateral(3, 100_000_000, wacPct: 8.0);
+        var collatNetWac = collateral.PeriodCashflows
+            .OrderBy(p => p.CashflowDate).First().NetWac;
+        collatNetWac.Should().BeApproximately(7.75, 0.001, "8.0 WAC less 0.25 servicing");
+
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 0.0, subOrder: 1, couponType: "NetWac")
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(collateral);
+
+        var bCf = GetFirstCashflow(cf, "B");
+
+        // The sub accrues at the pool net WAC, not its (zero) fixed coupon.
+        bCf.EffectiveCoupon.Should().BeApproximately(collatNetWac, 0.01,
+            "the net-WAC sub's coupon is the collateral net WAC");
+        bCf.Interest.Should().BeApproximately(20_000_000 * (collatNetWac / 100) / 12, 1.0,
+            "interest = balance * net WAC / 12");
+    }
+
+    [Fact]
     public void Interest_ExcessServicingStrip_PaidFromServicingFeeAndWalNeutral()
     {
         // The Class A-IO-S excess-servicing strip draws its strip from the

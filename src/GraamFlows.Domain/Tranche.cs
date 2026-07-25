@@ -178,6 +178,9 @@ public class Tranche : ITranche
                     return Objects.TypeEnum.CouponType.Formula;
                 case "residual_interest":
                     return Objects.TypeEnum.CouponType.ResidualInterest;
+                case "net_wac":
+                case "netwac":
+                    return Objects.TypeEnum.CouponType.NetWac;
                 default:
                     throw new ArgumentException($"{CouponType} is not a valid cashflow type");
             }
