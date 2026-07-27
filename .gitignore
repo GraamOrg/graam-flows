@@ -12,3 +12,5 @@
 /tests/GraamFlows.Tests/bin
 /src/GraamFlows.Cli/bin
 /src/GraamFlows.Cli/obj
+/tools/CfGen/bin
+/tools/CfGen/obj
