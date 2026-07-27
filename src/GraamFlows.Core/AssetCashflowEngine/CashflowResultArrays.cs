@@ -112,9 +112,14 @@ public class CashflowResultArrays
         NumberOfPeriods = 0;
         for (var i = 0; i < MaxPeriods; i++)
         {
-            if (Balance[i] == 0 && ScheduledPrincipal[i] == 0 && Interest[i] == 0 && DefaultedPrincipal[i] == 0)
-                break;
-            NumberOfPeriods = i + 1;
+            // Scan for the LAST period carrying data rather than stopping at the
+            // first empty one, and include RecoveryPrincipal — so a lagged
+            // recovery (graam-harmony #3449) that lands after the pool has
+            // amortized to zero (a gap of empty periods before it) is still
+            // emitted instead of truncated.
+            if (Balance[i] != 0 || ScheduledPrincipal[i] != 0 || Interest[i] != 0
+                || DefaultedPrincipal[i] != 0 || RecoveryPrincipal[i] != 0)
+                NumberOfPeriods = i + 1;
         }
     }
 }

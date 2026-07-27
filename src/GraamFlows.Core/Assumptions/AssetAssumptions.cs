@@ -75,6 +75,13 @@ public class AssetAssumptions : IAssetAssumptions
     public IAnchorableVector DefaultRate { get; }
     public IAnchorableVector Severity { get; }
 
+    /// <summary>
+    ///     Recovery lag in months (graam-harmony #3449). Defaults to 0
+    ///     (same-period recovery); set via the assumption builders when a deal
+    ///     specifies a liquidation timeline.
+    /// </summary>
+    public int RecoveryLag { get; set; }
+
     public IAnchorableVector DelinqRate { get; }
     public DelinqRateTypeEnum DelinqRateType { get; }
 

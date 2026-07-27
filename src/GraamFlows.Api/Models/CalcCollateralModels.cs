@@ -45,6 +45,11 @@ public class AssetAssumptionDto
     public double? Delinquency { get; set; }
     public double? Advancing { get; set; }
 
+    // Recovery lag in months (graam-harmony #3449): recoveries on a period-t
+    // default are placed at period t + RecoveryLag. Null inherits the deal-level
+    // value; 0 = same-period recovery.
+    public int? RecoveryLag { get; set; }
+
     // Per-period vector overrides — if provided, override the scalar above for this asset.
     public double[]? CprVector { get; set; }
     public double[]? CdrVector { get; set; }
@@ -112,6 +117,11 @@ public class AssumptionsDto
 
     // Weighted average remaining term (months) — used for ABS-to-SMM amortization adjustment.
     public int Wam { get; set; } = 0;
+
+    // Recovery lag in months (graam-harmony #3449): recoveries on a period-t
+    // default are placed at period t + RecoveryLag (the liquidation timeline).
+    // 0 = same-period recovery.
+    public int RecoveryLag { get; set; } = 0;
 
     // Per-period arrays — if provided, these override the scalar values above.
     // Each element is one period's rate (e.g., [10.4, 9.8, 8.2, ...] for monthly CDR %).

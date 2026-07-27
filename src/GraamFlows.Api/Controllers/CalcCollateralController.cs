@@ -38,6 +38,12 @@ public class CalcCollateralController : ControllerBase
             var anchorAbsT = DateUtil.CalcAbsT(request.ProjectionDate);
             var assumps = CreateAssumptions(request.ProjectionDate, anchorAbsT, request.Assumptions);
 
+            // Deal-level recovery lag (graam-harmony #3449). Every CreateAssumptions
+            // path wraps a concrete AssetAssumptions in .Assumptions, so set the lag
+            // there — it applies to any asset without a per-asset override.
+            if (assumps.Assumptions is AssetAssumptions dealAssumps)
+                dealAssumps.RecoveryLag = request.Assumptions.RecoveryLag;
+
             // Per-asset override (graam-flows#5). When request.AssetAssumptions
             // is non-empty, replace the assumption mill with a function that
             // resolves per asset: dictionary entry → per-asset IAssetAssumptions
@@ -278,7 +284,12 @@ public class CalcCollateralController : ControllerBase
             dealLevel.PrepaymentType, vpr,
             dealLevel.DefaultType, cdr, sev,
             dealLevel.DelinqRateType, delinq, adv, adv,
-            dealLevel.ForbearanceRecoveryPrepay, dealLevel.ForbearanceRecoveryDefault, dealLevel.ForbearanceRecoveryMaturity);
+            dealLevel.ForbearanceRecoveryPrepay, dealLevel.ForbearanceRecoveryDefault, dealLevel.ForbearanceRecoveryMaturity)
+        {
+            // Recovery lag (graam-harmony #3449): per-asset override falls through
+            // to the deal-level value.
+            RecoveryLag = perAsset.RecoveryLag ?? dealLevel.RecoveryLag,
+        };
     }
 
     private static IAsset ConvertToAsset(AssetDto dto)
