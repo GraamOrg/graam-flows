@@ -15,6 +15,18 @@ public class CalcCollateralRequest
     /// model (e.g. logit-predicted default probabilities scored per loan).
     /// </summary>
     public Dictionary<string, AssetAssumptionDto>? AssetAssumptions { get; set; }
+
+    /// <summary>
+    /// Optional forward-rate curves for ARM/hybrid resets (graam-flows#37), keyed
+    /// by index name (e.g. "Libor1M"). Each curve is a list of
+    /// <c>[monthOffset, rate]</c> points, where monthOffset is months from
+    /// <see cref="ProjectionDate"/> (0 = first projection month) and rate is the
+    /// annual percentage (e.g. 4.75). Mirrors the Waterfall endpoint's
+    /// <c>marketRates</c> shape. When omitted, ARM resets fall back to a flat rate
+    /// (legacy behavior); when supplied, each ARM's fully-indexed coupon is
+    /// margin + the curve's rate at each reset. Fixed-rate loans are unaffected.
+    /// </summary>
+    public Dictionary<string, List<double[]>>? MarketRates { get; set; }
 }
 
 /// <summary>

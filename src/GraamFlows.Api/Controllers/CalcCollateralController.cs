@@ -73,7 +73,10 @@ public class CalcCollateralController : ControllerBase
             }
 
             // Create a simple rate provider (for ARMs)
-            var rateProvider = new ConstantRateProvider(5.0); // Default 5% rate for ARMs
+            // ARM/hybrid resets project off a forward curve when the request
+            // supplies one (graam-flows#37); otherwise fall back to the legacy
+            // flat rate. Fixed-rate loans ignore the provider entirely.
+            var rateProvider = BuildRateProvider(request.MarketRates, request.ProjectionDate);
 
             // Generate cashflows
             var collateralCashflows = CfCore.GenerateAssetCashflows(
@@ -190,6 +193,33 @@ public class CalcCollateralController : ControllerBase
         return DealLevelAssumptions.CreateConstAssumptions(
             projectionDate, anchorAbsT,
             dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, dto.Advancing);
+    }
+
+    /// <summary>
+    /// Build the ARM/hybrid reset rate provider (graam-flows#37). When the request
+    /// supplies <paramref name="marketRates"/>, resets project off a forward curve
+    /// per index (month-offset keyed, interpolated); otherwise fall back to the
+    /// legacy flat 5% so fixed-rate and curve-less requests are unchanged.
+    /// </summary>
+    private static IRateProvider BuildRateProvider(
+        Dictionary<string, List<double[]>>? marketRates, DateTime projectionDate)
+    {
+        if (marketRates == null || marketRates.Count == 0)
+            return new ConstantRateProvider(5.0);
+
+        var curves = new Dictionary<MarketDataInstEnum, List<double[]>>();
+        foreach (var (instName, points) in marketRates)
+        {
+            if (points == null || points.Count == 0)
+                continue;
+            if (Enum.TryParse<MarketDataInstEnum>(instName, ignoreCase: true, out var inst))
+                curves[inst] = points;
+        }
+
+        if (curves.Count == 0)
+            return new ConstantRateProvider(5.0);
+
+        return new CurveRateProvider(projectionDate, curves);
     }
 
     private static PrepaymentTypeEnum ParsePrepaymentType(string? prepaymentType)
