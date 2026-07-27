@@ -314,24 +314,21 @@ public class CfCore
         if (rateProvider == null)
             return null;
 
-        // 5 rate indices: None, Libor1M, Libor3M, Libor6M, Libor12M
-        var allRates = new double[5][];
-        var indexNames = new[]
-        {
-            MarketDataInstEnum.None, MarketDataInstEnum.Libor1M, MarketDataInstEnum.Libor3M,
-            MarketDataInstEnum.Libor6M, MarketDataInstEnum.Libor12M
-        };
+        // One per-period rate row per index, indexed by the MarketDataInstEnum
+        // ordinal so the amortizer's `allMarketRates[(int)asset.IndexName]` lookup
+        // is always in bounds. Sizing to the enum's full range (rather than only
+        // the 5 Libor rows the previous version built) is what lets Swap- and
+        // SOFR-indexed ARMs reset off their curve instead of throwing an
+        // IndexOutOfRange or silently reading a never-populated row (graam-flows#37).
+        var insts = Enum.GetValues<MarketDataInstEnum>();
+        var allRates = new double[insts.Cast<int>().Max() + 1][];
 
-        for (var i = 0; i < 5; i++)
+        foreach (var inst in insts)
         {
-            allRates[i] = new double[maxPeriods];
-            var indexName = indexNames[i];
-
+            var row = new double[maxPeriods];
             for (var period = 0; period < maxPeriods; period++)
-            {
-                var date = firstProjDate.AddMonths(period);
-                allRates[i][period] = rateProvider.GetRate(indexName, date);
-            }
+                row[period] = rateProvider.GetRate(inst, firstProjDate.AddMonths(period));
+            allRates[(int)inst] = row;
         }
 
         return allRates;
