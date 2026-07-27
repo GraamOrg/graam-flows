@@ -113,11 +113,11 @@ public class DirectMonthlyHazardTests
 
     /// <summary>
     /// MDR=12% is a direct monthly default hazard: period-0 defaulted principal
-    /// is 0.12 × (1,000,000 − scheduledPrincipal) ≈ 119,880, and at 100% severity
-    /// collateral loss is that full defaulted amount. Before the direct-monthly
-    /// fix MDR could not be requested and the input was de-annualized (≈ 10,585);
-    /// per the reference calc standard (graam-harmony #3449) default is assessed
-    /// on the balance after scheduled principal, parallel to prepay.
+    /// is 0.12 × 1,000,000 = 120,000, and at 100% severity collateral loss is the
+    /// full 120,000. Before the direct-monthly fix MDR could not be requested and
+    /// the input was de-annualized (≈ 10,596). Default is assessed on the BEGIN
+    /// performing balance (graam-harmony #3449, per the byte-validated reference-
+    /// engine oracle).
     /// </summary>
     [Fact]
     public void Mdr_Default_Is_Direct_Monthly_Not_DeAnnualized()
@@ -126,10 +126,10 @@ public class DirectMonthlyHazardTests
             PrepaymentTypeEnum.CPR, cprPct: 0.0,
             DefaultTypeEnum.MDR, cdrPct: 12.0, sevPct: 100.0);
 
-        var expected = 0.12 * (cf.BeginBalance - cf.ScheduledPrincipal);
+        var expected = 0.12 * cf.BeginBalance;
         cf.DefaultedPrincipal.Should().BeApproximately(expected, 1.0,
             "MDR=12% must be applied as a direct 12% monthly default on the " +
-            "post-scheduled-principal balance, not de-annualized to ~1.06%");
+            "beginning balance, not de-annualized to ~1.06%");
         cf.CollateralLoss.Should().BeApproximately(expected, 1.0,
             "at 100% severity, the full defaulted principal is lost");
     }
@@ -151,8 +151,8 @@ public class DirectMonthlyHazardTests
 
     /// <summary>
     /// Regression: plain CDR (no defaultType override) still de-annualizes the
-    /// annual rate to a monthly MDR. CDR=12% → ~1.06% monthly, applied (per the
-    /// #3449 standard) to the post-scheduled-principal balance → ≈ 10,585.
+    /// annual rate to a monthly MDR, applied to the BEGIN balance. CDR=12% →
+    /// ~1.06% monthly → ≈ 10,596.
     /// </summary>
     [Fact]
     public void Cdr_Default_Still_DeAnnualizes()
@@ -162,7 +162,7 @@ public class DirectMonthlyHazardTests
             DefaultTypeEnum.CDR, cdrPct: 12.0, sevPct: 100.0);
 
         var mdrMonthly = 1.0 - Math.Pow(1.0 - 0.12, 1.0 / 12.0);
-        var expected = mdrMonthly * (cf.BeginBalance - cf.ScheduledPrincipal);
+        var expected = mdrMonthly * cf.BeginBalance;
         cf.DefaultedPrincipal.Should().BeApproximately(expected, 1.0,
             "CDR=12% must de-annualize to a ~1.06% monthly default (unchanged behavior)");
     }
@@ -196,10 +196,9 @@ public class DirectMonthlyHazardTests
 
     /// <summary>
     /// Time-varying MDR (graam-flows#14): per-period monthly default hazards. Pin
-    /// that each period's defaulted principal is
-    /// <c>MDR[N] × (beginningBalance − scheduledPrincipal)</c> for several distinct
-    /// periods (the #3449 standard base, parallel to prepay). Distinct per-period
-    /// rates make this a period-INDEXING test on the default path.
+    /// that each period's defaulted principal is <c>MDR[N] × beginningBalance</c>
+    /// for several distinct periods (default is assessed on the begin balance).
+    /// Distinct per-period rates make this a period-INDEXING test on the default path.
     /// </summary>
     [Fact]
     public void Mdr_Default_TimeVarying_Vector_Applies_PerPeriod_Hazard()
@@ -213,10 +212,10 @@ public class DirectMonthlyHazardTests
         foreach (var n in new[] { 0, 1, 2, 3 })
         {
             var cf = cfs[n];
-            var expected = mdr[n] / 100.0 * (cf.BeginBalance - cf.ScheduledPrincipal);
+            var expected = mdr[n] / 100.0 * cf.BeginBalance;
             cf.DefaultedPrincipal.Should().BeApproximately(expected, 1.0,
                 $"period {n} must apply MDR[{n}]={mdr[n]}% directly to the " +
-                "post-scheduled-principal balance, not a neighboring period's rate");
+                "beginning balance, not a neighboring period's rate");
         }
     }
 

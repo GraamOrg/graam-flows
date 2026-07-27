@@ -24,6 +24,10 @@ public static class Amortizer
     /// original balance). When an asset's inner array is non-null, that period's default is
     /// origMdrTime[assetIndex][period] * originalBalance (capped at the performing balance) instead
     /// of mdrTime[assetIndex][period] * currentBalance (percent-of-original default basis).</param>
+    /// <param name="recoveryLag">Optional per-asset recovery lag in months (graam-harmony #3449).
+    /// When an asset's lag is &gt; 0, the recovery on a period-t default is placed at period
+    /// t + lag (the liquidation timeline) instead of period t. Recoveries whose lagged period falls
+    /// beyond the projection horizon are truncated. Null (or all-zero) preserves same-period recovery.</param>
     public static CashflowResultArrays GenerateCashflows(
         AssetDataArrays assetData,
         int startTime,
@@ -39,7 +43,8 @@ public static class Amortizer
         double[][] forbRecovDefaultTime,
         double[][] allMarketRates,
         double[][]? absTime = null,
-        double[][]? origMdrTime = null)
+        double[][]? origMdrTime = null,
+        int[]? recoveryLag = null)
     {
         var maxPeriods = Math.Min(endTime - startTime + 1, 720);
         var results = new CashflowResultArrays(maxPeriods);
@@ -100,6 +105,7 @@ public static class Amortizer
             var rateSteps = rawStepDatesCount[assetIndex];
             var nextRateStepDate = 100000;
             var forbearanceAmt = rawForbearanceAmt[assetIndex];
+            var assetRecoveryLag = recoveryLag?[assetIndex] ?? 0;
             var assetStepDatesIndex = nextAssetStepDatesIndex;
 
             var origBalance = rawOriginalBalance[assetIndex];
@@ -174,7 +180,7 @@ public static class Amortizer
                 // inner index is period.
                 // Clamp hazards to [0, 1]. A monthly SMM/MDR outside this range
                 // is a misconfiguration, and unclamped it lets the per-period
-                // principal reductions (schedPrinCollected + defPrin + unschedPrin)
+                // principal reductions (schedPrinMdr + defPrin + unschedPrin)
                 // exceed the performing balance, driving `balance` negative.
                 var smm = Math.Clamp(smmTime[assetIndex][period], 0.0, 1.0);
                 var mdr = Math.Clamp(mdrTime[assetIndex][period], 0.0, 1.0);
@@ -291,49 +297,51 @@ public static class Amortizer
                 var interest = interestPaid * dqFactor;
                 var schedPrin = principal * dqFactor;
 
-                // Reference calc standard (graam-harmony #3449): scheduled
-                // principal is paid IN FULL, then default and prepay are assessed
-                // IN PARALLEL off the same base — the balance remaining after
-                // scheduled principal (balPost = schedBal − schedPrin). The prior
-                // convention defaulted off the full begin balance, haircut
-                // scheduled principal by mdr, and prepaid sequentially after
-                // removing defaults, which overstated losses by mdr·sched_p and
-                // understated prepays by smm·defPrin.
+                // Reference calc standard (graam-harmony #3449), reconciled to the
+                // byte-validated reference-engine oracle:
+                //   * default is assessed on the BEGIN performing balance
+                //     (defPrin = mdr · schedBal), and
+                //   * scheduled principal is haircut by (1 − mdr).
+                // Both are the ORIGINAL engine behavior; the oracle confirmed them
+                // correct, so an earlier revision that moved default onto
+                // schedBal − schedPrin and dropped the haircut was reverted.
+                // The one genuine loss-path fix retained here is prepay/default
+                // PARALLELISM: prepay is taken off the balance after (full)
+                // scheduled principal WITHOUT subtracting the period's default.
                 var balPost = Math.Max(schedBal - schedPrin, 0.0);
 
                 // ORIGMDR: default dollars are a fraction of the ORIGINAL balance,
-                // not the current performing balance. Capped at balPost (the
-                // default base) and re-expressed as an effective hazard on that
-                // base so the forbearance writedown and defPrin stay consistent.
+                // not the current performing balance. Capped at the performing
+                // (begin) balance and re-expressed as an effective current-balance
+                // hazard so every downstream use of `mdr` (scheduled-principal
+                // haircut, forbearance writedown, defPrin) stays consistent.
                 // Shariff 7/21/26 ORIGMDR likely should not be calculated in the
                 // amortizer. MDR should be calculated from ORIGMDR upstream.
                 if (origMdrTime?[assetIndex] != null)
                 {
-                    var origDefaultDollars = Math.Min(origMdrTime[assetIndex][period] * origBalance, balPost);
-                    mdr = balPost > 0 ? origDefaultDollars / balPost : 0.0;
+                    var origDefaultDollars = Math.Min(origMdrTime[assetIndex][period] * origBalance, schedBal);
+                    mdr = schedBal > 0 ? origDefaultDollars / schedBal : 0.0;
                 }
 
-                var defPrin = mdr * balPost;
+                var defPrin = mdr * schedBal;
 
                 unadvInterest = interest * del * (1 - delAdvInt) - beginBalance * serviceFee * del * (1 - delAdvInt);
-                // Delinquency: the non-advanced portion of the (full) scheduled
-                // principal is not collected this period — it stays in the balance
-                // as delinquent principal. schedPrinCollected is what actually
-                // amortizes the balance and is reported as scheduled principal.
-                unadvPrincipal = schedPrin * del * (1 - delAdvPrin);
-                var schedPrinCollected = schedPrin - unadvPrincipal;
+                var schedPrinMdr = schedPrin * (1 - mdr);
+                unadvPrincipal = schedPrinMdr * del * (1 - delAdvPrin);
+                schedPrinMdr -= unadvPrincipal;
                 interest -= unadvInterest + beginBalance * serviceFee * del * (1 - delAdvInt);
 
                 var defaultedPrincipal = defPrin;
                 var recoveryPrincipal = defaultedPrincipal - defaultedPrincipal * sev;
 
-                // Prepayment (unscheduled principal), assessed off balPost in
-                // parallel with default per the reference standard.
-                //   ABS : rate · original balance, capped at the balance left
-                //         after scheduled principal and defaults (a dollar-based
-                //         auto-ABS convention — capacity-limited, so defaults take
-                //         priority within balPost).
-                //   SMM : smm · balPost (parallel to default off the same base).
+                // Prepayment (unscheduled principal), assessed in PARALLEL with
+                // default off the balance after (full) scheduled principal — the
+                // period's default is NOT subtracted from the base (the
+                // oracle-confirmed prepay/default parallelism).
+                //   ABS : rate · original balance, capped at the balance left after
+                //         scheduled principal and defaults (dollar-based auto-ABS,
+                //         capacity-limited so defaults take priority).
+                //   SMM : smm · (schedBal − schedPrin).
                 double unschedPrin;
                 if (absTime != null)
                 {
@@ -347,11 +355,10 @@ public static class Amortizer
                 }
                 var unscheduledPrincipal = unschedPrin;
 
-                balance = schedBal - schedPrinCollected - defPrin - unschedPrin;
-                // Non-negative guard: only reachable when mdr + smm > 1 (a hazard
-                // misconfiguration), since default and prepay share the balPost
-                // base. Well-formed inputs never trip it, so it does not affect
-                // the tie-out.
+                balance = schedBal - schedPrinMdr - defPrin - unschedPrin;
+                // Non-negative guard: reachable only under hazard misconfiguration
+                // (e.g. mdr = 1). Well-formed inputs never trip it, so it does not
+                // affect the tie-out.
                 if (balance < 0) balance = 0;
                 var dqBal = balance * del;
 
@@ -364,7 +371,7 @@ public static class Amortizer
                     balance = 0;
                 }
 
-                var scheduledPrincipalOut = schedPrinCollected + cleanup;
+                var scheduledPrincipalOut = schedPrinMdr + cleanup;
                 var effectiveServiceFee = (beginBalance + forbearanceAmt) * serviceFee;
                 effectiveServiceFee -= effectiveServiceFee * del * (1 - delAdvInt);
                 var netInterest = interest - effectiveServiceFee;
@@ -428,11 +435,16 @@ public static class Amortizer
                 resultNetInterest[period] += netInterest;
                 resultServiceFee[period] += effectiveServiceFee;
                 resultDefaultedPrincipal[period] += defaultedPrincipal;
-                resultRecoveryPrincipal[period] += recoveryPrincipal;
+                // Recovery lag (graam-harmony #3449): a period-t default's recovery
+                // lands at t + lag (the liquidation timeline). Recoveries whose
+                // lagged period falls beyond the projection horizon are truncated.
+                var recoveryPeriod = period + assetRecoveryLag;
+                if (recoveryPeriod < maxPeriods)
+                    resultRecoveryPrincipal[recoveryPeriod] += recoveryPrincipal;
                 resultDelinqBalance[period] += delinqBalance;
                 resultUnAdvancedPrincipal[period] += unadvPrincipal;
                 resultUnAdvancedInterest[period] += unadvInterest;
-                resultAdvancedPrincipal[period] += (schedPrinCollected + unadvPrincipal) * del * delAdvPrin;
+                resultAdvancedPrincipal[period] += (schedPrinMdr + unadvPrincipal) * del * delAdvPrin;
                 resultAdvancedInterest[period] += (interest + unadvInterest) * del * delAdvInt -
                                                   effectiveServiceFee * del * delAdvInt;
                 resultForbearanceRecovery[period] += forbearanceRecovery;

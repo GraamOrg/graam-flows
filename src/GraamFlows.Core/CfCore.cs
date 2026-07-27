@@ -109,6 +109,11 @@ public class CfCore
             var forbRecovMaturityTime = new double[assetCount][];
             var forbRecovDefaultTime = new double[assetCount][];
 
+            // Recovery lag (months) per asset — recoveries land at t + lag
+            // (graam-harmony #3449). Left null when every asset is zero-lag so the
+            // amortizer keeps the same-period fast path.
+            int[]? recoveryLag = null;
+
             // ORIGMDR default series (monthly fraction of ORIGINAL balance),
             // per-asset. Allocated lazily so groups with no ORIGMDR asset keep
             // the null fast-path in the amortizer. Elements stay null for
@@ -154,6 +159,12 @@ public class CfCore
                         defaultType != Objects.TypeEnum.DefaultTypeEnum.MDR);
                 }
                 sevTime[i] = BuildAssumptionArray(aa?.Severity, maxPeriods, startTime, false, 100.0);
+                var assetLag = aa?.RecoveryLag ?? 0;
+                if (assetLag > 0)
+                {
+                    recoveryLag ??= new int[assetCount];
+                    recoveryLag[i] = assetLag;
+                }
                 delTime[i] = BuildAssumptionArray(aa?.DelinqRate, maxPeriods, startTime, false, 100.0);
                 delAdvIntTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctInt, maxPeriods, startTime, false, 1.0, 100.0);
                 delAdvPrinTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctPrin, maxPeriods, startTime, false, 1.0, 100.0);
@@ -180,7 +191,8 @@ public class CfCore
                 forbRecovMaturityTime,
                 forbRecovDefaultTime,
                 allMarketRates,
-                origMdrTime: origMdrTime);
+                origMdrTime: origMdrTime,
+                recoveryLag: recoveryLag);
 
             // Convert results to PeriodCashflows and add to deal cashflows
             var periodCashflows = results.ToPeriodCashflows(firstProjDate, groupNum);

@@ -11,23 +11,21 @@ using Xunit.Abstractions;
 namespace GraamFlows.Tests.Unit.AssetCashflowEngine;
 
 /// <summary>
-/// Benchmarks the collateral amortizer's LOSS PATH against the reference
-/// cashflow calc standard (graam-harmony #3449).
+/// Benchmarks the collateral amortizer's LOSS PATH against the byte-validated
+/// reference-engine oracle (graam-harmony #3449).
 ///
-/// The reference standard pays scheduled principal FIRST, then assesses default
-/// and prepay IN PARALLEL off the same base — the balance remaining after
-/// scheduled principal (bal_post = bal_prev - sched_p):
+/// Per the oracle, each period:
 ///
-///   bal_post    = bal_prev - sched_p
-///   default_bal = bal_post * mdr
-///   unsched_p   = bal_post * smm          (same base, parallel to default)
+///   default_bal = mdr * bal_prev                 (default on the BEGIN balance)
+///   sched_paid  = sched_p * (1 - mdr)            (scheduled principal haircut by mdr)
+///   unsched_p   = smm * (bal_prev - sched_p)     (prepay PARALLEL to default,
+///                                                 default NOT subtracted)
 ///   recovery    = default_bal * (1 - sev)
-///   bal_new     = bal_prev - sched_p - default_bal - unsched_p
+///   bal_new     = bal_prev - sched_paid - default_bal - unsched_p
 ///
 /// These tests drive the real engine (CfCore -> Amortizer) with direct monthly
 /// hazards (SMM/MDR, so the per-period hazard equals input/100) and pin every
-/// period to those identities. The no-loss case already ties penny-for-penny;
-/// this is the loss-path regime the ORIGMDR default basis was added for.
+/// period to those identities. The no-loss case ties penny-for-penny.
 /// </summary>
 public class AmortizerLossPathTests
 {
@@ -89,7 +87,7 @@ public class AmortizerLossPathTests
     }
 
     [Fact]
-    public void LossPath_DefaultAndPrepay_AssessedOffBalanceAfterScheduledPrincipal()
+    public void LossPath_DefaultOnBeginBalance_PrepayParallel_MatchesOracle()
     {
         var firstProjDate = new DateTime(2026, 7, 1);
         var anchorAbsT = DateUtil.CalcAbsT(firstProjDate);
@@ -104,7 +102,7 @@ public class AmortizerLossPathTests
         var periods = result.PeriodCashflows.OrderBy(p => p.CashflowDate).ToList();
         periods.Should().NotBeEmpty();
 
-        _output.WriteLine("Period\tBegin\tSched\tDefault\tPrepay\tRecov\tEnd");
+        _output.WriteLine("Period\tBegin\tSchedRpt\tDefault\tPrepay\tRecov\tEnd");
 
         // Test the healthy, mid-life periods: begin balance well above the
         // near-maturity cleanup threshold and not the final horizon period
@@ -115,30 +113,34 @@ public class AmortizerLossPathTests
             var cf = periods[t];
             if (cf.BeginBalance < 5_000) break;
 
-            var schedP = cf.ScheduledPrincipal;
-            var balPost = cf.BeginBalance - schedP;
-
-            var expectedDefault = balPost * Mdr;
-            var expectedPrepay = balPost * Smm;
-            var expectedRecovery = expectedDefault * (1 - Sev);
-            var expectedEnd = cf.BeginBalance - schedP - expectedDefault - expectedPrepay;
-
-            // Tolerance scales with balance; the identities are exact up to
-            // floating-point noise.
             var tol = Math.Max(0.01, 1e-7 * cf.BeginBalance);
 
+            // Default is assessed on the BEGIN performing balance.
+            var expectedDefault = cf.BeginBalance * Mdr;
             cf.DefaultedPrincipal.Should().BeApproximately(expectedDefault, tol,
-                $"period {t}: default = mdr * (begin - sched)");
+                $"period {t}: default = mdr * begin (oracle base)");
+
+            // Reported scheduled principal is haircut by (1 - mdr); recover the
+            // full contractual scheduled amount to check the prepay base.
+            var fullSched = cf.ScheduledPrincipal / (1 - Mdr);
+
+            // Prepay runs in PARALLEL with default off the balance after (full)
+            // scheduled principal — the period's default is NOT subtracted.
+            var expectedPrepay = (cf.BeginBalance - fullSched) * Smm;
             cf.UnscheduledPrincipal.Should().BeApproximately(expectedPrepay, tol,
-                $"period {t}: prepay = smm * (begin - sched), parallel to default");
-            cf.RecoveryPrincipal.Should().BeApproximately(expectedRecovery, tol,
+                $"period {t}: prepay = smm * (begin - sched), default NOT subtracted");
+
+            cf.RecoveryPrincipal.Should().BeApproximately(expectedDefault * (1 - Sev), tol,
                 $"period {t}: recovery = default * (1 - sev)");
-            cf.Balance.Should().BeApproximately(expectedEnd, tol,
-                $"period {t}: end = begin - sched - default - prepay");
+
+            // Conservation: begin - end = reported scheduled + default + prepay.
+            var rolldown = cf.ScheduledPrincipal + cf.DefaultedPrincipal + cf.UnscheduledPrincipal;
+            (cf.BeginBalance - cf.Balance).Should().BeApproximately(rolldown, tol,
+                $"period {t}: begin - end = scheduled(reported) + default + prepay");
 
             if (tested < 6)
                 _output.WriteLine(
-                    $"{t}\t{cf.BeginBalance:N0}\t{schedP:N0}\t{cf.DefaultedPrincipal:N0}\t" +
+                    $"{t}\t{cf.BeginBalance:N0}\t{cf.ScheduledPrincipal:N0}\t{cf.DefaultedPrincipal:N0}\t" +
                     $"{cf.UnscheduledPrincipal:N0}\t{cf.RecoveryPrincipal:N0}\t{cf.Balance:N0}");
 
             tested++;
@@ -148,34 +150,106 @@ public class AmortizerLossPathTests
     }
 
     [Fact]
-    public void LossPath_ScheduledPrincipal_PaidInFull_NotHaircutByMdr()
+    public void LossPath_ScheduledPrincipal_HaircutByMdr()
     {
-        // The standard pays scheduled principal in FULL; the previous engine
-        // convention haircut it by (1 - mdr). With no delinquency the reported
-        // scheduled principal must equal the contractual amortization, so the
-        // begin-balance rolldown is exactly sched + default + prepay.
+        // The oracle haircuts scheduled principal by (1 - mdr): the defaulted
+        // fraction of the loan does not also pay its scheduled principal. Run the
+        // same asset with and without default and confirm the reported scheduled
+        // principal scales by (1 - mdr) each period (no delinquency).
         var firstProjDate = new DateTime(2026, 7, 1);
         var anchorAbsT = DateUtil.CalcAbsT(firstProjDate);
         IRateProvider rateProvider = null!;
 
-        var asset = FrmAsset(balance: 1_000_000, ratePct: 6.0, term: 360);
+        List<PeriodCashflows> RunP(IAssetAssumptions a) => CfCore.GenerateAssetCashflows(
+                new List<IAsset> { FrmAsset(1_000_000, 6.0, 360) },
+                firstProjDate, null, _ => a, rateProvider)
+            .PeriodCashflows.OrderBy(p => p.CashflowDate).ToList();
+
+        // Prepay off in both so the scheduled schedule is identical period-0.
+        var noDefault = RunP(new AssetAssumptions(
+            PrepaymentTypeEnum.SMM, new ConstVector(anchorAbsT, 0.0),
+            DefaultTypeEnum.MDR, new ConstVector(anchorAbsT, 0.0),
+            new ConstVector(anchorAbsT, SevPct)));
+        var withDefault = RunP(new AssetAssumptions(
+            PrepaymentTypeEnum.SMM, new ConstVector(anchorAbsT, 0.0),
+            DefaultTypeEnum.MDR, new ConstVector(anchorAbsT, MdrPct),
+            new ConstVector(anchorAbsT, SevPct)));
+
+        // Period 0: same begin balance, so reported scheduled is haircut by (1-mdr).
+        withDefault[0].ScheduledPrincipal.Should().BeApproximately(
+            noDefault[0].ScheduledPrincipal * (1 - Mdr), 0.01,
+            "scheduled principal is haircut by (1 - mdr)");
+    }
+
+    /// <summary>
+    /// Recovery lag (graam-harmony #3449 divergence #3): with a lag of L months,
+    /// the recovery on a period-t default lands at period t + L. Compared against a
+    /// zero-lag run of the identical asset, only the recovery timing shifts — every
+    /// other series (default, prepay, interest, ending balance) is byte-identical,
+    /// and the recovery curve is the zero-lag curve shifted forward by L.
+    /// </summary>
+    [Fact]
+    public void RecoveryLag_ShiftsRecoveryForward_LeavingEverythingElseUnchanged()
+    {
+        const int lag = 3;
+        var noLag = RunPeriods(recoveryLag: 0);
+        var lagged = RunPeriods(recoveryLag: lag);
+
+        noLag.Count.Should().BeGreaterThan(lag + 12);
+        lagged.Count.Should().BeGreaterThanOrEqualTo(noLag.Count,
+            "the lag pushes the last recovery beyond the no-lag horizon");
+
+        // The first `lag` periods carry no recovery — nothing has been liquidated
+        // yet — even though defaults start in period 0.
+        for (var t = 0; t < lag; t++)
+        {
+            lagged[t].DefaultedPrincipal.Should().BeGreaterThan(0, $"period {t}: defaults still occur");
+            lagged[t].RecoveryPrincipal.Should().BeApproximately(0, 0.01,
+                $"period {t}: recovery has not arrived within the {lag}-month lag");
+        }
+
+        // Default / prepay / interest / ending balance are unaffected by the lag,
+        // and the recovery curve is simply shifted forward by `lag`.
+        for (var t = 0; t < noLag.Count - 1; t++)
+        {
+            var tol = Math.Max(0.01, 1e-7 * noLag[t].BeginBalance);
+            lagged[t].DefaultedPrincipal.Should().BeApproximately(noLag[t].DefaultedPrincipal, tol,
+                $"period {t}: defaults unchanged by recovery lag");
+            lagged[t].UnscheduledPrincipal.Should().BeApproximately(noLag[t].UnscheduledPrincipal, tol,
+                $"period {t}: prepays unchanged by recovery lag");
+            lagged[t].Balance.Should().BeApproximately(noLag[t].Balance, tol,
+                $"period {t}: ending balance unchanged by recovery lag");
+
+            // Recovery at t in the no-lag run appears at t + lag in the lagged run.
+            lagged[t + lag].RecoveryPrincipal.Should().BeApproximately(noLag[t].RecoveryPrincipal, tol,
+                $"period {t}: recovery is shifted forward by {lag} months");
+        }
+
+        // Lifetime recovery is conserved (nothing lost to the shift, within horizon).
+        lagged.Sum(p => p.RecoveryPrincipal).Should().BeApproximately(
+            noLag.Sum(p => p.RecoveryPrincipal), 1.0,
+            "the lag re-times recoveries, it does not create or destroy them");
+    }
+
+    private static List<PeriodCashflows> RunPeriods(int recoveryLag)
+    {
+        var firstProjDate = new DateTime(2026, 7, 1);
+        var anchorAbsT = DateUtil.CalcAbsT(firstProjDate);
+        IRateProvider rateProvider = null!;
+
+        var assumps = new AssetAssumptions(
+            PrepaymentTypeEnum.SMM, new ConstVector(anchorAbsT, SmmPct),
+            DefaultTypeEnum.MDR, new ConstVector(anchorAbsT, MdrPct),
+            new ConstVector(anchorAbsT, SevPct))
+        {
+            RecoveryLag = recoveryLag,
+        };
 
         var result = CfCore.GenerateAssetCashflows(
-            new List<IAsset> { asset },
-            firstProjDate, null, _ => LossAssumps(anchorAbsT), rateProvider);
+            new List<IAsset> { FrmAsset(balance: 1_000_000, ratePct: 6.0, term: 360) },
+            firstProjDate, null, _ => assumps, rateProvider);
 
-        var periods = result.PeriodCashflows.OrderBy(p => p.CashflowDate).ToList();
-
-        for (var t = 0; t < periods.Count - 1; t++)
-        {
-            var cf = periods[t];
-            if (cf.BeginBalance < 5_000) break;
-
-            // Conservation with scheduled principal paid in full.
-            var rolldown = cf.ScheduledPrincipal + cf.DefaultedPrincipal + cf.UnscheduledPrincipal;
-            (cf.BeginBalance - cf.Balance).Should().BeApproximately(rolldown, Math.Max(0.01, 1e-7 * cf.BeginBalance),
-                $"period {t}: begin - end = sched + default + prepay");
-        }
+        return result.PeriodCashflows.OrderBy(p => p.CashflowDate).ToList();
     }
 
     [Fact]

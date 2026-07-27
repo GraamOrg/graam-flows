@@ -13,6 +13,13 @@ public interface IAssetAssumptions
 
     IAnchorableVector Severity { get; }
 
+    /// <summary>
+    ///     Recovery lag in months: recoveries on a period-t default are placed at
+    ///     period t + RecoveryLag (the liquidation timeline), per the reference
+    ///     calc standard (graam-harmony #3449). 0 = same-period recovery.
+    /// </summary>
+    int RecoveryLag { get; }
+
     IAnchorableVector DelinqRate { get; }
     DelinqRateTypeEnum DelinqRateType { get; }
 

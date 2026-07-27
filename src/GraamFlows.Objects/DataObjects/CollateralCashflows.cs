@@ -154,7 +154,11 @@ public class CollateralCashflows
                 if (double.IsNaN(periodCf.CDR))
                     periodCf.CDR = 0;
 
-                if (double.IsNaN(periodCf.SEV))
+                // A lagged recovery (graam-harmony #3449) can land in a period
+                // with no default of its own (Recovery > 0, Default = 0), making
+                // Recovery/Default infinite — per-period severity is undefined
+                // there, so treat it like the NaN case and zero it.
+                if (double.IsNaN(periodCf.SEV) || double.IsInfinity(periodCf.SEV))
                     periodCf.SEV = 0;
 
                 if (double.IsNaN(periodCf.DQ))
