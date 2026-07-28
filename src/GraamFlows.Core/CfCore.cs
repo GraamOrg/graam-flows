@@ -332,9 +332,22 @@ public class CfCore
         // the 5 Libor rows the previous version built) is what lets Swap- and
         // SOFR-indexed ARMs reset off their curve instead of throwing an
         // IndexOutOfRange or silently reading a never-populated row (graam-flows#37).
+        //
+        // NB: use a plain loop with direct enum→int casts — NOT LINQ
+        // (Cast<int>()/Max()). The published server runtime throws
+        // "Entry point was not found" on that LINQ path, so every CalcCollateral
+        // call (this method runs for all of them) 400'd. Plain array/enum ops are
+        // safe under that runtime; unit tests run under the JIT and didn't catch it.
         var insts = Enum.GetValues<MarketDataInstEnum>();
-        var allRates = new double[insts.Cast<int>().Max() + 1][];
 
+        var maxOrdinal = 0;
+        foreach (var inst in insts)
+        {
+            var ordinal = (int)inst;
+            if (ordinal > maxOrdinal) maxOrdinal = ordinal;
+        }
+
+        var allRates = new double[maxOrdinal + 1][];
         foreach (var inst in insts)
         {
             var row = new double[maxPeriods];
