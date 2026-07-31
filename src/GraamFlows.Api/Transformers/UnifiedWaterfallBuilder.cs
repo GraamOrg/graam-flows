@@ -40,6 +40,13 @@ public static class UnifiedWaterfallBuilder
         {
             var writedownIdx = writedownOrder.IndexOf(t.TrancheName);
             exchangeComponents.TryGetValue(t.TrancheName, out var exchangableTranche);
+            var payFrom = PayFromForTranche(t);
+            // #3691: a class-cut IO (PayFrom=Notional) amortizes off its NotionalReference
+            // bond — expose it as the ExchangableTranche so PayNotionalClasses reads that
+            // bond's principal. (Carried on the tranche, NOT via ExchangeShares, so the
+            // exchange-share pay-block doesn't also pay it — that double-counts.)
+            if (payFrom == "Notional" && string.IsNullOrEmpty(exchangableTranche))
+                exchangableTranche = t.NotionalReference;
             return new DealStructureDto
             {
                 ClassGroupName = t.TrancheName,
@@ -47,7 +54,7 @@ public static class UnifiedWaterfallBuilder
                 SubordinationOrder = writedownIdx >= 0
                     ? writedownOrder.Count - writedownIdx
                     : idx,
-                PayFrom = PayFromForTranche(t),
+                PayFrom = payFrom,
                 GroupNum = "1",
                 ExchangableTranche = exchangableTranche
             };
@@ -83,6 +90,14 @@ public static class UnifiedWaterfallBuilder
 
         if (isIo && !isResidualInterest && (isReference || name.Contains("IOS")))
             return "ExcessServicing";
+
+        // #3691: a class-cut IO strip carries a NotionalReference — the funded bond its
+        // notional is cut off (A-1AX -> A-1A). Pay from Notional so PayNotionalClasses
+        // amortizes it off that bond (via the ExchangableTranche set from NotionalReference
+        // above) instead of the pool fallback. Kept BELOW the IOS/Reference case so an
+        // A-IO-S excess-servicing pool strip is unaffected.
+        if (isIo && !isResidualInterest && !string.IsNullOrEmpty(t.NotionalReference))
+            return "Notional";
 
         return "Sequential";
     }

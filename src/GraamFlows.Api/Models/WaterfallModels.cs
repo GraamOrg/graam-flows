@@ -213,6 +213,12 @@ public class TrancheDto
     public string CashflowType { get; set; } = "PI"; // PI, IO, PO
     public string TrancheType { get; set; } = "Offered"; // Offered, Residual, Notional
     public string? ClassReference { get; set; }
+
+    // #3691: for a class-cut IO strip (TrancheType="Notional"), the funded bond whose
+    // amortization its notional tracks (e.g. A-1AX -> A-1A). Distinct from ClassReference
+    // (class-GROUP membership); this becomes the DealStructure's ExchangableTranche.
+    public string? NotionalReference { get; set; }
+
     public DateTime? FirstPayDate { get; set; }
     public DateTime? StatedMaturityDate { get; set; }
     public DateTime? LegalMaturityDate { get; set; }
