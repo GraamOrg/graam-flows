@@ -510,7 +510,12 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     // coupon reflects the excess spread on the pool), end = pool end AFTER
     // principal (so the notional amortizes with the pool, giving a real WAL).
     private IEnumerable<DynamicClass> NotionalClasses() =>
-        DynamicClasses.Where(dc => dc.Tranche.CashflowTypeEnum == CashflowType.InterestOnly);
+        // Pool-referenced IO strips only. A class-cut IO (PayFrom = Notional) already
+        // amortizes off its ExchangableTranche reference bond via PayNotionalClasses —
+        // excluding it here stops SettleNotionalBalances from clobbering that balance
+        // back to the pool (#3691).
+        DynamicClasses.Where(dc => dc.Tranche.CashflowTypeEnum == CashflowType.InterestOnly
+                                   && dc.DealStructure?.PayFromEnum != PayFromEnum.Notional);
 
     public void InitNotionalBalances(double poolBeginBalance, DateTime cashflowDate)
     {
