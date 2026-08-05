@@ -59,6 +59,11 @@ public static class RulesBuilder
 
         foreach (var rule in payRules)
         {
+            if (string.IsNullOrWhiteSpace(rule.Formula))
+                throw new RulesCompilationException(
+                    $"Pay rule '{rule.RuleName}' (class group '{rule.ClassGroupName}') has no formula. " +
+                    "Provide a non-empty 'formula' expression for this rule.");
+
             var ruleName = GetRuleName(rule);
             rulesHostCode.Append($"public void {ruleName}() {{ {rule.Formula.Replace("'", "\"")}; }}\n");
         }
@@ -67,6 +72,13 @@ public static class RulesBuilder
         foreach (var trigger in triggers)
         {
             var triggerName = GetTriggerName(trigger);
+            var isFormulaTrigger = trigger.TriggerType is "FORMULA_VOID" or "FORMULA_CONDITION"
+                or "FORMULA_CONDITION_STICKY" or "FORMULA_VALUE" or "FORMULA_VALUE_STR";
+            if (isFormulaTrigger && string.IsNullOrWhiteSpace(trigger.TriggerFormula))
+                throw new RulesCompilationException(
+                    $"Trigger '{trigger.TriggerName}' has triggerType='{trigger.TriggerType}' but no triggerFormula. " +
+                    "Provide a 'triggerFormula' expression, or change the trigger type.");
+
             if (trigger.TriggerType == "FORMULA_VOID")
                 rulesHostCode.Append(
                     $"public void {triggerName}() {{ {trigger.TriggerFormula.Replace("'", "\"")}; }}\n");
@@ -84,6 +96,12 @@ public static class RulesBuilder
         // tranche coupon formula
         foreach (var tranche in tranches.Where(tran => tran.CouponTypeEnum == CouponType.Formula))
         {
+            if (string.IsNullOrWhiteSpace(tranche.CouponFormula))
+                throw new RulesCompilationException(
+                    $"Tranche '{tranche.TrancheName}' has couponType='Formula' but couponFormula is null/empty. " +
+                    "Provide a 'couponFormula' expression, or change couponType " +
+                    "(e.g. 'Fixed' with a 'fixedCoupon', 'Floating' with a floater index/spread, or 'TrancheWac').");
+
             var cpnFormulaName = GetTrancheCpnFormulaName(tranche);
             rulesHostCode.Append(
                 $"public double {cpnFormulaName}() {{ return {tranche.CouponFormula.Replace("'", "\"")}; }}\n");

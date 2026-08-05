@@ -77,6 +77,14 @@ public class WaterfallController : ControllerBase
 
             return Ok(response);
         }
+        catch (RulesCompilationException ex)
+        {
+            // Actionable deal-authoring error (malformed rule/trigger/coupon formula).
+            // Return the clean message without a stack trace so the caller can fix the deal directly.
+            stopwatch.Stop();
+            _logger.LogWarning("Waterfall rejected (rules compilation): {Message}", ex.Message);
+            return BadRequest(new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();
