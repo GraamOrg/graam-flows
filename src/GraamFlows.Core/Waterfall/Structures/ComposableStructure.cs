@@ -440,6 +440,47 @@ public class ComposableStructure : BaseStructure
         // notional amortizes with the pool (real WAL); the IO holder gets no
         // principal cash.
         dynGroup.SettleNotionalBalances(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
+
+        // REMIC Residual (Class R) catch-all — runs AFTER the certificate. The
+        // Residual is non-economic: in a well-formed deal it stays ~0, and a
+        // non-zero value is a deliberate red flag that cash went unclaimed.
+        //  - Interest: the certificate path only ever handles principal, so any
+        //    leftover interest (no XS sweep, no excess step consumed it) is
+        //    genuinely unallocated and lands here — no double-count.
+        //  - Principal: the certificate already absorbs the OC (Pool - Notes) via
+        //    its balance identity, so route leftover principal here ONLY when there
+        //    is no certificate to catch it (else it would be counted twice).
+        var residualPrincipal =
+            dynGroup.DynamicClasses.Any(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+                ? 0.0
+                : availableSchedPrin + availablePrepayPrin + availableRecovPrin;
+        CreditResidual(dynGroup, adjPeriodCf, availableInterest, residualPrincipal);
+    }
+
+    /// <summary>
+    /// Book any cash left unclaimed at the end of the period onto the non-economic
+    /// REMIC Residual (Class R). No-op when the group has no Residual class or when
+    /// nothing is left over. A genuine distribution error (cash stranded while a
+    /// funded note is still owed) is already caught inside the principal cascade
+    /// (SequentialStructure), so anything reaching here is a legitimate — and, for a
+    /// well-formed deal, ~0 — residual amount.
+    /// </summary>
+    private void CreditResidual(DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double leftoverInterest, double leftoverPrincipal)
+    {
+        if (leftoverInterest <= 0.005 && leftoverPrincipal <= 0.005)
+            return;
+
+        var dynTran = dynGroup.DynamicClasses
+            .FirstOrDefault(dc => dc.IsResidual)?.DynamicTranches.FirstOrDefault();
+        if (dynTran == null)
+            return;
+
+        var cf = dynTran.GetCashflow(periodCf.CashflowDate);
+        if (leftoverInterest > 0)
+            cf.Interest += leftoverInterest;
+        if (leftoverPrincipal > 0)
+            cf.UnscheduledPrincipal += leftoverPrincipal;
     }
 
     /// <summary>
