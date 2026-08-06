@@ -71,12 +71,12 @@ public class DynamicClass : IPayable
         foreach (var dynTran in DynamicTranches)
         {
             var cf = dynTran.GetCashflow(cfDate);
-            // ResidualInterest (XS / excess-spread) sweeps whatever interest is
-            // left after the coupon-bearing classes are paid — Payscen
+            // ExcessInterest (XS / monthly excess cashflow) sweeps whatever
+            // interest is left after the coupon-bearing classes are paid — Payscen
             // TrancheAllocator parity (CalculateTrancheInterest: `interest =
             // availableInterest`). Its coupon is 0, so balance × coupon would
             // otherwise pay it nothing.
-            var interestDue = dynTran.Tranche.CouponTypeEnum == CouponType.ResidualInterest
+            var interestDue = dynTran.Tranche.CouponTypeEnum == CouponType.ExcessInterest
                 ? availableFunds - interestPaid
                 : dynTran.Interest(cf, rateProvider, allTranchesList) + cf.AccumInterestShortfall;
             var toPay = Math.Min(interestDue, availableFunds - interestPaid);
@@ -127,6 +127,33 @@ public class DynamicClass : IPayable
     public double CurrentBalance(DateTime cfDate)
     {
         return Balance;
+    }
+
+    /// <summary>
+    /// True when every tranche in this class is ExcessInterest (the XS /
+    /// monthly-excess-cashflow strip). Such a class has no principal — its
+    /// "balance" is the pool notional it earns interest on (reset each period by
+    /// the notional settle), so it can only absorb losses out of the excess
+    /// spread it sweeps, never via a principal writedown.
+    /// </summary>
+    public bool IsExcessInterest =>
+        DynamicTranches.Count > 0 &&
+        DynamicTranches.All(dt => dt.Tranche.CouponTypeEnum == CouponType.ExcessInterest);
+
+    /// <summary>
+    /// True when every tranche in this class is the REMIC Residual (Class R) —
+    /// the terminal catch-all. It has no principal to write down either.
+    /// </summary>
+    public bool IsResidual =>
+        DynamicTranches.Count > 0 &&
+        DynamicTranches.All(dt => dt.Tranche.CouponTypeEnum == CouponType.Residual);
+
+    public double WritedownCapacity(DateTime cfDate)
+    {
+        // Neither the excess-spread strip nor the REMIC residual has principal to
+        // write down, so a writedown allocation must cascade past them to the
+        // funded bonds rather than be consumed against their notional balance.
+        return IsExcessInterest || IsResidual ? 0.0 : CurrentBalance(cfDate);
     }
 
     public bool IsLockedOut(DateTime cashflowDate)

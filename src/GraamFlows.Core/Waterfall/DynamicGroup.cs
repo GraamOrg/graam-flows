@@ -217,6 +217,12 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             dc.DealStructure.PayFromEnum != PayFromEnum.Expense &&
             dc.DealStructure.PayFromEnum != PayFromEnum.Residual &&
             dc.DealStructure.PayFromEnum != PayFromEnum.Notional &&
+            // The REMIC Residual (Class R) is non-economic — it is never a funded
+            // note, so it must not count toward the note balance (which sets OC) or
+            // expect coupon/principal. Excess principal/interest flows to the
+            // Certificate (OC); the Residual only ever sees cash if something is
+            // wrong, and even that active catch-all is deferred for now.
+            dc.Tranche.CouponTypeEnum != CouponType.Residual &&
             dc.Tranche.CashflowTypeEnum != CashflowType.Expense &&
             dc.Tranche.CashflowTypeEnum != CashflowType.InterestOnly).ToList();
         DealClasses = classes;

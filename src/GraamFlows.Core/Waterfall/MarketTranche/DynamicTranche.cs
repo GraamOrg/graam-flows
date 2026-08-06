@@ -83,7 +83,7 @@ public class DynamicTranche : DynamicClass
         trancheCashflow.Interest = interest;
         trancheCashflow.Interest += trancheCashflow.InterestShortfallPayback;
 
-        if (Tranche.CouponTypeEnum == CouponType.ResidualInterest)
+        if (Tranche.CouponTypeEnum == CouponType.ExcessInterest)
         {
             trancheCashflow.Coupon = effCoupon;
             trancheCashflow.EffectiveCoupon = effCoupon;
@@ -166,7 +166,7 @@ public class DynamicTranche : DynamicClass
             var functionName = RulesBuilder.GetTrancheCpnFormulaName(Tranche);
             coupon = FormulaExecutor.EvaluateDouble(functionName);
         }
-        else if (Tranche.CouponTypeEnum == CouponType.ResidualInterest)
+        else if (Tranche.CouponTypeEnum == CouponType.ExcessInterest)
         {
             coupon = 0;
         }

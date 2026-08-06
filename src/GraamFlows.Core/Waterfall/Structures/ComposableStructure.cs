@@ -259,7 +259,7 @@ public class ComposableStructure : BaseStructure
             throw new DealModelingException(deal.DealName,
                 "ComposableStructure requires WRITEDOWN step in waterfall. Add SET_WRITEDOWN_STRUCT rule.");
 
-        // At most one ResidualInterest (XS / excess-spread) tranche per interest
+        // At most one ExcessInterest (XS / monthly-excess-cashflow) tranche per interest
         // group. The interest sweep (DynamicClass.PayInterest) gives the first
         // such tranche `availableFunds - interestPaid` — i.e. ALL remaining
         // interest — so a second residual in the same group is silently zeroed
@@ -270,11 +270,11 @@ public class ComposableStructure : BaseStructure
         // legitimately carry one residual each.
         var residualTranches = dynGroup.DynamicClasses
             .SelectMany(dc => dc.DynamicTranches)
-            .Where(dt => dt.Tranche.CouponTypeEnum == CouponType.ResidualInterest)
+            .Where(dt => dt.Tranche.CouponTypeEnum == CouponType.ExcessInterest)
             .ToList();
         if (residualTranches.Count > 1)
             throw new DealModelingException(deal.DealName,
-                $"Interest group has {residualTranches.Count} ResidualInterest (excess-spread) tranches " +
+                $"Interest group has {residualTranches.Count} ExcessInterest (excess-spread) tranches " +
                 $"({string.Join(", ", residualTranches.Select(dt => dt.Tranche.TrancheName))}); at most one is " +
                 "supported — the interest sweep pays all residual to the first, silently zeroing the rest.");
     }
@@ -342,6 +342,18 @@ public class ComposableStructure : BaseStructure
         // fee, independent of the execution-order steps below.
         PayExcessServicingStep(dynGroup, rateProvider, adjPeriodCf, allTranches);
 
+        // Excess-spread first-loss applies automatically when an ExcessInterest (XS)
+        // strip is present — UNLESS the deal already routes losses through an OC-target
+        // or excess-turbo/release path. In those deals the excess spread is trapped to
+        // build OC or turbo-pay the notes, and diverting the same excess spread to cover
+        // writedowns here would absorb it twice. Defer to that path (skip auto-absorb).
+        var excessSpreadFirstLoss = deal.OcTargetConfig == null &&
+            !executionOrder.Any(s =>
+            {
+                var u = s.ToUpperInvariant();
+                return u == "EXCESS_TURBO" || u == "EXCESS" || u == "EXCESS_RELEASE";
+            });
+
         // Execute steps in order
         var waterfallOrder = deal.WaterfallOrder;
         var interleavedDone = false;
@@ -393,7 +405,7 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "WRITEDOWN":
-                    PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown);
+                    PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown, excessSpreadFirstLoss);
                     break;
 
                 case "RESERVE_DEPOSIT":
@@ -428,6 +440,47 @@ public class ComposableStructure : BaseStructure
         // notional amortizes with the pool (real WAL); the IO holder gets no
         // principal cash.
         dynGroup.SettleNotionalBalances(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
+
+        // REMIC Residual (Class R) catch-all — runs AFTER the certificate. The
+        // Residual is non-economic: in a well-formed deal it stays ~0, and a
+        // non-zero value is a deliberate red flag that cash went unclaimed.
+        //  - Interest: the certificate path only ever handles principal, so any
+        //    leftover interest (no XS sweep, no excess step consumed it) is
+        //    genuinely unallocated and lands here — no double-count.
+        //  - Principal: the certificate already absorbs the OC (Pool - Notes) via
+        //    its balance identity, so route leftover principal here ONLY when there
+        //    is no certificate to catch it (else it would be counted twice).
+        var residualPrincipal =
+            dynGroup.DynamicClasses.Any(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+                ? 0.0
+                : availableSchedPrin + availablePrepayPrin + availableRecovPrin;
+        CreditResidual(dynGroup, adjPeriodCf, availableInterest, residualPrincipal);
+    }
+
+    /// <summary>
+    /// Book any cash left unclaimed at the end of the period onto the non-economic
+    /// REMIC Residual (Class R). No-op when the group has no Residual class or when
+    /// nothing is left over. A genuine distribution error (cash stranded while a
+    /// funded note is still owed) is already caught inside the principal cascade
+    /// (SequentialStructure), so anything reaching here is a legitimate — and, for a
+    /// well-formed deal, ~0 — residual amount.
+    /// </summary>
+    private void CreditResidual(DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double leftoverInterest, double leftoverPrincipal)
+    {
+        if (leftoverInterest <= 0.005 && leftoverPrincipal <= 0.005)
+            return;
+
+        var dynTran = dynGroup.DynamicClasses
+            .FirstOrDefault(dc => dc.IsResidual)?.DynamicTranches.FirstOrDefault();
+        if (dynTran == null)
+            return;
+
+        var cf = dynTran.GetCashflow(periodCf.CashflowDate);
+        if (leftoverInterest > 0)
+            cf.Interest += leftoverInterest;
+        if (leftoverPrincipal > 0)
+            cf.UnscheduledPrincipal += leftoverPrincipal;
     }
 
     /// <summary>
@@ -735,10 +788,25 @@ public class ComposableStructure : BaseStructure
     /// <summary>
     ///     Pay writedowns via WritedownPayable.
     /// </summary>
-    private void PayWritedownStep(DynamicGroup dynGroup, PeriodCashflows periodCf, double writedownAmt)
+    private void PayWritedownStep(DynamicGroup dynGroup, PeriodCashflows periodCf, double writedownAmt,
+        bool excessSpreadFirstLoss)
     {
         if (writedownAmt <= 0 || dynGroup.WritedownPayable == null)
             return;
+
+        // Excess-spread first-loss: an ExcessInterest (XS / monthly-excess-cashflow) strip
+        // absorbs the period loss out of the excess spread it swept this period, BEFORE any
+        // funded bond is written down. XS has no principal (its notional balance is reset to
+        // the pool each period), so it can only absorb via excess spread; only the shortfall
+        // (loss beyond this period's excess spread) cascades to the funded bonds below.
+        // Driven by the ExcessInterest TYPE — no writedown-structure placement required — and
+        // gated by excessSpreadFirstLoss so OC/turbo deals defer to that path.
+        if (excessSpreadFirstLoss)
+        {
+            writedownAmt = AbsorbLossFromExcessSpread(dynGroup, periodCf, writedownAmt);
+            if (writedownAmt <= 0.005)
+                return;
+        }
 
         // Track cumWritedowns before to determine what was applied to each class
         var leaves = dynGroup.WritedownPayable.Leafs();
@@ -755,6 +823,44 @@ public class ComposableStructure : BaseStructure
             if (writedownApplied > 0)
                 WritedownPseudoClass(leaf, periodCf.CashflowDate, writedownApplied);
         }
+    }
+
+    /// <summary>
+    /// Absorb the period loss out of the excess spread swept by any ExcessInterest
+    /// (XS) class in the group — the excess-spread first-loss layer, identified by
+    /// TYPE (not by writedown-structure placement). Reduces the XS class's recorded
+    /// interest for the period by the loss it absorbs (its cash shrinks with losses)
+    /// and returns the shortfall — the loss beyond this period's excess spread —
+    /// which the caller then cascades to the funded bonds. When the group has no
+    /// ExcessInterest strip the loss passes through unchanged.
+    /// </summary>
+    private double AbsorbLossFromExcessSpread(DynamicGroup dynGroup, PeriodCashflows periodCf, double loss)
+    {
+        foreach (var leaf in dynGroup.DynamicClasses.Where(dc => dc.IsExcessInterest))
+        {
+            if (loss <= 0.005)
+                break;
+
+            foreach (var dynTran in leaf.DynamicTranches)
+            {
+                var cf = dynTran.GetCashflow(periodCf.CashflowDate);
+                if (cf == null)
+                    continue;
+
+                var excessSpread = cf.Interest;
+                if (excessSpread <= 0)
+                    continue;
+
+                var absorbed = Math.Min(excessSpread, loss);
+                cf.Interest = excessSpread - absorbed; // XS releases less; it funded the loss
+                cf.Writedown += absorbed;              // report the loss XS absorbed via excess spread
+                loss -= absorbed;
+                if (loss <= 0.005)
+                    break;
+            }
+        }
+
+        return loss;
     }
 
     /// <summary>

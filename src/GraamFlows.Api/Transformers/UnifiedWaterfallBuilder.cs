@@ -79,7 +79,11 @@ public static class UnifiedWaterfallBuilder
     private static string PayFromForTranche(TrancheDto t)
     {
         var isIo = string.Equals(t.CashflowType, "IO", StringComparison.OrdinalIgnoreCase);
+        // The monthly-excess-cashflow (XS) strip keeps the interest sweep and must not be
+        // re-routed to ExcessServicing/Notional. Accept both the new "ExcessInterest" type
+        // and the legacy "ResidualInterest" string.
         var isResidualInterest =
+            string.Equals(t.CouponType, "ExcessInterest", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(t.CouponType, "ResidualInterest", StringComparison.OrdinalIgnoreCase);
         var name = (t.TrancheName ?? "").ToUpperInvariant().Replace("-", "");
         var isReference =
