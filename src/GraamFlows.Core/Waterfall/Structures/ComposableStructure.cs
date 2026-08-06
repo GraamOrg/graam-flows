@@ -342,6 +342,18 @@ public class ComposableStructure : BaseStructure
         // fee, independent of the execution-order steps below.
         PayExcessServicingStep(dynGroup, rateProvider, adjPeriodCf, allTranches);
 
+        // Excess-spread first-loss applies automatically when an ExcessInterest (XS)
+        // strip is present — UNLESS the deal already routes losses through an OC-target
+        // or excess-turbo/release path. In those deals the excess spread is trapped to
+        // build OC or turbo-pay the notes, and diverting the same excess spread to cover
+        // writedowns here would absorb it twice. Defer to that path (skip auto-absorb).
+        var excessSpreadFirstLoss = deal.OcTargetConfig == null &&
+            !executionOrder.Any(s =>
+            {
+                var u = s.ToUpperInvariant();
+                return u == "EXCESS_TURBO" || u == "EXCESS" || u == "EXCESS_RELEASE";
+            });
+
         // Execute steps in order
         var waterfallOrder = deal.WaterfallOrder;
         var interleavedDone = false;
@@ -393,7 +405,7 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "WRITEDOWN":
-                    PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown);
+                    PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown, excessSpreadFirstLoss);
                     break;
 
                 case "RESERVE_DEPOSIT":
@@ -735,21 +747,25 @@ public class ComposableStructure : BaseStructure
     /// <summary>
     ///     Pay writedowns via WritedownPayable.
     /// </summary>
-    private void PayWritedownStep(DynamicGroup dynGroup, PeriodCashflows periodCf, double writedownAmt)
+    private void PayWritedownStep(DynamicGroup dynGroup, PeriodCashflows periodCf, double writedownAmt,
+        bool excessSpreadFirstLoss)
     {
         if (writedownAmt <= 0 || dynGroup.WritedownPayable == null)
             return;
 
-        // Excess-spread first-loss: an ExcessInterest (XS / monthly-excess-cashflow) class
-        // placed in the writedown structure absorbs the period loss out of the excess spread
-        // it swept this period, BEFORE any funded bond is written down. XS has no principal
-        // (its notional balance is reset to the pool each period), so it can only absorb
-        // via excess spread — its WritedownCapacity is 0, so the shortfall (loss beyond
-        // this period's excess spread) cascades to the funded bonds below. When no XS sits
-        // in the writedown structure this is a no-op and losses write down bonds directly.
-        writedownAmt = AbsorbLossFromExcessSpread(dynGroup, periodCf, writedownAmt);
-        if (writedownAmt <= 0.005)
-            return;
+        // Excess-spread first-loss: an ExcessInterest (XS / monthly-excess-cashflow) strip
+        // absorbs the period loss out of the excess spread it swept this period, BEFORE any
+        // funded bond is written down. XS has no principal (its notional balance is reset to
+        // the pool each period), so it can only absorb via excess spread; only the shortfall
+        // (loss beyond this period's excess spread) cascades to the funded bonds below.
+        // Driven by the ExcessInterest TYPE — no writedown-structure placement required — and
+        // gated by excessSpreadFirstLoss so OC/turbo deals defer to that path.
+        if (excessSpreadFirstLoss)
+        {
+            writedownAmt = AbsorbLossFromExcessSpread(dynGroup, periodCf, writedownAmt);
+            if (writedownAmt <= 0.005)
+                return;
+        }
 
         // Track cumWritedowns before to determine what was applied to each class
         var leaves = dynGroup.WritedownPayable.Leafs();
@@ -770,24 +786,19 @@ public class ComposableStructure : BaseStructure
 
     /// <summary>
     /// Absorb the period loss out of the excess spread swept by any ExcessInterest
-    /// (XS) class that sits in the writedown structure — the excess-spread first-loss
-    /// layer. Reduces the XS class's recorded interest for the period by the loss it
-    /// absorbs (its cash shrinks with losses) and returns the shortfall — the loss
-    /// beyond this period's excess spread — which the caller then cascades to the
-    /// funded bonds. When no XS is present in the writedown structure the loss passes
-    /// through unchanged.
+    /// (XS) class in the group — the excess-spread first-loss layer, identified by
+    /// TYPE (not by writedown-structure placement). Reduces the XS class's recorded
+    /// interest for the period by the loss it absorbs (its cash shrinks with losses)
+    /// and returns the shortfall — the loss beyond this period's excess spread —
+    /// which the caller then cascades to the funded bonds. When the group has no
+    /// ExcessInterest strip the loss passes through unchanged.
     /// </summary>
     private double AbsorbLossFromExcessSpread(DynamicGroup dynGroup, PeriodCashflows periodCf, double loss)
     {
-        if (dynGroup.WritedownPayable == null)
-            return loss;
-
-        foreach (var leaf in dynGroup.WritedownPayable.Leafs().OfType<DynamicClass>())
+        foreach (var leaf in dynGroup.DynamicClasses.Where(dc => dc.IsExcessInterest))
         {
             if (loss <= 0.005)
                 break;
-            if (!leaf.IsExcessInterest)
-                continue;
 
             foreach (var dynTran in leaf.DynamicTranches)
             {
