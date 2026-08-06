@@ -83,8 +83,11 @@ public class DynamicTranche : DynamicClass
         trancheCashflow.Interest = interest;
         trancheCashflow.Interest += trancheCashflow.InterestShortfallPayback;
 
-        if (Tranche.CouponTypeEnum == CouponType.ExcessInterest)
+        if (Tranche.CouponTypeEnum == CouponType.ExcessInterest ||
+            Tranche.CouponTypeEnum == CouponType.Residual)
         {
+            // Non-coupon-bearing strips (XS sweep / R residual): no stated coupon due, so
+            // never accrue an interest shortfall against a phantom expected coupon.
             trancheCashflow.Coupon = effCoupon;
             trancheCashflow.EffectiveCoupon = effCoupon;
         }
@@ -166,8 +169,12 @@ public class DynamicTranche : DynamicClass
             var functionName = RulesBuilder.GetTrancheCpnFormulaName(Tranche);
             coupon = FormulaExecutor.EvaluateDouble(functionName);
         }
-        else if (Tranche.CouponTypeEnum == CouponType.ExcessInterest)
+        else if (Tranche.CouponTypeEnum == CouponType.ExcessInterest ||
+                 Tranche.CouponTypeEnum == CouponType.Residual)
         {
+            // Neither the excess-spread strip (XS) nor the REMIC residual (R) carries a
+            // stated coupon: XS sweeps whatever interest is left; R is the non-economic
+            // catch-all. Both resolve to a 0 rate here.
             coupon = 0;
         }
         else
