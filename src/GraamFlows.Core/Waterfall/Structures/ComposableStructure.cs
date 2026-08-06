@@ -259,7 +259,7 @@ public class ComposableStructure : BaseStructure
             throw new DealModelingException(deal.DealName,
                 "ComposableStructure requires WRITEDOWN step in waterfall. Add SET_WRITEDOWN_STRUCT rule.");
 
-        // At most one ResidualInterest (XS / excess-spread) tranche per interest
+        // At most one ExcessInterest (XS / monthly-excess-cashflow) tranche per interest
         // group. The interest sweep (DynamicClass.PayInterest) gives the first
         // such tranche `availableFunds - interestPaid` — i.e. ALL remaining
         // interest — so a second residual in the same group is silently zeroed
@@ -270,11 +270,11 @@ public class ComposableStructure : BaseStructure
         // legitimately carry one residual each.
         var residualTranches = dynGroup.DynamicClasses
             .SelectMany(dc => dc.DynamicTranches)
-            .Where(dt => dt.Tranche.CouponTypeEnum == CouponType.ResidualInterest)
+            .Where(dt => dt.Tranche.CouponTypeEnum == CouponType.ExcessInterest)
             .ToList();
         if (residualTranches.Count > 1)
             throw new DealModelingException(deal.DealName,
-                $"Interest group has {residualTranches.Count} ResidualInterest (excess-spread) tranches " +
+                $"Interest group has {residualTranches.Count} ExcessInterest (excess-spread) tranches " +
                 $"({string.Join(", ", residualTranches.Select(dt => dt.Tranche.TrancheName))}); at most one is " +
                 "supported — the interest sweep pays all residual to the first, silently zeroing the rest.");
     }
@@ -740,9 +740,9 @@ public class ComposableStructure : BaseStructure
         if (writedownAmt <= 0 || dynGroup.WritedownPayable == null)
             return;
 
-        // Excess-spread first-loss: a ResidualInterest (XS / excess-spread) class placed
-        // in the writedown structure absorbs the period loss out of the excess spread it
-        // swept this period, BEFORE any funded bond is written down. XS has no principal
+        // Excess-spread first-loss: an ExcessInterest (XS / monthly-excess-cashflow) class
+        // placed in the writedown structure absorbs the period loss out of the excess spread
+        // it swept this period, BEFORE any funded bond is written down. XS has no principal
         // (its notional balance is reset to the pool each period), so it can only absorb
         // via excess spread — its WritedownCapacity is 0, so the shortfall (loss beyond
         // this period's excess spread) cascades to the funded bonds below. When no XS sits
@@ -769,7 +769,7 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
-    /// Absorb the period loss out of the excess spread swept by any ResidualInterest
+    /// Absorb the period loss out of the excess spread swept by any ExcessInterest
     /// (XS) class that sits in the writedown structure — the excess-spread first-loss
     /// layer. Reduces the XS class's recorded interest for the period by the loss it
     /// absorbs (its cash shrinks with losses) and returns the shortfall — the loss
@@ -786,7 +786,7 @@ public class ComposableStructure : BaseStructure
         {
             if (loss <= 0.005)
                 break;
-            if (!leaf.IsResidualInterest)
+            if (!leaf.IsExcessInterest)
                 continue;
 
             foreach (var dynTran in leaf.DynamicTranches)

@@ -33,7 +33,7 @@ public class SequentialStructure : BasePayable
 
     public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
     {
-        // Cap each class at its WritedownCapacity (0 for a ResidualInterest/XS class)
+        // Cap each class at its WritedownCapacity (0 for an XS/ExcessInterest or Residual class)
         // rather than its notional CurrentBalance, so a writedown allocation flows
         // past XS to the funded bonds instead of being silently consumed against XS's
         // pool-notional balance.
@@ -130,7 +130,7 @@ public class SequentialStructure : BasePayable
 
             var cap = capFn(payable, cfDate);
             if (cap <= 0)
-                // Zero capacity (e.g. an XS/ResidualInterest class in the writedown
+                // Zero capacity (e.g. an XS/ExcessInterest class in the writedown
                 // structure) — take nothing so the remainder cascades to the next class.
                 continue;
 

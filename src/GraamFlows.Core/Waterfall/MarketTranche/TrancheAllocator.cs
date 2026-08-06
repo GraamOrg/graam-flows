@@ -180,7 +180,7 @@ namespace GraamFlows.Waterfall.MarketTranche
                     }
 
                     double interest;
-                    if (dynTran.Tranche.CouponTypeEnum == CouponType.ResidualInterest)
+                    if (dynTran.Tranche.CouponTypeEnum == CouponType.ExcessInterest)
                     {
                         interest = availableInterest;
                     }

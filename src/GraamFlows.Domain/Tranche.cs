@@ -164,20 +164,37 @@ public class Tranche : ITranche
     {
         get
         {
+            if (string.IsNullOrWhiteSpace(CouponType))
+                return Objects.TypeEnum.CouponType.None;
+
+            // Normalize (drop separators/case) so "Residual_Interest", "residual interest",
+            // and "ResidualInterest" all resolve identically.
+            var norm = CouponType.Replace("_", "").Replace(" ", "").ToLowerInvariant();
+            switch (norm)
+            {
+                // Legacy alias: the monthly-excess-cashflow (XS) strip was modelled as
+                // "ResidualInterest". It is now ExcessInterest; keep the old string working.
+                case "residualinterest":
+                case "excessinterest":
+                    return Objects.TypeEnum.CouponType.ExcessInterest;
+                // The REMIC residual (Class R).
+                case "residual":
+                case "remicresidual":
+                    return Objects.TypeEnum.CouponType.Residual;
+            }
+
             if (Enum.TryParse(CouponType, true, out CouponType cpnType))
                 return cpnType;
-            switch (CouponType.ToLower())
+            switch (norm)
             {
                 case "fixed":
                     return Objects.TypeEnum.CouponType.Fixed;
                 case "floating":
                     return Objects.TypeEnum.CouponType.Floating;
-                case "tranche_wac":
+                case "tranchewac":
                     return Objects.TypeEnum.CouponType.TrancheWac;
                 case "formula":
                     return Objects.TypeEnum.CouponType.Formula;
-                case "residual_interest":
-                    return Objects.TypeEnum.CouponType.ResidualInterest;
                 default:
                     throw new ArgumentException($"{CouponType} is not a valid cashflow type");
             }

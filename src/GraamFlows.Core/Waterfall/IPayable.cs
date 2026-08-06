@@ -56,7 +56,7 @@ public interface IPayable
 
     /// <summary>
     /// Principal-writedown capacity for this payable. Equals <see cref="CurrentBalance"/>
-    /// for funded classes, but is 0 for a ResidualInterest (XS / excess-spread) class,
+    /// for funded classes, but is 0 for an ExcessInterest (XS) or Residual class,
     /// which has no principal to write down — its notional balance is reset to the pool
     /// each period, so a writedown against it is a no-op. Reporting 0 lets the writedown
     /// cascade flow past it to the funded bonds instead of silently consuming the
