@@ -33,7 +33,12 @@ public class SequentialStructure : BasePayable
 
     public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
     {
-        PayPayables(cfDate, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec);
+        // Cap each class at its WritedownCapacity (0 for a ResidualInterest/XS class)
+        // rather than its notional CurrentBalance, so a writedown allocation flows
+        // past XS to the funded bonds instead of being silently consumed against XS's
+        // pool-notional balance.
+        PayPayables(cfDate, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec,
+            capFn: (payable, d) => payable.WritedownCapacity(d));
     }
 
     public override double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,
@@ -106,9 +111,13 @@ public class SequentialStructure : BasePayable
     }
 
     private void PayPayables(DateTime cfDate, double prin, Action<IPayable, double> pay, Action payRuleExec,
-        bool ignoreLockedOut = false)
+        bool ignoreLockedOut = false, Func<IPayable, DateTime, double> capFn = null)
     {
         payRuleExec.Invoke();
+
+        // Default cap is the payable's current balance; the writedown path passes a
+        // capFn that returns WritedownCapacity (0 for XS) so the cascade skips it.
+        capFn ??= (payable, d) => payable.CurrentBalance(d);
 
         var amtRemaining = prin;
         foreach (var payable in _payables)
@@ -119,9 +128,15 @@ public class SequentialStructure : BasePayable
             if (payable.IsLockedOut(cfDate) && !ignoreLockedOut)
                 continue;
 
+            var cap = capFn(payable, cfDate);
+            if (cap <= 0)
+                // Zero capacity (e.g. an XS/ResidualInterest class in the writedown
+                // structure) — take nothing so the remainder cascades to the next class.
+                continue;
+
             var amtToPay = amtRemaining;
-            if (payable.CurrentBalance(cfDate) < amtToPay)
-                amtToPay = payable.CurrentBalance(cfDate);
+            if (cap < amtToPay)
+                amtToPay = cap;
 
             pay.Invoke(payable, amtToPay);
             amtRemaining -= amtToPay;
@@ -131,8 +146,8 @@ public class SequentialStructure : BasePayable
         {
             if (ignoreLockedOut)
             {
-                // Check if all payables have zero balance - if so, remaining goes to residual (not an error)
-                var totalPayableBalance = _payables.Sum(p => p.CurrentBalance(cfDate));
+                // Check if all payables have zero capacity - if so, remaining goes to residual (not an error)
+                var totalPayableBalance = _payables.Sum(p => capFn(p, cfDate));
                 if (totalPayableBalance > 0.01 && amtRemaining > 100)
                 {
                     // Error only if there are tranches with balance that didn't receive principal
@@ -143,7 +158,7 @@ public class SequentialStructure : BasePayable
             }
             else
             {
-                PayPayables(cfDate, amtRemaining, pay, payRuleExec, true);
+                PayPayables(cfDate, amtRemaining, pay, payRuleExec, true, capFn);
             }
         }
     }

@@ -129,6 +129,22 @@ public class DynamicClass : IPayable
         return Balance;
     }
 
+    /// <summary>
+    /// True when every tranche in this class is ResidualInterest (an XS /
+    /// excess-spread strip). Such a class has no principal — its "balance" is the
+    /// pool notional it earns interest on (reset each period by the notional
+    /// settle), so it can only absorb losses out of the excess spread it sweeps,
+    /// never via a principal writedown.
+    /// </summary>
+    public bool IsResidualInterest =>
+        DynamicTranches.Count > 0 &&
+        DynamicTranches.All(dt => dt.Tranche.CouponTypeEnum == CouponType.ResidualInterest);
+
+    public double WritedownCapacity(DateTime cfDate)
+    {
+        return IsResidualInterest ? 0.0 : CurrentBalance(cfDate);
+    }
+
     public bool IsLockedOut(DateTime cashflowDate)
     {
         var adjDate = AdjustedCashflowDate(cashflowDate);

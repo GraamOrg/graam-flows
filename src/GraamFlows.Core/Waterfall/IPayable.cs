@@ -53,6 +53,17 @@ public interface IPayable
 
     double BeginBalance(DateTime cfDate);
     double CurrentBalance(DateTime cfDate);
+
+    /// <summary>
+    /// Principal-writedown capacity for this payable. Equals <see cref="CurrentBalance"/>
+    /// for funded classes, but is 0 for a ResidualInterest (XS / excess-spread) class,
+    /// which has no principal to write down — its notional balance is reset to the pool
+    /// each period, so a writedown against it is a no-op. Reporting 0 lets the writedown
+    /// cascade flow past it to the funded bonds instead of silently consuming the
+    /// allocation. Excess-spread loss absorption is handled on the interest side.
+    /// </summary>
+    double WritedownCapacity(DateTime cfDate);
+
     bool IsLockedOut(DateTime cfDate);
     double LockedOutBalance(DateTime cfDate);
     string Describe(int level);

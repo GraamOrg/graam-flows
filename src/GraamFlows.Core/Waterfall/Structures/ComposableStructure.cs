@@ -740,6 +740,17 @@ public class ComposableStructure : BaseStructure
         if (writedownAmt <= 0 || dynGroup.WritedownPayable == null)
             return;
 
+        // Excess-spread first-loss: a ResidualInterest (XS / excess-spread) class placed
+        // in the writedown structure absorbs the period loss out of the excess spread it
+        // swept this period, BEFORE any funded bond is written down. XS has no principal
+        // (its notional balance is reset to the pool each period), so it can only absorb
+        // via excess spread — its WritedownCapacity is 0, so the shortfall (loss beyond
+        // this period's excess spread) cascades to the funded bonds below. When no XS sits
+        // in the writedown structure this is a no-op and losses write down bonds directly.
+        writedownAmt = AbsorbLossFromExcessSpread(dynGroup, periodCf, writedownAmt);
+        if (writedownAmt <= 0.005)
+            return;
+
         // Track cumWritedowns before to determine what was applied to each class
         var leaves = dynGroup.WritedownPayable.Leafs();
         var beforeWritedowns = leaves.OfType<DynamicClass>()
@@ -755,6 +766,49 @@ public class ComposableStructure : BaseStructure
             if (writedownApplied > 0)
                 WritedownPseudoClass(leaf, periodCf.CashflowDate, writedownApplied);
         }
+    }
+
+    /// <summary>
+    /// Absorb the period loss out of the excess spread swept by any ResidualInterest
+    /// (XS) class that sits in the writedown structure — the excess-spread first-loss
+    /// layer. Reduces the XS class's recorded interest for the period by the loss it
+    /// absorbs (its cash shrinks with losses) and returns the shortfall — the loss
+    /// beyond this period's excess spread — which the caller then cascades to the
+    /// funded bonds. When no XS is present in the writedown structure the loss passes
+    /// through unchanged.
+    /// </summary>
+    private double AbsorbLossFromExcessSpread(DynamicGroup dynGroup, PeriodCashflows periodCf, double loss)
+    {
+        if (dynGroup.WritedownPayable == null)
+            return loss;
+
+        foreach (var leaf in dynGroup.WritedownPayable.Leafs().OfType<DynamicClass>())
+        {
+            if (loss <= 0.005)
+                break;
+            if (!leaf.IsResidualInterest)
+                continue;
+
+            foreach (var dynTran in leaf.DynamicTranches)
+            {
+                var cf = dynTran.GetCashflow(periodCf.CashflowDate);
+                if (cf == null)
+                    continue;
+
+                var excessSpread = cf.Interest;
+                if (excessSpread <= 0)
+                    continue;
+
+                var absorbed = Math.Min(excessSpread, loss);
+                cf.Interest = excessSpread - absorbed; // XS releases less; it funded the loss
+                cf.Writedown += absorbed;              // report the loss XS absorbed via excess spread
+                loss -= absorbed;
+                if (loss <= 0.005)
+                    break;
+            }
+        }
+
+        return loss;
     }
 
     /// <summary>

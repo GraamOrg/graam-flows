@@ -51,6 +51,11 @@ public abstract class BasePayable : IPayable
         return Leafs().Sum(leaf => leaf.CurrentBalance(cfDate));
     }
 
+    public virtual double WritedownCapacity(DateTime cfDate)
+    {
+        return Leafs().Sum(leaf => leaf.WritedownCapacity(cfDate));
+    }
+
     public virtual bool IsLockedOut(DateTime cfDate)
     {
         return Leafs().All(leaf => leaf.IsLockedOut(cfDate));
