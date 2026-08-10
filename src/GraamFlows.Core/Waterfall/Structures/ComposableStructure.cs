@@ -803,7 +803,24 @@ public class ComposableStructure : BaseStructure
         // gated by excessSpreadFirstLoss so OC/turbo deals defer to that path.
         if (excessSpreadFirstLoss)
         {
+            var lossBeforeAbsorb = writedownAmt;
             writedownAmt = AbsorbLossFromExcessSpread(dynGroup, periodCf, writedownAmt);
+
+            // Absorbing a loss out of excess spread is not a write-off of the loss — it is the
+            // excess-spread strip funding the recovery on the bonds' behalf ("XS increases
+            // recoveries"). The absorbed cash must therefore pay down bond principal, so the
+            // liability side declines with the collateral. Without this, the collateral shrinks
+            // by the full defaulted principal while the notes only shrink by (recovery + the
+            // shortfall write-down), leaving the notes permanently over the pool and unable to
+            // pay off or write down at maturity. Route it through the recovery waterfall so it
+            // amortizes the notes sequentially, building credit support beneath the juniors.
+            var absorbed = lossBeforeAbsorb - writedownAmt;
+            if (absorbed > 0.005)
+            {
+                var principalPayable = dynGroup.RecoveryPayable ?? dynGroup.PrepayPayable;
+                principalPayable?.PayRp(null, periodCf.CashflowDate, absorbed, () => { });
+            }
+
             if (writedownAmt <= 0.005)
                 return;
         }

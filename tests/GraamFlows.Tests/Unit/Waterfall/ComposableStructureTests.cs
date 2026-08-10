@@ -245,7 +245,7 @@ public class ComposableStructureTests
             .BuildAndRun(collateral);
 
         build.Should().Throw<DealModelingException>()
-            .WithMessage("*ResidualInterest*at most one*")
+            .WithMessage("*ExcessInterest*at most one*")
             .WithMessage("*XS1*XS2*");
     }
 

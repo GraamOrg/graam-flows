@@ -116,6 +116,8 @@ public class MockPayable : IPayable
 
     public double BeginBalance(DateTime cfDate) => Balance;
     public double CurrentBalance(DateTime cfDate) => Balance;
+    // Funded mock: its full balance can absorb writedowns (mirrors CurrentBalance).
+    public double WritedownCapacity(DateTime cfDate) => Balance;
     public bool IsLockedOut(DateTime cfDate) => LockedOut;
     public double LockedOutBalance(DateTime cfDate) => LockedOut ? Balance : 0;
 
