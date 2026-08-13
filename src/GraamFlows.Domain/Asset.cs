@@ -11,6 +11,8 @@ public class Asset : IAsset
 
     [Database("Product_Type")] public InterestRateType InterestRateType { get; set; }
 
+    [Database("Amortization_Type")] public AmortizationType AmortizationType { get; set; } = AmortizationType.Amortizing;
+
     [Database("Origination_Date")] public DateTime OriginalDate { get; set; }
 
     [Database("Original_Balance")] public double OriginalBalance { get; set; }

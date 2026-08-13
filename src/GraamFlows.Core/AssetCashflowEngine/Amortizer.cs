@@ -1,3 +1,5 @@
+using GraamFlows.Objects.TypeEnum;
+
 namespace GraamFlows.AssetCashflowEngine;
 
 /// <summary>
@@ -70,6 +72,7 @@ public static class Amortizer
         var rawCurrentBalance = assetData.CurrentBalance;
         var rawServiceFee = assetData.ServiceFee;
         var rawDebtService = assetData.DebtService;
+        var rawAmortizationType = assetData.AmortizationType;
         var rawInitialAdjustmentPeriod = assetData.InitialAdjustmentPeriod;
         var rawAdjustmentPeriod = assetData.AdjustmentPeriod;
         var rawIndexName = assetData.IndexName;
@@ -114,6 +117,27 @@ public static class Amortizer
             var cashflowPrevBalance = balance;
             var ioTerm = rawIOTerm[assetIndex];
             var serviceFee = rawServiceFee[assetIndex] / rateDivisor;
+            // Principal-repayment style (0 = Amortizing, 1 = Bullet, 2 = PIK).
+            var amortType = rawAmortizationType[assetIndex];
+            var isBullet = amortType == (int)AmortizationType.Bullet;
+            var isPik = amortType == (int)AmortizationType.Pik;
+
+            // PIK + delinquency is unsupported: the delinquency-advance formulas
+            // assume a cash coupon, but a PIK coupon is capitalized (cash interest
+            // is zeroed), so a non-zero delinqRate would emit spurious negative
+            // UnAdvancedInterest instead of servicer advances. Fail fast rather
+            // than produce bad numbers.
+            if (isPik)
+            {
+                var delRow = delTime[assetIndex];
+                for (var p = 0; p < delRow.Length; p++)
+                    if (delRow[p] > 0)
+                        throw new InvalidOperationException(
+                            $"Asset at index {assetIndex}: PIK assets do not support delinquency " +
+                            $"assumptions (delinqRate {delRow[p]:0.####} at period {p}). Remove the " +
+                            "delinquency assumption for PIK collateral.");
+            }
+
             var rateSteps = rawStepDatesCount[assetIndex];
             var nextRateStepDate = 100000;
             var forbearanceAmt = rawForbearanceAmt[assetIndex];
@@ -274,9 +298,36 @@ public static class Amortizer
                                 AmortizingPayment(cashflowBalance, rate,
                                     RemainingPeriods(term - age, monthsPerPeriod)) * 100.0) / 100.0;
                     }
+                    else if (isPik)
+                    {
+                        // PIK: capitalize the coupon into the (contractual) balance
+                        // instead of paying it in cash; principal repays only at
+                        // maturity (balloon). cashflowPrevBalance is captured BEFORE
+                        // capitalization so dqFactor stays consistent with the
+                        // performing balance. The cash coupon is zeroed and the
+                        // accrued amount is added back to the performing balance
+                        // below (see capitalizedInterest).
+                        cashflowPrevBalance = cashflowBalance;
+                        cashflowBalance += interestPaid;
+                        principal = age < term ? 0 : cashflowBalance;
+                        cashflowBalance -= principal;
+
+                        if (cashflowBalance <= 0)
+                        {
+                            cashflowBalance = 0;
+                            hasCashflow = false;
+                        }
+                    }
                     else
                     {
-                        var actualPayment = age < term ? scheduledPayment : cashflowBalance + interestPaid;
+                        // Bullet forces an interest-only scheduled payment until
+                        // maturity, so (payment − interest) yields zero scheduled
+                        // principal and the residual balloons at maturity via the
+                        // age >= term branch. Amortizing keeps its level-pay
+                        // scheduledPayment (unchanged).
+                        var actualPayment = age < term
+                            ? (isBullet ? interestPaid : scheduledPayment)
+                            : cashflowBalance + interestPaid;
                         // Backstop: scheduled principal can never be negative. A
                         // payment below the period's interest would capitalize
                         // interest into principal (balance grows) — the engine has
@@ -312,6 +363,18 @@ public static class Amortizer
 
                 var interest = interestPaid * dqFactor;
                 var schedPrin = principal * dqFactor;
+
+                // PIK: the period coupon is not paid in cash — it is capitalized
+                // into the balance. Zero the cash interest and remember the accrued
+                // amount so it can be added back to the performing balance below,
+                // mirroring the contractual capitalization done above. Non-PIK
+                // assets leave capitalizedInterest at zero (no-op).
+                var capitalizedInterest = 0.0;
+                if (isPik)
+                {
+                    capitalizedInterest = interest;
+                    interest = 0.0;
+                }
 
                 // Reference calc standard (graam-harmony #3449), reconciled to the
                 // byte-validated reference-engine oracle:
@@ -371,7 +434,11 @@ public static class Amortizer
                 }
                 var unscheduledPrincipal = unschedPrin;
 
-                balance = schedBal - schedPrinMdr - defPrin - unschedPrin;
+                // capitalizedInterest is zero for every non-PIK asset, so this
+                // reduces to the original balance recurrence. For PIK it grows the
+                // performing balance by the (already-zeroed) cash coupon, matching
+                // the contractual capitalization applied to cashflowBalance above.
+                balance = schedBal - schedPrinMdr - defPrin - unschedPrin + capitalizedInterest;
                 // Non-negative guard: reachable only under hazard misconfiguration
                 // (e.g. mdr = 1). Well-formed inputs never trip it, so it does not
                 // affect the tie-out.

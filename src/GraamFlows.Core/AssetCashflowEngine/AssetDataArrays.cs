@@ -22,6 +22,7 @@ public class AssetDataArrays
         CurrentBalance = new double[AssetCount];
         ServiceFee = new double[AssetCount];
         DebtService = new double[AssetCount];
+        AmortizationType = new int[AssetCount];
 
         InitialAdjustmentPeriod = new int[AssetCount];
         AdjustmentPeriod = new int[AssetCount];
@@ -63,6 +64,7 @@ public class AssetDataArrays
             CurrentBalance[i] = asset.CurrentBalance;
             ServiceFee[i] = asset.ServiceFee;
             DebtService[i] = asset.DebtService;
+            AmortizationType[i] = (int)asset.AmortizationType;
 
             InitialAdjustmentPeriod[i] = asset.InitialAdjustmentPeriod;
             AdjustmentPeriod[i] = asset.AdjustmentPeriod;
@@ -91,6 +93,14 @@ public class AssetDataArrays
     public double[] CurrentBalance { get; }
     public double[] ServiceFee { get; }
     public double[] DebtService { get; }
+
+    /// <summary>
+    ///     Principal-repayment style per asset, as the underlying int of
+    ///     <see cref="GraamFlows.Objects.TypeEnum.AmortizationType" />
+    ///     (0 = Amortizing, 1 = Bullet, 2 = PIK). Default 0 keeps the
+    ///     scheduled-amortization path.
+    /// </summary>
+    public int[] AmortizationType { get; }
 
     // ARM data
     public int[] InitialAdjustmentPeriod { get; }

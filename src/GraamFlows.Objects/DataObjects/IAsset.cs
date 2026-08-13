@@ -7,6 +7,15 @@ public interface IAsset
     string AssetName { get; set; }
     string AssetId { get; set; }
     InterestRateType InterestRateType { get; set; }
+
+    /// <summary>
+    ///     Principal-repayment style (amortizing / bullet / PIK). Defaults to
+    ///     <see cref="AmortizationType.Amortizing" /> so existing assets and
+    ///     payloads that never set it keep the pre-existing scheduled-amortization
+    ///     behavior unchanged.
+    /// </summary>
+    AmortizationType AmortizationType { get; set; }
+
     DateTime OriginalDate { get; set; }
     double OriginalBalance { get; set; }
     double OriginalInterestRate { get; set; }

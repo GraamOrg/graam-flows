@@ -341,6 +341,10 @@ public class WaterfallController : ControllerBase
             };
         }
 
+        // Revolving / reinvesting collateral pool (graam-flows#48). Bound here;
+        // the reinvestment loop that consumes it is graam-flows#49.
+        deal.ReinvestmentConfig = ReinvestmentConfigMapper.Map(dto.Reinvestment, dto.DealName);
+
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())
             foreach (var schedDto in dto.ScheduledVariables)

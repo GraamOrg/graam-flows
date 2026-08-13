@@ -26,6 +26,7 @@ public class TestDealBuilder
     private double _balanceAtIssuance;
     private WaterfallOrderEnum _waterfallOrder = WaterfallOrderEnum.Standard;
     private OcTargetConfig? _ocTargetConfig;
+    private ReinvestmentConfig? _reinvestmentConfig;
 
     public TestDealBuilder(
         string dealName = TestConstants.DefaultDealName,
@@ -322,6 +323,12 @@ public class TestDealBuilder
         return this;
     }
 
+    public TestDealBuilder WithReinvestment(ReinvestmentConfig config)
+    {
+        _reinvestmentConfig = config;
+        return this;
+    }
+
     public TestDealBuilder WithPayRule(string name, string formula)
     {
         _payRuleFormulas.Add($"{name}|{formula}");
@@ -394,6 +401,9 @@ public class TestDealBuilder
 
         if (_ocTargetConfig != null)
             _deal.OcTargetConfig = _ocTargetConfig;
+
+        if (_reinvestmentConfig != null)
+            _deal.ReinvestmentConfig = _reinvestmentConfig;
 
         // Add pay rules
         for (var i = 0; i < _payRuleFormulas.Count; i++)

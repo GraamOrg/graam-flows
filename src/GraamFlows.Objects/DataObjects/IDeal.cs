@@ -39,6 +39,13 @@ public interface IDeal : IPayRuleAssemblyStore
     OcTargetConfig? OcTargetConfig { get; }
 
     /// <summary>
+    /// Configuration for a revolving / reinvesting collateral pool (optional).
+    /// Input only; the reinvestment loop that consumes it is tracked in
+    /// graam-flows#49.
+    /// </summary>
+    ReinvestmentConfig? ReinvestmentConfig { get; }
+
+    /// <summary>
     /// Controls interleaving of INTEREST and PRINCIPAL steps.
     /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
     /// </summary>
