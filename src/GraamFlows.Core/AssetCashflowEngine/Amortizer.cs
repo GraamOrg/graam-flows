@@ -28,6 +28,10 @@ public static class Amortizer
     /// When an asset's lag is &gt; 0, the recovery on a period-t default is placed at period
     /// t + lag (the liquidation timeline) instead of period t. Recoveries whose lagged period falls
     /// beyond the projection horizon are truncated. Null (or all-zero) preserves same-period recovery.</param>
+    /// <param name="monthsPerPeriod">Number of calendar months each projection period spans
+    /// (12 / payment frequency): 1 = monthly (default), 3 = quarterly, etc. Scales per-period
+    /// interest/service-fee accrual, seasoning, and the amortization-schedule term. At the default
+    /// of 1 every factor reduces to identity, so the monthly path is byte-for-byte unchanged.</param>
     public static CashflowResultArrays GenerateCashflows(
         AssetDataArrays assetData,
         int startTime,
@@ -44,8 +48,16 @@ public static class Amortizer
         double[][] allMarketRates,
         double[][]? absTime = null,
         double[][]? origMdrTime = null,
-        int[]? recoveryLag = null)
+        int[]? recoveryLag = null,
+        int monthsPerPeriod = 1)
     {
+        if (monthsPerPeriod < 1) monthsPerPeriod = 1;
+
+        // Per-period rate divisor. Monthly is annualPct / 1200 (= /100 /12);
+        // a longer period accrues over more months, so divide by 1200/mpp.
+        // At mpp = 1 this is exactly 1200.0 — the monthly path is unchanged.
+        var rateDivisor = 1200.0 / monthsPerPeriod;
+
         var maxPeriods = Math.Min(endTime - startTime + 1, 720);
         var results = new CashflowResultArrays(maxPeriods);
 
@@ -101,7 +113,7 @@ public static class Amortizer
             var cashflowBalance = balance;
             var cashflowPrevBalance = balance;
             var ioTerm = rawIOTerm[assetIndex];
-            var serviceFee = rawServiceFee[assetIndex] / 1200.0;
+            var serviceFee = rawServiceFee[assetIndex] / rateDivisor;
             var rateSteps = rawStepDatesCount[assetIndex];
             var nextRateStepDate = 100000;
             var forbearanceAmt = rawForbearanceAmt[assetIndex];
@@ -113,7 +125,7 @@ public static class Amortizer
             var annRatePct = rawCurrentInterestRate[assetIndex] > 0
                 ? rawCurrentInterestRate[assetIndex]
                 : rawOriginalInterestRate[assetIndex];
-            var rate = annRatePct / 1200.0;
+            var rate = annRatePct / rateDivisor;
             var debtService = rawDebtService[assetIndex];
             var adjustmentPeriod = rawAdjustmentPeriod[assetIndex];
             var initialAdjustmentPeriod = rawInitialAdjustmentPeriod[assetIndex];
@@ -122,7 +134,7 @@ public static class Amortizer
                 ? allMarketRates[rawIndexName[assetIndex]]
                 : null;
 
-            var age = startTime - rawOriginalDate[assetIndex] - 1;
+            var age = startTime - rawOriginalDate[assetIndex] - monthsPerPeriod;
             var hasCashflow = true;
             double scheduledPayment = 0;
             double interestPaid = 0, principal = 0, unadvPrincipal = 0, unadvInterest = 0;
@@ -163,7 +175,8 @@ public static class Amortizer
                 // models no negative-amortization product, so a zero original
                 // balance is a misconfiguration; fall back to the current balance.
                 var amortBalance = origBalance > 0 ? origBalance : balance;
-                scheduledPayment = Math.Round(AmortizingPayment(amortBalance, rate, term) * 100.0) / 100.0;
+                scheduledPayment = Math.Round(
+                    AmortizingPayment(amortBalance, rate, RemainingPeriods(term, monthsPerPeriod)) * 100.0) / 100.0;
             }
 
             for (var absT = startTime; absT <= endTime; absT++)
@@ -199,7 +212,7 @@ public static class Amortizer
                 }
                 else
                 {
-                    age++;
+                    age += monthsPerPeriod;
 
                     // Step rate adjustment
                     if (absT == nextRateStepDate && assetStepDatesIndex < nextAssetStepDatesIndex)
@@ -209,9 +222,10 @@ public static class Amortizer
                         if (assetStepDatesIndex < nextAssetStepDatesIndex)
                             nextRateStepDate = rawStepDatesList[assetStepDatesIndex] + 1;
 
-                        rate = annRatePct / 1200.0;
-                        scheduledPayment =
-                            Math.Round(AmortizingPayment(cashflowBalance, rate, term - (age - 1)) * 100.0) / 100.0;
+                        rate = annRatePct / rateDivisor;
+                        scheduledPayment = Math.Round(
+                            AmortizingPayment(cashflowBalance, rate,
+                                RemainingPeriods(term - (age - monthsPerPeriod), monthsPerPeriod)) * 100.0) / 100.0;
                     }
 
                     // ARM adjustment
@@ -240,9 +254,10 @@ public static class Amortizer
                                 mortgageRate = rawLifeAdjustmentFloor[assetIndex];
 
                             annRatePct = mortgageRate;
-                            rate = annRatePct / 1200.0;
-                            scheduledPayment =
-                                Math.Round(AmortizingPayment(cashflowBalance, rate, term - (age - 1)) * 100.0) / 100.0;
+                            rate = annRatePct / rateDivisor;
+                            scheduledPayment = Math.Round(
+                                AmortizingPayment(cashflowBalance, rate,
+                                    RemainingPeriods(term - (age - monthsPerPeriod), monthsPerPeriod)) * 100.0) / 100.0;
                         }
 
                         currentAdjustmentPeriod--;
@@ -255,8 +270,9 @@ public static class Amortizer
                         principal = 0;
                         cashflowPrevBalance = cashflowBalance;
                         if (age == ioTerm)
-                            scheduledPayment =
-                                Math.Round(AmortizingPayment(cashflowBalance, rate, term - age) * 100.0) / 100.0;
+                            scheduledPayment = Math.Round(
+                                AmortizingPayment(cashflowBalance, rate,
+                                    RemainingPeriods(term - age, monthsPerPeriod)) * 100.0) / 100.0;
                     }
                     else
                     {
@@ -463,6 +479,22 @@ public static class Amortizer
 
         results.ComputeNumberOfPeriods();
         return results;
+    }
+
+    /// <summary>
+    ///     Convert a remaining term expressed in months into a count of whole
+    ///     payment periods for the amortization schedule. At monthsPerPeriod = 1
+    ///     (monthly) this returns the month count unchanged, so the monthly path
+    ///     is byte-for-byte identical. A partial final period rounds up to one
+    ///     whole period.
+    /// </summary>
+    private static int RemainingPeriods(int remainingMonths, int monthsPerPeriod)
+    {
+        if (monthsPerPeriod <= 1)
+            return remainingMonths;
+        if (remainingMonths <= 0)
+            return 0;
+        return (remainingMonths + monthsPerPeriod - 1) / monthsPerPeriod;
     }
 
     private static double AmortizingPayment(double balance, double monthlyRate, int remainingTerm)
