@@ -1,4 +1,5 @@
 using FluentAssertions;
+using GraamFlows.AssetCashflowEngine;
 using GraamFlows.Assumptions;
 using GraamFlows.Domain;
 using GraamFlows.Objects.DataObjects;
@@ -119,5 +120,28 @@ public class AmortizationTypeTests
         var expectedCompounded = Balance * Math.Pow(1 + monthlyRate, TermMonths);
         totalPrincipal.Should().BeApproximately(expectedCompounded, expectedCompounded * 0.01);
         periods.Sum(p => p.Interest).Should().BeApproximately(0.0, 0.01);
+    }
+
+    [Fact]
+    public void Pik_WithDelinquencyAssumption_ThrowsActionableError()
+    {
+        // The delinquency-advance formulas assume a cash coupon; PIK capitalizes
+        // its coupon, so PIK + delinquency is unsupported and must fail fast
+        // (kernel-level guard) instead of emitting spurious advance flows.
+        const int periods = 24;
+        var assetData = new AssetDataArrays(new List<IAsset> { TermLoan(AmortizationType.Pik) });
+        var startTime = DateUtil.CalcAbsT(new DateTime(2026, 6, 1));
+
+        double[][] Zeros() => new[] { new double[periods] };
+        var del = new[] { new double[periods] };
+        del[0][6] = 0.10; // 10% delinquent at period 6
+
+        var act = () => Amortizer.GenerateCashflows(
+            assetData, startTime, startTime + periods - 1,
+            Zeros(), Zeros(), Zeros(), del, Zeros(), Zeros(),
+            Zeros(), Zeros(), Zeros(), new double[1][]);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*PIK assets do not support delinquency*");
     }
 }
