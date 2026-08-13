@@ -1,4 +1,5 @@
 using GraamFlows.AssetCashflowEngine;
+using GraamFlows.Domain;
 using GraamFlows.Factories;
 using GraamFlows.Objects.DataObjects;
 using GraamFlows.Objects.Functions;
@@ -37,6 +38,20 @@ public class CfCore
             g => Deal.DealTriggers.EarliestMandatoryDateRedemption(g),
             assumps.GetAssumptionsForAsset, rateProvider, assumps.Threads, assumps.DisplayAssetCashflows,
             poolAgeOffset, wam);
+
+        // Revolving / reinvesting collateral pool (graam-flows#49). Additive:
+        // only runs when the deal carries a ReinvestmentConfig, so the static
+        // (non-reinvesting) path is untouched. Reinvested collateral reuses the
+        // deal's assumptions (resolved off a sample template asset).
+        if (Deal.ReinvestmentConfig is { } reinvestCfg && reinvestCfg.Templates.Count > 0)
+        {
+            var sampleAsset = BuildReinvestAsset(reinvestCfg.Templates[0], 1.0, FirstProjectionDate, rateProvider, 0);
+            var reinvestAssumps = assumps.GetAssumptionsForAsset(sampleAsset);
+            var basePool = dealCashflows.PeriodCashflows.ToList();
+            foreach (var cf in BuildReinvestmentCashflows(
+                         basePool, reinvestCfg, FirstProjectionDate, reinvestAssumps, rateProvider))
+                dealCashflows.AddPeriodCashflow(cf);
+        }
 
         // check if the deal pay rules have been compiled
         Task ruleCompileTask = null;
@@ -373,6 +388,236 @@ public class CfCore
     {
         return CashflowEngine.Waterfall(Deal, rateProvider, FirstProjectionDate, cashflows, assumps,
             new TrancheAllocator());
+    }
+
+    /// <summary>
+    ///     Revolving / reinvesting collateral pool (graam-flows#49). Cohort
+    ///     orchestration: the per-asset amortizer is left untouched. During the
+    ///     reinvestment window, eligible principal proceeds buy new collateral
+    ///     from the config's templates up to a plain balance target
+    ///     (reinvest cash = MIN(available proceeds, MAX(0, target − poolBalance))).
+    ///     Each purchase is a fresh cohort projected forward by
+    ///     <see cref="Amortizer.GenerateCashflows" />, and the cohorts are summed
+    ///     into a "REINVEST" group returned as period cashflows for the caller to
+    ///     merge into the collateral totals.
+    ///
+    ///     Monthly projection only (v1): quarterly reinvestment additionally needs
+    ///     the period-indexed axis wiring deferred with graam-flows#46.
+    ///     Reinvested collateral reuses one representative assumption set
+    ///     (<paramref name="reinvestAssumps" />); ABS / ORIGMDR / forbearance /
+    ///     recovery-lag on reinvested collateral are out of scope for v1.
+    /// </summary>
+    /// <param name="basePool">The already-projected (non-reinvesting) collateral
+    /// period cashflows across all groups. Read only.</param>
+    public static IList<PeriodCashflows> BuildReinvestmentCashflows(
+        IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
+        IAssetAssumptions reinvestAssumps, IRateProvider rateProvider)
+    {
+        cfg.Validate("");
+        var empty = new List<PeriodCashflows>();
+        if (cfg.Templates.Count == 0 || basePool == null || basePool.Count == 0)
+            return empty;
+
+        var startTime = DateUtil.CalcAbsT(firstProjDate);
+
+        // Base-pool aggregate arrays, indexed by whole-month period from the
+        // projection start (monthly v1). Multiple groups sum into the same period.
+        var basePeriods = 0;
+        foreach (var cf in basePool)
+            basePeriods = Math.Max(basePeriods, MonthsBetween(firstProjDate, cf.CashflowDate) + 1);
+        if (basePeriods <= 0)
+            return empty;
+
+        var windowEndPeriod = MonthsBetween(firstProjDate, cfg.ReinvestEndDate);
+        if (windowEndPeriod < 0)
+            return empty;
+
+        var maxTerm = cfg.Templates.Max(t => t.TermMonths);
+        var horizon = Math.Min(720, Math.Max(basePeriods, windowEndPeriod + maxTerm + 2));
+
+        var baseBalance = new double[horizon];
+        var baseSched = new double[horizon];
+        var baseUnsched = new double[horizon];
+        var baseRecovery = new double[horizon];
+        foreach (var cf in basePool)
+        {
+            var p = MonthsBetween(firstProjDate, cf.CashflowDate);
+            if (p < 0 || p >= horizon) continue;
+            baseBalance[p] += cf.Balance;
+            baseSched[p] += cf.ScheduledPrincipal;
+            baseUnsched[p] += cf.UnscheduledPrincipal;
+            baseRecovery[p] += cf.RecoveryPrincipal;
+        }
+
+        var cohortAccum = new CashflowResultArrays(horizon);
+        var eligible = cfg.EligibleProceeds;
+        var seq = 0;
+
+        for (var t = 0; t < horizon; t++)
+        {
+            var date = firstProjDate.AddMonths(t);
+            if (date > cfg.ReinvestEndDate) break;
+            if (cfg.ReinvestStartDate.HasValue && date < cfg.ReinvestStartDate.Value) continue;
+
+            // Eligible proceeds and pool balance at end of period t, across the
+            // original pool plus every cohort bought so far.
+            var proceeds = 0.0;
+            if (eligible.HasFlag(EligibleProceeds.ScheduledPrincipal))
+                proceeds += baseSched[t] + cohortAccum.ScheduledPrincipal[t];
+            if (eligible.HasFlag(EligibleProceeds.Prepayments))
+                proceeds += baseUnsched[t] + cohortAccum.UnscheduledPrincipal[t];
+            if (eligible.HasFlag(EligibleProceeds.Recoveries))
+                proceeds += baseRecovery[t] + cohortAccum.RecoveryPrincipal[t];
+
+            var available = proceeds * (1.0 - cfg.Holdback);
+            var totalBalance = baseBalance[t] + cohortAccum.Balance[t];
+            var gap = Math.Max(0.0, cfg.TargetAt(t) - totalBalance);
+            var reinvestCash = Math.Min(available, gap);
+            if (reinvestCash < 1.0) continue;
+
+            // Cohorts originate at period t and begin amortizing at t+1.
+            var cohortStart = t + 1;
+            if (cohortStart >= horizon) continue;
+
+            var cohortAssets = new List<IAsset>();
+            foreach (var template in cfg.Templates)
+            {
+                var cash = reinvestCash * template.AllocationPct / 100.0;
+                if (cash < 0.005) continue;
+                // Cash buys face at the (par-for-synthetic) purchase price.
+                var face = cash / (template.EffectivePrice / 100.0);
+                cohortAssets.Add(BuildReinvestAsset(template, face, date, rateProvider, seq++));
+            }
+
+            if (cohortAssets.Count == 0) continue;
+
+            var cohortPeriods = horizon - cohortStart;
+            var cohortStartAbsT = startTime + cohortStart;
+            var cohortEndAbsT = startTime + horizon - 1;
+
+            var assetData = new AssetDataArrays(cohortAssets);
+            var m = BuildReinvestAssumptionMatrices(reinvestAssumps, cohortAssets.Count, cohortPeriods, cohortStartAbsT);
+            var allMarketRates = BuildMarketRateArrays(rateProvider, date, cohortPeriods);
+
+            var cohortResult = Amortizer.GenerateCashflows(
+                assetData, cohortStartAbsT, cohortEndAbsT,
+                m.Smm, m.Mdr, m.Sev, m.Del, m.DelAdvInt, m.DelAdvPrin, m.ForbP, m.ForbM, m.ForbD,
+                allMarketRates);
+
+            // Accumulate the cohort's per-period vectors at the global offset.
+            for (var p = 0; p < cohortResult.MaxPeriods; p++)
+            {
+                var gp = cohortStart + p;
+                if (gp >= horizon) break;
+                cohortAccum.BeginBalance[gp] += cohortResult.BeginBalance[p];
+                cohortAccum.Balance[gp] += cohortResult.Balance[p];
+                cohortAccum.ScheduledPrincipal[gp] += cohortResult.ScheduledPrincipal[p];
+                cohortAccum.UnscheduledPrincipal[gp] += cohortResult.UnscheduledPrincipal[p];
+                cohortAccum.Interest[gp] += cohortResult.Interest[p];
+                cohortAccum.NetInterest[gp] += cohortResult.NetInterest[p];
+                cohortAccum.ServiceFee[gp] += cohortResult.ServiceFee[p];
+                cohortAccum.DefaultedPrincipal[gp] += cohortResult.DefaultedPrincipal[p];
+                cohortAccum.RecoveryPrincipal[gp] += cohortResult.RecoveryPrincipal[p];
+                cohortAccum.DelinqBalance[gp] += cohortResult.DelinqBalance[p];
+                cohortAccum.UnAdvancedPrincipal[gp] += cohortResult.UnAdvancedPrincipal[p];
+                cohortAccum.UnAdvancedInterest[gp] += cohortResult.UnAdvancedInterest[p];
+                cohortAccum.AdvancedPrincipal[gp] += cohortResult.AdvancedPrincipal[p];
+                cohortAccum.AdvancedInterest[gp] += cohortResult.AdvancedInterest[p];
+                cohortAccum.ForbearanceRecovery[gp] += cohortResult.ForbearanceRecovery[p];
+                cohortAccum.ForbearanceLiquidated[gp] += cohortResult.ForbearanceLiquidated[p];
+                cohortAccum.AccumForbearance[gp] += cohortResult.AccumForbearance[p];
+            }
+        }
+
+        cohortAccum.ComputeNumberOfPeriods();
+        if (cohortAccum.NumberOfPeriods == 0)
+            return empty;
+
+        return cohortAccum.ToPeriodCashflows(firstProjDate, "REINVEST");
+    }
+
+    private static int MonthsBetween(DateTime from, DateTime to)
+    {
+        return (to.Year - from.Year) * 12 + (to.Month - from.Month);
+    }
+
+    /// <summary>
+    ///     Instantiate a reinvested asset from a template and a face amount,
+    ///     originated on <paramref name="originationDate" />. Floating templates
+    ///     are resolved to an effective fixed coupon at origination (index +
+    ///     margin) — a v1 approximation that avoids the curve-offset a mid-stream
+    ///     cohort would otherwise hit in the ARM path.
+    /// </summary>
+    private static Asset BuildReinvestAsset(ReinvestTemplate t, double face, DateTime originationDate,
+        IRateProvider rateProvider, int seq)
+    {
+        var couponPct = t.CouponRate;
+        if (t.IndexName != MarketDataInstEnum.None && rateProvider != null)
+            couponPct = rateProvider.GetRate(t.IndexName, originationDate) + t.IndexMargin;
+
+        return new Asset
+        {
+            AssetName = $"REINVEST_{originationDate:yyyyMM}_{seq}",
+            AssetId = $"REINVEST_{originationDate:yyyyMMdd}_{seq}",
+            InterestRateType = InterestRateType.FRM,
+            AmortizationType = t.AmortizationType,
+            OriginalDate = originationDate,
+            OriginalBalance = face,
+            CurrentBalance = face,
+            BalanceAtIssuance = face,
+            OriginalInterestRate = couponPct,
+            CurrentInterestRate = couponPct,
+            OriginalAmortizationTerm = t.TermMonths,
+            ServiceFee = t.ServiceFee,
+            IndexName = MarketDataInstEnum.None,
+            GroupNum = "REINVEST",
+            IsIO = false
+        };
+    }
+
+    private readonly record struct ReinvestMatrices(
+        double[][] Smm, double[][] Mdr, double[][] Sev, double[][] Del,
+        double[][] DelAdvInt, double[][] DelAdvPrin,
+        double[][] ForbP, double[][] ForbM, double[][] ForbD);
+
+    /// <summary>
+    ///     Build the per-asset assumption matrices for a reinvestment cohort from
+    ///     a single representative assumption set (every cohort asset shares the
+    ///     row). Mirrors the standard (non-ABS, non-ORIGMDR) conversions in the
+    ///     base amortization path; forbearance rows are zero (reinvested assets
+    ///     carry no forbearance).
+    /// </summary>
+    private static ReinvestMatrices BuildReinvestAssumptionMatrices(
+        IAssetAssumptions aa, int assetCount, int periods, int startAbsT)
+    {
+        var prepayType = aa?.PrepaymentType ?? PrepaymentTypeEnum.CPR;
+        var defaultType = aa?.DefaultType ?? DefaultTypeEnum.CDR;
+
+        // SMM is already-monthly; CPR/PSA/ABS de-annualize (ABS not fully
+        // supported for reinvested collateral in v1 — treated CPR-style).
+        var smmRow = BuildAssumptionArray(aa?.Prepayment, periods, startAbsT,
+            prepayType != PrepaymentTypeEnum.SMM);
+        // MDR/ORIGMDR are already-monthly; CDR de-annualizes (ORIGMDR treated as
+        // a current-balance hazard for reinvested collateral in v1).
+        var mdrRow = BuildAssumptionArray(aa?.DefaultRate, periods, startAbsT,
+            defaultType == DefaultTypeEnum.CDR);
+        var sevRow = BuildAssumptionArray(aa?.Severity, periods, startAbsT, false, 100.0);
+        var delRow = BuildAssumptionArray(aa?.DelinqRate, periods, startAbsT, false, 100.0);
+        var delAdvIntRow = BuildAssumptionArray(aa?.DelinqAdvPctInt, periods, startAbsT, false, 1.0, 100.0);
+        var delAdvPrinRow = BuildAssumptionArray(aa?.DelinqAdvPctPrin, periods, startAbsT, false, 1.0, 100.0);
+        var zeroRow = new double[periods];
+
+        double[][] Rep(double[] row)
+        {
+            var m = new double[assetCount][];
+            for (var i = 0; i < assetCount; i++) m[i] = row;
+            return m;
+        }
+
+        return new ReinvestMatrices(
+            Rep(smmRow), Rep(mdrRow), Rep(sevRow), Rep(delRow),
+            Rep(delAdvIntRow), Rep(delAdvPrinRow),
+            Rep(zeroRow), Rep(zeroRow), Rep(zeroRow));
     }
 
     public static void CompileRules(IDeal deal)
