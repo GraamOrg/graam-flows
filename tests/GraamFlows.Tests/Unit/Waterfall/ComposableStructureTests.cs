@@ -609,6 +609,43 @@ public class ComposableStructureTests
 
     #endregion
 
+    #region Deal Model Validation
+
+    [Fact]
+    public void ExchangedClass_WithoutComponentReference_ThrowsActionableError()
+    {
+        // A class typed Exchanged but with no ExchangableTranche (e.g. a plain
+        // debt note mis-typed as Exchanged by an upstream extractor) previously
+        // NRE'd deep in the subordination walk. It must now fail with an
+        // actionable DealModelingException at validation instead.
+        Action run = () => new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithExchangeClass("AB", subOrder: 2, wellFormed: false, "A", "B")
+            .BuildAndRun(CreateCollateral(3, 100_000_000));
+
+        run.Should().Throw<DealModelingException>()
+            .WithMessage("*AB*")
+            .WithMessage("*Exchanged*");
+    }
+
+    [Fact]
+    public void ExchangedClass_WellFormed_DoesNotThrow()
+    {
+        // Sanity: a properly configured Exchanged class still validates.
+        Action run = () => new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithExchangeClass("AB", subOrder: 2, "A", "B")
+            .BuildAndRun(CreateCollateral(3, 100_000_000));
+
+        run.Should().NotThrow<DealModelingException>();
+    }
+
+    #endregion
+
     #region Prorata Interest + Sequential Principal
 
     [Fact]
