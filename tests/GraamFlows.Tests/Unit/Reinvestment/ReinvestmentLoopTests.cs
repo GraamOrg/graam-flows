@@ -88,37 +88,38 @@ public class ReinvestmentLoopTests
 
         reinvest.Should().NotBeEmpty("proceeds should buy replacement collateral");
 
-        // Reinvestment lags one period (proceeds at t buy a cohort that appears
-        // at t+1), so the combined pool holds at target minus one period of
-        // amortization throughout the window.
+        // Redirected principal buys collateral that appears at the end of the same
+        // period, so the combined pool holds exactly at the target through the
+        // window (no losses in this scenario).
         for (var p = 1; p <= 47; p++)
         {
             var total = BalanceAt(basePool, p) + BalanceAt(reinvest, p);
-            total.Should().BeApproximately(Start - AmortPerPeriod, 1.0,
-                $"combined balance at period {p} should hold near the target");
+            total.Should().BeApproximately(Start, 1.0,
+                $"combined balance at period {p} should hold at the target");
         }
     }
 
     [Fact]
-    public void Reinvestment_ConservesCash_PrincipalReturnedTiesToReinvested()
+    public void Reinvestment_ConservesCash_RedirectNetsToZero()
     {
         var basePool = AmortizingBasePool();
         var cfg = KeepFlatConfig();
         var reinvest = CfCore.BuildReinvestmentCashflows(
             basePool, cfg, FirstProj, ZeroAssumps(), rateProvider: null);
 
-        // Eligible proceeds available to reinvest across the window (scheduled
-        // principal, the default eligible set). 48 periods * 10,000.
-        var windowProceeds = 0.0;
-        for (var p = 0; p <= 47; p++)
-            windowProceeds += basePool[p].ScheduledPrincipal;
+        // Reinvestment neither creates nor destroys principal — it defers it. The
+        // REINVEST contribution redirects principal OUT of the pool when collateral
+        // is bought (negative principal in the window) and returns it as the
+        // bullets balloon later (positive principal), netting to zero over the
+        // horizon (synthetic par, no losses).
+        var net = reinvest.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
+        net.Should().BeApproximately(0.0, 1.0);
 
-        // Every dollar reinvested comes back as cohort principal (synthetic par,
-        // bullets balloon within the horizon). Principal returned must not exceed
-        // the eligible proceeds — cash is conserved.
-        var reinvestPrincipal = reinvest.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
-        reinvestPrincipal.Should().BeApproximately(windowProceeds, 5.0);
-        reinvestPrincipal.Should().BeLessThanOrEqualTo(windowProceeds + 0.01);
+        // The redirect and the return are both real and material.
+        reinvest.Min(c => c.ScheduledPrincipal + c.UnscheduledPrincipal)
+            .Should().BeLessThan(-1000, "principal is redirected out when collateral is bought");
+        reinvest.Max(c => c.ScheduledPrincipal + c.UnscheduledPrincipal)
+            .Should().BeGreaterThan(1000, "reinvested face returns as the bullets balloon");
     }
 
     [Fact]

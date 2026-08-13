@@ -420,6 +420,15 @@ public class CfCore
 
         var startTime = DateUtil.CalcAbsT(firstProjDate);
 
+        // Reinvested collateral joins the pool's primary group (the group holding
+        // the most balance) so the liability waterfall pays from it, rather than a
+        // phantom group with no DynamicGroup. Deal-level reinvestment pooling all
+        // groups' proceeds into one group is a documented v1 simplification.
+        var reinvestGroup = basePool
+            .GroupBy(c => c.GroupNum)
+            .OrderByDescending(g => g.Sum(c => c.BeginBalance))
+            .First().Key ?? "1";
+
         // Base-pool aggregate arrays, indexed by whole-month period from the
         // projection start (monthly v1). Multiple groups sum into the same period.
         var basePeriods = 0;
@@ -459,15 +468,15 @@ public class CfCore
             if (date > cfg.ReinvestEndDate) break;
             if (cfg.ReinvestStartDate.HasValue && date < cfg.ReinvestStartDate.Value) continue;
 
-            // Eligible proceeds and pool balance at end of period t, across the
-            // original pool plus every cohort bought so far.
-            var proceeds = 0.0;
-            if (eligible.HasFlag(EligibleProceeds.ScheduledPrincipal))
-                proceeds += baseSched[t] + cohortAccum.ScheduledPrincipal[t];
-            if (eligible.HasFlag(EligibleProceeds.Prepayments))
-                proceeds += baseUnsched[t] + cohortAccum.UnscheduledPrincipal[t];
-            if (eligible.HasFlag(EligibleProceeds.Recoveries))
-                proceeds += baseRecovery[t] + cohortAccum.RecoveryPrincipal[t];
+            // Eligible principal proceeds and pool balance at end of period t,
+            // across the original pool plus every cohort bought so far.
+            var eligSched = eligible.HasFlag(EligibleProceeds.ScheduledPrincipal)
+                ? baseSched[t] + cohortAccum.ScheduledPrincipal[t] : 0.0;
+            var eligUnsched = eligible.HasFlag(EligibleProceeds.Prepayments)
+                ? baseUnsched[t] + cohortAccum.UnscheduledPrincipal[t] : 0.0;
+            var eligRecov = eligible.HasFlag(EligibleProceeds.Recoveries)
+                ? baseRecovery[t] + cohortAccum.RecoveryPrincipal[t] : 0.0;
+            var proceeds = eligSched + eligUnsched + eligRecov;
 
             var available = proceeds * (1.0 - cfg.Holdback);
             var totalBalance = baseBalance[t] + cohortAccum.Balance[t];
@@ -475,21 +484,39 @@ public class CfCore
             var reinvestCash = Math.Min(available, gap);
             if (reinvestCash < 1.0) continue;
 
+            // Redirect: the reinvested cash is drawn from this period's eligible
+            // principal, so it no longer flows out of the pool to pay liabilities.
+            // Reduce distributable principal by the reinvested cash, split across
+            // the eligible sources in proportion to their contribution. The sum of
+            // these reductions equals reinvestCash exactly (available > 0 here).
+            var hb = 1.0 - cfg.Holdback;
+            var drawFraction = reinvestCash / available;
+            cohortAccum.ScheduledPrincipal[t] -= eligSched * hb * drawFraction;
+            cohortAccum.UnscheduledPrincipal[t] -= eligUnsched * hb * drawFraction;
+            cohortAccum.RecoveryPrincipal[t] -= eligRecov * hb * drawFraction;
+
             // Cohorts originate at period t and begin amortizing at t+1.
             var cohortStart = t + 1;
             if (cohortStart >= horizon) continue;
 
             var cohortAssets = new List<IAsset>();
+            var totalFace = 0.0;
             foreach (var template in cfg.Templates)
             {
                 var cash = reinvestCash * template.AllocationPct / 100.0;
                 if (cash < 0.005) continue;
                 // Cash buys face at the (par-for-synthetic) purchase price.
                 var face = cash / (template.EffectivePrice / 100.0);
+                totalFace += face;
                 cohortAssets.Add(BuildReinvestAsset(template, face, date, rateProvider, seq++));
             }
 
             if (cohortAssets.Count == 0) continue;
+
+            // The purchased collateral appears at the end of period t: this
+            // replaces the redirected principal in the pool balance (exactly, at
+            // par; a discount purchase adds the small accretion of face over cash).
+            cohortAccum.Balance[t] += totalFace;
 
             var cohortPeriods = horizon - cohortStart;
             var cohortStartAbsT = startTime + cohortStart;
@@ -533,7 +560,7 @@ public class CfCore
         if (cohortAccum.NumberOfPeriods == 0)
             return empty;
 
-        return cohortAccum.ToPeriodCashflows(firstProjDate, "REINVEST");
+        return cohortAccum.ToPeriodCashflows(firstProjDate, reinvestGroup);
     }
 
     private static int MonthsBetween(DateTime from, DateTime to)
