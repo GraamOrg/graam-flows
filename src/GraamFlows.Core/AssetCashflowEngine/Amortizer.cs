@@ -109,6 +109,23 @@ public static class Amortizer
             var amortType = rawAmortizationType[assetIndex];
             var isBullet = amortType == (int)AmortizationType.Bullet;
             var isPik = amortType == (int)AmortizationType.Pik;
+
+            // PIK + delinquency is unsupported: the delinquency-advance formulas
+            // assume a cash coupon, but a PIK coupon is capitalized (cash interest
+            // is zeroed), so a non-zero delinqRate would emit spurious negative
+            // UnAdvancedInterest instead of servicer advances. Fail fast rather
+            // than produce bad numbers.
+            if (isPik)
+            {
+                var delRow = delTime[assetIndex];
+                for (var p = 0; p < delRow.Length; p++)
+                    if (delRow[p] > 0)
+                        throw new InvalidOperationException(
+                            $"Asset at index {assetIndex}: PIK assets do not support delinquency " +
+                            $"assumptions (delinqRate {delRow[p]:0.####} at period {p}). Remove the " +
+                            "delinquency assumption for PIK collateral.");
+            }
+
             var rateSteps = rawStepDatesCount[assetIndex];
             var nextRateStepDate = 100000;
             var forbearanceAmt = rawForbearanceAmt[assetIndex];
