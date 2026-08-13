@@ -484,23 +484,17 @@ public class CfCore
             var reinvestCash = Math.Min(available, gap);
             if (reinvestCash < 1.0) continue;
 
-            // Redirect: the reinvested cash is drawn from this period's eligible
-            // principal, so it no longer flows out of the pool to pay liabilities.
-            // Reduce distributable principal by the reinvested cash, split across
-            // the eligible sources in proportion to their contribution. The sum of
-            // these reductions equals reinvestCash exactly (available > 0 here).
-            var hb = 1.0 - cfg.Holdback;
-            var drawFraction = reinvestCash / available;
-            cohortAccum.ScheduledPrincipal[t] -= eligSched * hb * drawFraction;
-            cohortAccum.UnscheduledPrincipal[t] -= eligUnsched * hb * drawFraction;
-            cohortAccum.RecoveryPrincipal[t] -= eligRecov * hb * drawFraction;
-
-            // Cohorts originate at period t and begin amortizing at t+1.
+            // Cohorts originate at period t and begin amortizing at t+1. If the
+            // purchase can't happen (past the projection horizon, or every
+            // template's share is sub-cent), skip the period BEFORE redirecting
+            // any principal — otherwise cash would be drawn out of distributable
+            // principal with no collateral bought to replace it.
             var cohortStart = t + 1;
             if (cohortStart >= horizon) continue;
 
             var cohortAssets = new List<IAsset>();
             var totalFace = 0.0;
+            var cashSpent = 0.0;
             foreach (var template in cfg.Templates)
             {
                 var cash = reinvestCash * template.AllocationPct / 100.0;
@@ -508,10 +502,24 @@ public class CfCore
                 // Cash buys face at the (par-for-synthetic) purchase price.
                 var face = cash / (template.EffectivePrice / 100.0);
                 totalFace += face;
+                cashSpent += cash;
                 cohortAssets.Add(BuildReinvestAsset(template, face, date, rateProvider, seq++));
             }
 
             if (cohortAssets.Count == 0) continue;
+
+            // Redirect: the reinvested cash is drawn from this period's eligible
+            // principal, so it no longer flows out of the pool to pay liabilities.
+            // Reduce distributable principal by the cash actually spent (not
+            // reinvestCash — a sub-cent template share buys nothing and stays
+            // distributable), split across the eligible sources in proportion to
+            // their contribution. The reductions sum to cashSpent exactly
+            // (available > 0 here).
+            var hb = 1.0 - cfg.Holdback;
+            var drawFraction = cashSpent / available;
+            cohortAccum.ScheduledPrincipal[t] -= eligSched * hb * drawFraction;
+            cohortAccum.UnscheduledPrincipal[t] -= eligUnsched * hb * drawFraction;
+            cohortAccum.RecoveryPrincipal[t] -= eligRecov * hb * drawFraction;
 
             // The purchased collateral appears at the end of period t: this
             // replaces the redirected principal in the pool balance (exactly, at

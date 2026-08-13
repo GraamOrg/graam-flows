@@ -154,6 +154,33 @@ public class ReinvestmentLoopTests
     }
 
     [Fact]
+    public void Reinvestment_HorizonCap_NeverRedirectsWithoutBuying()
+    {
+        // A window long enough that the 720-period horizon cap binds. At the
+        // final loop period a maturing bullet's proceeds can no longer buy a
+        // cohort (its start would fall past the horizon) — that cash must flow
+        // through as distributable principal, not be redirected and destroyed.
+        var basePool = AmortizingBasePool();
+        var cfg = KeepFlatConfig(windowMonths: 900);
+
+        var reinvest = CfCore.BuildReinvestmentCashflows(
+            basePool, cfg, FirstProj, ZeroAssumps(), rateProvider: null);
+        reinvest.Should().NotBeEmpty();
+
+        // Conservation at the horizon: every redirected dollar bought par face
+        // (synthetic, no losses), and every dollar of face returns within the
+        // horizon — as a balloon, or via the amortizer's end-of-projection
+        // liquidation, which returns a cohort still outstanding at the final
+        // period as unscheduled principal. Net principal must therefore be
+        // exactly zero. A redirect applied at the final period (where the
+        // purchase is impossible) draws cash out with nothing bought and
+        // shows up here as a shortfall.
+        var netPrincipal = reinvest.Sum(c =>
+            c.ScheduledPrincipal + c.UnscheduledPrincipal + c.RecoveryPrincipal);
+        netPrincipal.Should().BeApproximately(0.0, 1.0);
+    }
+
+    [Fact]
     public void Reinvestment_EmptyWindow_ReturnsNothing()
     {
         var basePool = AmortizingBasePool();
