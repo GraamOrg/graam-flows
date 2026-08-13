@@ -1,0 +1,149 @@
+{
+  "dealName": "REVOLVING_POOL_SAMPLE",
+  "dealType": "Sequential",
+  "cutoffDate": "2026-04-01",
+  "closingDate": "2026-04-01",
+  "firstPaymentDate": "2026-05-01",
+  "balanceAtIssuance": 500000000,
+  "collateralBalance": 500000000,
+  "poolInformation": {
+    "aggregateBalance": 500000000,
+    "weightedAverageCoupon": 6.0
+  },
+  "collateral": {
+    "assets": [
+      { "assetId": "LOAN-1", "groupNum": "1", "balance": 125000000, "interestRate": 6.0, "remainingTerm": 84, "originalTerm": 84, "serviceFee": 0.25, "originationDate": "2026-04-01", "loanStatus": "Current" },
+      { "assetId": "LOAN-2", "groupNum": "1", "balance": 125000000, "interestRate": 6.25, "remainingTerm": 78, "originalTerm": 84, "serviceFee": 0.25, "originationDate": "2026-04-01", "loanStatus": "Current" },
+      { "assetId": "LOAN-3", "groupNum": "1", "balance": 125000000, "interestRate": 5.75, "remainingTerm": 90, "originalTerm": 90, "serviceFee": 0.25, "originationDate": "2026-04-01", "loanStatus": "Current" },
+      { "assetId": "LOAN-4", "groupNum": "1", "balance": 125000000, "interestRate": 6.5, "remainingTerm": 72, "originalTerm": 84, "serviceFee": 0.25, "originationDate": "2026-04-01", "loanStatus": "Current" }
+    ]
+  },
+  "reinvestment": {
+    "reinvestStartDate": "2026-05-01",
+    "reinvestEndDate": "2029-05-01",
+    "target": 500000000,
+    "holdback": 0.0,
+    "reinvestScheduledPrincipal": true,
+    "reinvestPrepayments": true,
+    "reinvestRecoveries": false,
+    "templates": [
+      {
+        "allocationPct": 100,
+        "isSynthetic": true,
+        "interestRateType": "FRM",
+        "amortizationType": "Bullet",
+        "couponRate": 6.5,
+        "termMonths": 96,
+        "serviceFee": 0.25
+      }
+    ]
+  },
+  "tranches": [
+    {
+      "trancheName": "A", "classReference": "A", "groupNum": "1",
+      "originalBalance": 350000000, "couponType": "Fixed", "fixedCoupon": 5.5,
+      "trancheType": "Offered", "cashflowType": "PI",
+      "firstPayDate": "2026-05-01", "payDay": 1, "payDelay": 0,
+      "dayCount": "30/360", "subordinationOrder": 0
+    },
+    {
+      "trancheName": "B", "classReference": "B", "groupNum": "1",
+      "originalBalance": 75000000, "couponType": "Fixed", "fixedCoupon": 6.5,
+      "trancheType": "Offered", "cashflowType": "PI",
+      "firstPayDate": "2026-05-01", "payDay": 1, "payDelay": 0,
+      "dayCount": "30/360", "subordinationOrder": 1
+    },
+    {
+      "trancheName": "C", "classReference": "C", "groupNum": "1",
+      "originalBalance": 50000000, "couponType": "Fixed", "fixedCoupon": 8.0,
+      "trancheType": "Offered", "cashflowType": "PI",
+      "firstPayDate": "2026-05-01", "payDay": 1, "payDelay": 0,
+      "dayCount": "30/360", "subordinationOrder": 2
+    },
+    {
+      "trancheName": "EQUITY", "classReference": "EQUITY", "groupNum": "1",
+      "originalBalance": 25000000, "couponType": "None", "fixedCoupon": null,
+      "trancheType": "Certificate", "cashflowType": "PI",
+      "firstPayDate": "2026-05-01", "payDay": 1, "payDelay": 0,
+      "dayCount": "30/360", "subordinationOrder": 3
+    }
+  ],
+  "unifiedWaterfall": {
+    "steps": [
+      {
+        "type": "INTEREST",
+        "structure": {
+          "type": "SEQ",
+          "children": [
+            { "type": "SINGLE", "tranche": "A" },
+            { "type": "SINGLE", "tranche": "B" },
+            { "type": "SINGLE", "tranche": "C" }
+          ]
+        }
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "scheduled",
+        "default": {
+          "type": "SEQ",
+          "children": [
+            { "type": "SINGLE", "tranche": "A" },
+            { "type": "SINGLE", "tranche": "B" },
+            { "type": "SINGLE", "tranche": "C" },
+            { "type": "SINGLE", "tranche": "EQUITY" }
+          ]
+        }
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "unscheduled",
+        "default": {
+          "type": "SEQ",
+          "children": [
+            { "type": "SINGLE", "tranche": "A" },
+            { "type": "SINGLE", "tranche": "B" },
+            { "type": "SINGLE", "tranche": "C" },
+            { "type": "SINGLE", "tranche": "EQUITY" }
+          ]
+        }
+      },
+      {
+        "type": "PRINCIPAL",
+        "source": "recovery",
+        "default": {
+          "type": "SEQ",
+          "children": [
+            { "type": "SINGLE", "tranche": "A" },
+            { "type": "SINGLE", "tranche": "B" },
+            { "type": "SINGLE", "tranche": "C" },
+            { "type": "SINGLE", "tranche": "EQUITY" }
+          ]
+        }
+      },
+      {
+        "type": "WRITEDOWN",
+        "structure": {
+          "type": "SEQ",
+          "children": [
+            { "type": "SINGLE", "tranche": "EQUITY" },
+            { "type": "SINGLE", "tranche": "C" },
+            { "type": "SINGLE", "tranche": "B" },
+            { "type": "SINGLE", "tranche": "A" }
+          ]
+        }
+      },
+      {
+        "type": "EXCESS_RELEASE",
+        "structure": { "type": "SINGLE", "tranche": "EQUITY" }
+      }
+    ],
+    "executionOrder": [
+      "INTEREST",
+      "PRINCIPAL_SCHEDULED",
+      "PRINCIPAL_UNSCHEDULED",
+      "PRINCIPAL_RECOVERY",
+      "WRITEDOWN",
+      "EXCESS_RELEASE"
+    ]
+  }
+}
