@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GraamFlows.Objects.TypeEnum;
 
 namespace GraamFlows.Api.Models;
 
@@ -109,6 +110,85 @@ public class DealDto
     /// to FirstPayDate minus one month.
     /// </summary>
     public DateTime? ClosingDate { get; set; }
+
+    /// <summary>
+    ///     Revolving / reinvesting collateral-pool configuration (optional).
+    ///     Bound but not yet consumed by the engine (graam-flows#48); the
+    ///     reinvestment loop is graam-flows#49.
+    /// </summary>
+    public ReinvestmentDto? Reinvestment { get; set; }
+}
+
+/// <summary>
+///     Deal-level revolving / reinvesting collateral-pool configuration. During
+///     the reinvestment window, eligible principal proceeds buy new collateral
+///     (Templates) up to Target, less Holdback.
+/// </summary>
+public class ReinvestmentDto
+{
+    /// <summary>End of the reinvestment window (required).</summary>
+    public DateTime ReinvestEndDate { get; set; }
+
+    /// <summary>Optional start of the window; defaults to the projection start.</summary>
+    public DateTime? ReinvestStartDate { get; set; }
+
+    /// <summary>Plain balance target the pool is reinvested up to. Used when TargetSchedule is empty.</summary>
+    public double Target { get; set; }
+
+    /// <summary>Optional per-period balance target (index 0 = first projection period); clamps at the end.</summary>
+    public double[]? TargetSchedule { get; set; }
+
+    /// <summary>Fraction of eligible proceeds released instead of reinvested (default 0).</summary>
+    public double Holdback { get; set; }
+
+    /// <summary>Reinvest scheduled principal (default true).</summary>
+    public bool? ReinvestScheduledPrincipal { get; set; }
+
+    /// <summary>Reinvest prepayments / unscheduled principal (default true).</summary>
+    public bool? ReinvestPrepayments { get; set; }
+
+    /// <summary>Reinvest recoveries (default false).</summary>
+    public bool? ReinvestRecoveries { get; set; }
+
+    /// <summary>Reinvestment asset templates; allocations sum to 100.</summary>
+    public List<ReinvestTemplateDto> Templates { get; set; } = new();
+}
+
+/// <summary>
+///     One reinvestment asset template. Reuses the asset parameter set plus a
+///     purchase price and a synthetic flag.
+/// </summary>
+public class ReinvestTemplateDto
+{
+    /// <summary>Share of eligible proceeds for this template, in percent.</summary>
+    public double AllocationPct { get; set; }
+
+    /// <summary>Purchase price (percent of par). Ignored for synthetic templates (priced at par).</summary>
+    public double Price { get; set; } = 100.0;
+
+    /// <summary>Synthetic (TBA) collateral, priced at par.</summary>
+    public bool IsSynthetic { get; set; }
+
+    /// <summary>Coupon style (FRM / ARM / STEP).</summary>
+    public InterestRateType InterestRateType { get; set; } = InterestRateType.FRM;
+
+    /// <summary>Principal-repayment style (typically Bullet for reinvested collateral).</summary>
+    public AmortizationType AmortizationType { get; set; } = AmortizationType.Bullet;
+
+    /// <summary>Fixed coupon rate (annual %).</summary>
+    public double CouponRate { get; set; }
+
+    /// <summary>Forward-curve index for a floating coupon (None for fixed).</summary>
+    public MarketDataInstEnum IndexName { get; set; } = MarketDataInstEnum.None;
+
+    /// <summary>Spread over the index for a floating coupon (annual %).</summary>
+    public double IndexMargin { get; set; }
+
+    /// <summary>Term to maturity in months.</summary>
+    public int TermMonths { get; set; }
+
+    /// <summary>Servicing fee (annual %).</summary>
+    public double ServiceFee { get; set; }
 }
 
 /// <summary>
