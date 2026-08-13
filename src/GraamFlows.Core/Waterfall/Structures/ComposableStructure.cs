@@ -277,6 +277,33 @@ public class ComposableStructure : BaseStructure
                 $"Interest group has {residualTranches.Count} ExcessInterest (excess-spread) tranches " +
                 $"({string.Join(", ", residualTranches.Select(dt => dt.Tranche.TrancheName))}); at most one is " +
                 "supported — the interest sweep pays all residual to the first, silently zeroing the rest.");
+
+        // An Exchanged (combinable / MACR) class pays through the component notes
+        // it combines, via a PayFrom=Exchange structure whose ExchangableTranche
+        // names those components. A class typed Exchanged but missing that
+        // reference — e.g. a plain debt note mis-typed as Exchanged by an
+        // upstream extractor — would otherwise NRE deep in the subordination walk
+        // (DynamicGroup.SubordinateClasses splits a null ExchangableTranche). Fail
+        // loudly and actionably here instead (cf. #42).
+        foreach (var dc in dynGroup.DynamicClasses)
+        {
+            var ds = dc.DealStructure;
+            if (ds is not { PayFromEnum: PayFromEnum.Exchange })
+                continue;
+
+            if (string.IsNullOrWhiteSpace(ds.ExchangableTranche))
+                throw new DealModelingException(deal.DealName,
+                    $"Class '{dc.Tranche.TrancheName}' is typed Exchanged but names no component classes " +
+                    "(exchangableTranche is empty). An Exchanged/combinable class must reference the classes " +
+                    "it combines; a plain debt note should be typed Offered (or similar), not Exchanged.");
+
+            foreach (var component in ds.ExchangableTranche.Split(
+                         ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                if (dynGroup.ClassByName(component) == null)
+                    throw new DealModelingException(deal.DealName,
+                        $"Class '{dc.Tranche.TrancheName}' (Exchanged) references unknown component class " +
+                        $"'{component}'.");
+        }
     }
 
     /// <summary>

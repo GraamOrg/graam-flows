@@ -192,6 +192,16 @@ public class TestDealBuilder
     /// </summary>
     public TestDealBuilder WithExchangeClass(string name, int subOrder,
         params string[] componentTranches)
+        => WithExchangeClass(name, subOrder, wellFormed: true, componentTranches);
+
+    /// <summary>
+    ///     Overload allowing a deliberately malformed Exchanged class for negative
+    ///     tests: <paramref name="wellFormed" /> = false omits the ExchangableTranche
+    ///     reference (and ExchShares), reproducing a class typed Exchanged with no
+    ///     component notes (e.g. a mis-extracted plain debt note).
+    /// </summary>
+    public TestDealBuilder WithExchangeClass(string name, int subOrder, bool wellFormed,
+        params string[] componentTranches)
     {
         var componentBalances = componentTranches
             .Select(c => _deal.Tranches.First(t => t.TrancheName == c).OriginalBalance)
@@ -227,18 +237,19 @@ public class TestDealBuilder
             ClassGroupName = name,
             SubordinationOrder = subOrder,
             PayFrom = "Exchange",
-            ExchangableTranche = string.Join(",", componentTranches),
+            ExchangableTranche = wellFormed ? string.Join(",", componentTranches) : null,
             GroupNum = "1"
         });
 
-        for (var i = 0; i < componentTranches.Length; i++)
-            _deal.ExchShares.Add(new ExchShare
-            {
-                DealName = _deal.DealName,
-                ClassGroupName = name,
-                TrancheName = componentTranches[i],
-                Quantity = componentBalances[i]
-            });
+        if (wellFormed)
+            for (var i = 0; i < componentTranches.Length; i++)
+                _deal.ExchShares.Add(new ExchShare
+                {
+                    DealName = _deal.DealName,
+                    ClassGroupName = name,
+                    TrancheName = componentTranches[i],
+                    Quantity = componentBalances[i]
+                });
 
         return this;
     }
