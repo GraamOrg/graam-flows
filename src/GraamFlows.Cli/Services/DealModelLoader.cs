@@ -153,7 +153,14 @@ public class DealModelLoader
         PropertyNameCaseInsensitive = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
-        Converters = { new FlexibleDateTimeConverter(), new FactorEntryConverter() }
+        // Bind enums by name (e.g. amortizationType "Bullet", interestRateType
+        // "FRM") to match the API's JSON options (Program.cs). Without this the
+        // reinvestment template's enum fields fail to deserialize.
+        Converters =
+        {
+            new FlexibleDateTimeConverter(), new FactorEntryConverter(),
+            new JsonStringEnumConverter()
+        }
     };
 
     public async Task<DealModelFile> LoadAsync(string filePath)
