@@ -49,13 +49,17 @@ public class SequentialStructure : BasePayable
 
         foreach (var payable in _payables)
         {
-            if (remaining < 0.01)
-                break;
-
             if (payable.IsLockedOut(cfDate))
                 continue;
 
-            var paid = payable.PayInterest(this, cfDate, remaining, rateProvider, allTranches);
+            // Below a penny there is nothing left to distribute — hand the payable
+            // zero rather than breaking out, so every class further down still books
+            // its unpaid coupon as a shortfall (#58). PayInterest with no funds pays
+            // nothing and consumes nothing, so the cash outcome is identical to the
+            // break this replaces.
+            var fundsForPayable = remaining < 0.01 ? 0 : remaining;
+
+            var paid = payable.PayInterest(this, cfDate, fundsForPayable, rateProvider, allTranches);
             interestPaid += paid;
             remaining -= paid;
         }

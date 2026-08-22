@@ -106,6 +106,60 @@ public class DynamicTranche : DynamicClass
         }
     }
 
+    /// <summary>
+    ///     Book a period's coupon accrual for a class that receives NOTHING.
+    ///
+    ///     The five-argument <see cref="PayInterest(TrancheCashflow,IRateProvider,IAssumptionMill,IEnumerable{DynamicTranche},double)" />
+    ///     is the only place an interest shortfall is recorded, and the interest sweep
+    ///     skips that call entirely when no funds reach the class. A class paid a
+    ///     PARTIAL coupon therefore booked its shortfall while a class paid nothing
+    ///     booked none, and its row kept the <see cref="TrancheCashflow" /> defaults:
+    ///     Coupon 0, InterestShortfall 0, AccumInterestShortfall frozen at the carried
+    ///     forward value while the class was still outstanding and unpaid (#58).
+    ///     Whether an unpaid coupon is recorded must not depend on whether a dollar
+    ///     happened to arrive.
+    ///
+    ///     Cash-neutral by construction: this pays nothing and consumes nothing. It
+    ///     only stamps the row's stated coupon and accrues the full period's interest
+    ///     as shortfall.
+    ///
+    ///     Nothing is written when the accrual is zero, so a retired (zero-face) class
+    ///     is left exactly as it was. ExcessInterest (XS) and Residual (R) strips have
+    ///     no stated coupon due and never accrue — the same carve-out the paid path
+    ///     applies.
+    /// </summary>
+    public virtual void AccrueUnpaidInterest(TrancheCashflow trancheCashflow, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        if (Tranche.CouponTypeEnum == CouponType.ExcessInterest ||
+            Tranche.CouponTypeEnum == CouponType.Residual)
+            return;
+
+        var frac = YearFraction(trancheCashflow.CashflowDate);
+        var balance = TrancheBalance(trancheCashflow);
+        var coupon = Coupon(rateProvider, trancheCashflow.CashflowDate, allTranches);
+
+        // IsInterest classes carry a dollar amount out of Coupon(), not a rate —
+        // mirror the accrual the paid path uses for each shape.
+        var accrual = IsInterest ? coupon : balance * coupon * .01 * frac;
+        if (accrual <= 0)
+            return;
+
+        trancheCashflow.ResetSlope = ResetSlope();
+        trancheCashflow.AccrualDays = AccuralDays(trancheCashflow.CashflowDate);
+        trancheCashflow.Coupon = IsInterest ? 0 : coupon;
+        trancheCashflow.EffectiveCoupon = 0;
+        trancheCashflow.InterestShortfall = accrual;
+        trancheCashflow.AccumInterestShortfall += accrual;
+
+        if (Tranche.CouponTypeEnum == CouponType.Floating)
+        {
+            trancheCashflow.IndexValue = rateProvider.GetRate(FloaterIndex(), trancheCashflow.CashflowDate);
+            trancheCashflow.FloaterIndex = FloaterIndex().ToString();
+            trancheCashflow.FloaterMargin = FloaterSpread();
+        }
+    }
+
     public virtual void PaybackInterestShortfall(TrancheCashflow trancheCashflow, double interestShortfallPayback)
     {
         var balance = TrancheBalance(trancheCashflow);
