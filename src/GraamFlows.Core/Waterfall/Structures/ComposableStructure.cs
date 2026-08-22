@@ -663,10 +663,20 @@ public class ComposableStructure : BaseStructure
         PeriodCashflows periodCf, List<DynamicTranche> allTranches,
         List<IPayable> intChildren, int index, double availableInterest)
     {
-        if (index >= intChildren.Count || availableInterest < 0.01)
+        if (index >= intChildren.Count)
             return availableInterest;
 
         var child = intChildren[index];
+
+        // Out of funds at this seniority level. Walk the child anyway so its classes
+        // book their unpaid coupon as a shortfall (#58) — but take no reserve draw,
+        // which leaves the cash outcome exactly as it was when the level was skipped.
+        if (availableInterest < 0.01)
+        {
+            child.PayInterest(null, periodCf.CashflowDate, 0, rateProvider, allTranches);
+            return availableInterest;
+        }
+
         var due = child.InterestDue(periodCf.CashflowDate, rateProvider, allTranches);
         var paidFromAvailable = Math.Min(availableInterest, due);
         var paidFromReserve = DrawFromReserve(dynGroup, due - paidFromAvailable);

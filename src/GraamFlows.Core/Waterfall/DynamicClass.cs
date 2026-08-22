@@ -86,6 +86,14 @@ public class DynamicClass : IPayable
                 dynTran.PayInterest(cf, rateProvider, null, allTranchesList, toPay);
                 interestPaid += toPay;
             }
+            else
+            {
+                // No funds reached this class. Its coupon still accrued, so book it
+                // as a shortfall — AccrueUnpaidInterest pays nothing and consumes
+                // nothing, it only records. Skipping the class outright left it
+                // reporting a 0 coupon and a frozen shortfall while outstanding (#58).
+                dynTran.AccrueUnpaidInterest(cf, rateProvider, allTranchesList);
+            }
         }
 
         return interestPaid;
