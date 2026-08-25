@@ -230,8 +230,12 @@ public class CfCore
             var value = vector?.ValueAt(period, startTime + period) ?? defaultValue;
 
             if (convertToMonthly)
-                // Convert annual rate (CPR/CDR) to monthly rate (SMM/MDR)
-                result[period] = 1.0 - Math.Pow(1.0 - value / 100.0, 1.0 / 12.0);
+                // Convert annual rate (CPR/CDR) to monthly rate (SMM/MDR).
+                // The de-annualization lives in MathUtil so the >= 100 case returns a
+                // saturated 1.0 instead of Math.Pow(negative, 1/12) = NaN, which the
+                // amortizer's Math.Clamp(smm, 0, 1) cannot clamp (graam-harmony #4476).
+                // The in-range expression is unchanged, so tie-out numbers do not move.
+                result[period] = MathUtil.AnnualPercentToMonthlyHazard(value);
             else
                 result[period] = value / divisor;
         }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using GraamFlows.Api.Models;
+using GraamFlows.Api.Validation;
 using GraamFlows.Assumptions;
 using GraamFlows.Domain;
 using GraamFlows.Objects.DataObjects;
@@ -28,6 +29,20 @@ public class CalcCollateralController : ControllerBase
         var totalBalance = request.Assets.Sum(a => a.CurrentBalance);
         _logger.LogInformation("CalcCollateral: {AssetCount} assets, total balance {TotalBalance:N0}, projection date {ProjectionDate:yyyy-MM-dd}",
             request.Assets.Count, totalBalance, request.ProjectionDate);
+
+        // Reject out-of-range assumptions HERE, where they enter the system
+        // (graam-harmony #4476). Before this guard, cpr=1000 de-annualized to NaN,
+        // the amortizer's Math.Clamp(smm, 0, 1) failed to clamp it (NaN compares
+        // false against both bounds), and this endpoint returned 200 OK with NaN in
+        // every row — the mistake only surfaced one service call later, as a
+        // non-finite-cashflow rejection from /api/waterfall that named neither the
+        // field nor the value the user got wrong.
+        var validationError = AssumptionValidation.Validate(request);
+        if (validationError != null)
+        {
+            _logger.LogWarning("CalcCollateral rejected: {ValidationError}", validationError);
+            return BadRequest(new { error = validationError });
+        }
 
         try
         {
