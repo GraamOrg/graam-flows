@@ -181,8 +181,16 @@ public class CfCore
                     recoveryLag[i] = assetLag;
                 }
                 delTime[i] = BuildAssumptionArray(aa?.DelinqRate, maxPeriods, startTime, false, 100.0);
-                delAdvIntTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctInt, maxPeriods, startTime, false, 1.0, 100.0);
-                delAdvPrinTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctPrin, maxPeriods, startTime, false, 1.0, 100.0);
+                // Advancing is a PERCENT, like severity (:176) and delinquency (:183)
+                // above — divisor 100, not 1.0 (graam-harmony #4481 §1). The amortizer
+                // consumes these as fractions (`1 - delAdvInt`), so a divisor of 1.0
+                // made `advancing = 100` mean 100x rather than 100%: `1 - 100 = -99`.
+                // Measured on a 100k/6%/360 loan at dq=5, advancing=100, that reported
+                // interest at 5.95x the true coupon, minted advanced P&I at 5x, and
+                // paid the loan off at month 333 instead of 360. The only value that
+                // meant "advance everything" was `1`.
+                delAdvIntTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctInt, maxPeriods, startTime, false, 100.0, 100.0);
+                delAdvPrinTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctPrin, maxPeriods, startTime, false, 100.0, 100.0);
                 forbRecovPpayTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryPrepay, maxPeriods, startTime, -1.0);
                 forbRecovMaturityTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryMaturity, maxPeriods, startTime, 1.0);
                 forbRecovDefaultTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryDefault, maxPeriods, startTime, -1.0);
