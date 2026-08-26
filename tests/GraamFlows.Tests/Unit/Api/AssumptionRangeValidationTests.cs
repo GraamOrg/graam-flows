@@ -203,13 +203,15 @@ public class AssumptionRangeValidationTests
         var request = Request(Sane());
         request.AssetAssumptions = new Dictionary<string, AssetAssumptionDto>
         {
-            ["LOAN-000042"] = new() { SeverityVector = new[] { 40.0, 40.0, 140.0 } },
+            // 240, not 140: severity legitimately exceeds 100 (liquidation costs), so
+            // the bound for this field is 200.
+            ["LOAN-000042"] = new() { SeverityVector = new[] { 40.0, 40.0, 240.0 } },
         };
 
         var message = RejectionMessage(Calculate(request),
             because: "per-asset vectors are the densest input surface and the easiest place to hide a bad value");
 
-        message.Should().Contain("LOAN-000042").And.Contain("severityVector[2]").And.Contain("140");
+        message.Should().Contain("LOAN-000042").And.Contain("severityVector[2]").And.Contain("240");
     }
 
     [Theory]
@@ -221,7 +223,13 @@ public class AssumptionRangeValidationTests
         assumptions.Cpr = boundary;
         assumptions.Cdr = boundary;
         assumptions.Severity = boundary;
-        assumptions.Delinquency = 0.0;
+        // Not hardcoded to 0: delinquency = 0 is the single assignment that masks the
+        // advancing divisor bug (CfCore builds delAdvInt with divisor 1.0 where
+        // severity and delinquency use 100.0), and pinning it here would have let this
+        // test look like evidence that advancing = 100 is sound. It is not — see the
+        // follow-up noted on graam-harmony #4476. This test's claim is narrower: the
+        // RANGE is inclusive at both ends.
+        assumptions.Delinquency = boundary;
         assumptions.Advancing = boundary;
 
         var result = Calculate(Request(assumptions));
@@ -320,5 +328,181 @@ public class AssumptionRangeValidationTests
         result.Result.Should().BeOfType<OkObjectResult>(
             "every convention the engine models — in any casing, and the omitted default — must still be accepted; "
             + "a census of graam-harmony and graam-web found these are the only values ever sent");
+    }
+
+    // ---- PolyPaths string vectors (the Priority-2 shape) ----
+
+    [Theory]
+    [InlineData("1000")]
+    [InlineData("1000R12,6.0")]
+    [InlineData("202501,1000R12,6.0")]
+    public void Calculate_PolyPathsStringVectorOutOfRange_IsRejected(string vectorStr)
+    {
+        var assumptions = Sane();
+        assumptions.CprVectorStr = vectorStr;
+
+        var message = RejectionMessage(Calculate(Request(assumptions)),
+            because: "the *VectorStr shape WINS over the scalars whenever it is present, so leaving it "
+                     + "unvalidated left the whole guard bypassable — and post-fix it is worse than pre-fix, "
+                     + "because the saturating de-annualization turns it into a plausible 200 OK full-prepay "
+                     + "projection instead of the NaN that /api/waterfall would at least have caught");
+
+        message.Should().Contain("cprVectorStr").And.Contain("1000").And.Contain("100");
+    }
+
+    [Fact]
+    public void Calculate_PolyPathsStringVectorGoesBadLater_NamesTheOffendingPeriod()
+    {
+        var assumptions = Sane();
+        // Starts in range and ramps out of it, so only a per-period check catches it.
+        assumptions.CdrVectorStr = "1.0R6,900.0";
+
+        var message = RejectionMessage(Calculate(Request(assumptions)),
+            because: "a ramp can be in range at period 0 and far out of it later");
+
+        message.Should().Contain("cdrVectorStr").And.Contain("period",
+            because: "naming the period is the string-vector equivalent of naming the array index");
+    }
+
+    [Theory]
+    [InlineData("6.0")]
+    [InlineData("1.0R12,6.0")]
+    [InlineData("100")]
+    public void Calculate_PolyPathsStringVectorInRange_IsAccepted(string vectorStr)
+    {
+        var assumptions = Sane();
+        assumptions.CprVectorStr = vectorStr;
+
+        Calculate(Request(assumptions)).Result.Should().BeOfType<OkObjectResult>(
+            "the legacy PolyPaths shape must keep working — validating it must not amount to banning it");
+    }
+
+    [Fact]
+    public void Calculate_UnparseablePolyPathsString_IsRejectedWithTheExpectedFormat()
+    {
+        var assumptions = Sane();
+        assumptions.CprVectorStr = "not-a-vector";
+
+        var message = RejectionMessage(Calculate(Request(assumptions)),
+            because: "an unparseable vector used to surface as a raw parser exception message");
+
+        message.Should().Contain("cprVectorStr").And.Contain("PolyPaths",
+            because: "the message must show the reader what shape was expected");
+    }
+
+    // ---- shadowing: only validate what the engine will actually read ----
+
+    [Fact]
+    public void Calculate_VectorPresent_MessageNamesTheVectorNotTheShadowedScalar()
+    {
+        var assumptions = Sane();
+        // Exactly what harmony's client sends for a list-valued assumption: the vector
+        // plus a synthetic mean scalar that nobody typed. Both are out of range here.
+        assumptions.CprVector = new[] { 20.0, 40.0, 900.0 };
+        assumptions.Cpr = (20.0 + 40.0 + 900.0) / 3.0; // 320, the client's "scalar fallback (average)"
+
+        var message = RejectionMessage(Calculate(Request(assumptions)),
+            because: "CreateAssumptions' Priority-1 branch uses CprVector and ignores Cpr entirely");
+
+        message.Should().Contain("cprVector[2]").And.Contain("900",
+            because: "the offending value is the vector element the engine will actually read");
+        message.Should().NotContain("assumptions.cpr =",
+            because: "the paired scalar is a mean harmony synthesized and the projection never reads it — "
+                     + "naming it would point the user at a field they never filled in");
+    }
+
+    [Fact]
+    public void Calculate_VectorInRangeButShadowedScalarIsNot_IsAccepted()
+    {
+        var assumptions = Sane();
+        assumptions.CprVector = new[] { 6.0, 6.0, 6.0 };
+        assumptions.Cpr = 900.0; // shadowed: never read
+
+        Calculate(Request(assumptions)).Result.Should().BeOfType<OkObjectResult>(
+            "a value the engine never reads cannot make the projection wrong, and rejecting it would 400 a "
+            + "request that would have computed correctly");
+    }
+
+    [Fact]
+    public void Calculate_TypedVectorPresent_ShadowsThePolyPathsStringEntirely()
+    {
+        var assumptions = Sane();
+        assumptions.CprVector = new[] { 6.0, 6.0 };
+        assumptions.CprVectorStr = "9000"; // Priority 1 beats Priority 2: never parsed
+
+        Calculate(Request(assumptions)).Result.Should().BeOfType<OkObjectResult>(
+            "hasArrays wins over hasVectorStrs in CreateAssumptions, so the string is dead input here — the "
+            + "validator mirrors the engine's priority ladder rather than checking every field it can see");
+    }
+
+    // ---- severity above 100 is legitimate ----
+
+    [Theory]
+    [InlineData(110.0)]
+    [InlineData(150.0)]
+    [InlineData(200.0)]
+    public void Calculate_SeverityAboveOneHundred_IsAccepted(double severity)
+    {
+        var assumptions = Sane();
+        assumptions.Cdr = 10.0;
+        assumptions.Severity = severity;
+
+        Calculate(Request(assumptions)).Result.Should().BeOfType<OkObjectResult>(
+            "severity above 100 is the standard liquidation-costs-exceed-balance convention and the engine "
+            + "models it correctly and monotonically (measured: sev=110 gives recovery -874.16 and loss at "
+            + "110% of defaults, finite); rejecting it would 400 a valid input and tell an analyst their "
+            + "deliberate 110 was a units mistake");
+    }
+
+    [Fact]
+    public void Calculate_SeverityFarAboveOneHundred_IsStillRejected()
+    {
+        var assumptions = Sane();
+        assumptions.Severity = 4000;
+
+        var message = RejectionMessage(Calculate(Request(assumptions)),
+            because: "the widened bound is a units-mistake heuristic, not an open door");
+
+        message.Should().Contain("assumptions.severity").And.Contain("4000").And.Contain("200",
+            because: "the message must quote the bound that actually applies to this field, not a generic 100");
+    }
+
+    // ---- all problems at once ----
+
+    [Fact]
+    public void Calculate_SeveralBadFields_ReportsAllOfThemInOneResponse()
+    {
+        var assumptions = Sane();
+        assumptions.Cpr = 1000;
+        assumptions.Cdr = 500;
+        assumptions.Severity = 4000;
+
+        var message = RejectionMessage(Calculate(Request(assumptions)),
+            because: "the Scenarios screen submits several boxes at once");
+
+        message.Should().Contain("assumptions.cpr").And.Contain("assumptions.cdr").And.Contain("assumptions.severity",
+            because: "first-error-wins would cost the user one round trip per bad field, which is the opposite "
+                     + "of what a PR about actionable messages should ship");
+        message.Should().Contain("3", because: "the summary must say how many problems were found");
+    }
+
+    // ---- whitespace ----
+
+    [Theory]
+    [InlineData(" SMM ")]
+    [InlineData("smm\t")]
+    public void Calculate_PaddedPrepaymentType_IsAcceptedAndStillResolvesToSmm(string prepaymentType)
+    {
+        var assumptions = Sane();
+        assumptions.PrepaymentType = prepaymentType;
+        assumptions.Cpr = 1000;
+
+        var message = RejectionMessage(Calculate(Request(assumptions)),
+            because: "padding should not change what a convention means");
+
+        message.Should().Contain("MONTHLY",
+            because: "the trim in AssumptionValidation is paired with the one in ParsePrepaymentType — if only "
+                     + "the validator trimmed, ' SMM ' would pass validation and then be modelled as CPR, "
+                     + "which is worse than rejecting it outright");
     }
 }

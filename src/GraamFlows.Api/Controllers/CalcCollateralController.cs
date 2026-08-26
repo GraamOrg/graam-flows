@@ -179,7 +179,7 @@ public class CalcCollateralController : ControllerBase
         }
 
         // Priority 3: Scalar values
-        if (string.Equals(dto.PrepaymentType, "ABS", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(dto.PrepaymentType?.Trim(), "ABS", StringComparison.OrdinalIgnoreCase))
         {
             return DealLevelAssumptions.CreateAbsAssumptions(
                 projectionDate, anchorAbsT,
@@ -237,20 +237,27 @@ public class CalcCollateralController : ControllerBase
         return new CurveRateProvider(projectionDate, curves);
     }
 
+    // The Trim() here is paired with the one in AssumptionValidation: the validator
+    // accepts " SMM " as SMM, so this must resolve it to SMM too. Trimming in only one
+    // of the two would be worse than trimming in neither — a padded string would pass
+    // validation and then be silently modelled as CPR (graam-harmony #4476).
     private static PrepaymentTypeEnum ParsePrepaymentType(string? prepaymentType)
     {
-        if (string.Equals(prepaymentType, "ABS", StringComparison.OrdinalIgnoreCase))
+        var value = prepaymentType?.Trim();
+        if (string.Equals(value, "ABS", StringComparison.OrdinalIgnoreCase))
             return PrepaymentTypeEnum.ABS;
-        if (string.Equals(prepaymentType, "SMM", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(value, "SMM", StringComparison.OrdinalIgnoreCase))
             return PrepaymentTypeEnum.SMM;
         return PrepaymentTypeEnum.CPR;
     }
 
+    /// <summary>See <see cref="ParsePrepaymentType"/> for why the trim is paired.</summary>
     private static DefaultTypeEnum ParseDefaultType(string? defaultType)
     {
-        if (string.Equals(defaultType, "MDR", StringComparison.OrdinalIgnoreCase))
+        var value = defaultType?.Trim();
+        if (string.Equals(value, "MDR", StringComparison.OrdinalIgnoreCase))
             return DefaultTypeEnum.MDR;
-        if (string.Equals(defaultType, "ORIGMDR", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(value, "ORIGMDR", StringComparison.OrdinalIgnoreCase))
             return DefaultTypeEnum.ORIGMDR;
         return DefaultTypeEnum.CDR;
     }

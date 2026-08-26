@@ -171,17 +171,6 @@ public class DealLevelAssumptions : IAssumptionMill
         return new DealLevelAssumptions(settleDate, assetAssumps);
     }
 
-    public static DealLevelAssumptions CreateConstAssumptionsPsa(DateTime settleDate, int anchorAbsT,
-        string psaStr)
-    {
-        var psa = PolyPathsVectorLanguageParser.parseAnchorableVector(psaStr, 0, null, anchorAbsT);
-        var assetAssumps = new AssetAssumptions(PrepaymentTypeEnum.PSA, psa,
-            DefaultTypeEnum.CDR, new ConstVector(0), new ConstVector(0),
-            DelinqRateTypeEnum.PctCurrBal, new ConstVector(0),
-            new ConstVector(0), new ConstVector(0));
-        return new DealLevelAssumptions(settleDate, assetAssumps);
-    }
-
     /// <summary>
     ///     Create assumptions using ABS prepayment convention (prepayment as % of original balance).
     ///     This is the standard convention for Auto ABS deals.

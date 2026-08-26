@@ -30,6 +30,11 @@ public static class MathUtil
     ///     Tie-out note: the in-range expression is byte-for-byte the one the engine
     ///     has always used. Do not rewrite <c>/ 100.0</c> as <c>* .01</c> — those are
     ///     not bit-identical in IEEE-754 and this engine has WAL/price tie-out tests.
+    ///     A second, unreferenced copy of this formula written the <c>* .01</c> way
+    ///     used to live beside it as <c>ConvertToSmm</c>; over a 15,000,001-point
+    ///     sweep of [0, 100] the two disagreed on 603,710 values, the widest by
+    ///     115,223 ulps. It was deleted rather than deduplicated — it had no callers,
+    ///     so there was no formula to reconcile, only one to remove.
     ///     The clamps only affect inputs the old expression could not evaluate
     ///     meaningfully anyway: at exactly 0 and exactly 100 they return the same
     ///     values the expression does (<c>Pow(1, 1/12) == 1</c>, <c>Pow(0, 1/12) == 0</c>),
@@ -45,29 +50,6 @@ public static class MathUtil
         if (annualPercent <= 0.0)
             return 0.0;
         return 1.0 - Math.Pow(1.0 - annualPercent / 100.0, 1.0 / 12.0);
-    }
-
-    /// <summary>
-    ///     CPR-to-SMM conversion used by the PSA helpers below.
-    ///
-    ///     This is the SAME formula as
-    ///     <see cref="AnnualPercentToMonthlyHazard" /> but scales with <c>cpr * .01</c>
-    ///     rather than <c>cpr / 100.0</c>, and the two are NOT bit-identical: over a
-    ///     15,000,001-point sweep of [0, 100] (a 10M-point grid plus 5M random draws),
-    ///     603,710 values disagreed, the widest by 115,223 ulps just below 100 where
-    ///     <c>1 - x/100</c> cancels hardest. They are therefore kept as separate
-    ///     functions on purpose — deduping them would move tie-out numbers.
-    ///
-    ///     The engine's assumption path (<c>CfCore.BuildAssumptionArray</c>) uses
-    ///     <see cref="AnnualPercentToMonthlyHazard" />. This one is reached only via
-    ///     <see cref="ConvertPsaToSmm" />. See graam-harmony #4476.
-    /// </summary>
-    public static double ConvertToSmm(double cpr)
-    {
-        if (cpr > 100)
-            return 1;
-        var result = 1.0 - Math.Pow(1.0 - cpr * .01, 1.0 / 12.0);
-        return result;
     }
 
     public static double AmortizingPayment(double balance, double monthlyCpn, int wam)
@@ -87,28 +69,5 @@ public static class MathUtil
         var fact = stddev * Math.Sqrt(2.0 * Math.PI);
         var expo = (x - mean) * (x - mean) / (2.0 * stddev * stddev);
         return Math.Exp(-expo) / fact;
-    }
-
-    public static double ConvertPsaToSmm(int psa, int age)
-    {
-        var cpr = ConvertPsaToCpr(psa, age);
-        var smm = ConvertToSmm(cpr);
-        return smm;
-    }
-
-    public static double ConvertPsaToCpr(int psa, int age)
-    {
-        if (age <= 0)
-            return 0;
-
-        double cpr;
-
-        if (age <= 30)
-            cpr = .06 * age / 30;
-        else
-            cpr = .06;
-
-        cpr *= psa;
-        return cpr;
     }
 }

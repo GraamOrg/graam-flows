@@ -79,23 +79,32 @@ public class MonthlyHazardConversionTests
                      + "plausible-looking cashflow nobody would question");
     }
 
+    /// <summary>
+    /// The reason there is no longer a second de-annualization to reconcile.
+    ///
+    /// <c>MathUtil.ConvertToSmm</c> was the same formula written <c>cpr * .01</c>
+    /// instead of <c>cpr / 100.0</c>, and it carried the <c>if (cpr > 100) return 1</c>
+    /// guard this helper now has — one formula, two copies, only one guarded. It was
+    /// NOT bit-identical: over a 15,000,001-point sweep of [0, 100] (a 10M-point grid
+    /// plus 5M random draws) 603,710 values disagreed, the widest by 115,223 ulps
+    /// (1.2792e-11 absolute) just below 100, where <c>1 - x/100</c> cancels hardest.
+    ///
+    /// That difference turned out not to matter, because it had no callers at all:
+    /// <c>ConvertToSmm</c> was reached only from <c>ConvertPsaToSmm</c>, which was
+    /// reached only from <c>CreateConstAssumptionsPsa</c>, which nothing called, and
+    /// <c>ParsePrepaymentType</c> has no path that produces <c>PrepaymentTypeEnum.PSA</c>.
+    /// So no tie-out number could have moved either way, and the whole chain was
+    /// deleted rather than documented. This test fails if any of it comes back.
+    /// </summary>
     [Theory]
-    [InlineData(0.5)]
-    [InlineData(6.0)]
-    [InlineData(99.99)]
-    public void ConvertToSmm_IsDeliberatelyNotDeduplicatedIntoTheHelper(double cpr)
+    [InlineData("ConvertToSmm")]
+    [InlineData("ConvertPsaToSmm")]
+    [InlineData("ConvertPsaToCpr")]
+    public void MathUtil_HasNoSecondDeAnnualization(string removedMethod)
     {
-        // MathUtil.ConvertToSmm scales with `cpr * .01` where the helper uses
-        // `annualPercent / 100.0`. Over a 15,000,001-point sweep of [0, 100]
-        // (a 10M-point grid plus 5M random draws) 603,710 values disagreed, the
-        // widest by 115,223 ulps just below 100. The two are therefore kept as
-        // separate functions: only AnnualPercentToMonthlyHazard is on the engine's
-        // assumption path, and folding ConvertToSmm into it would move numbers.
-        var viaHelper = MathUtil.AnnualPercentToMonthlyHazard(cpr);
-        var viaConvertToSmm = MathUtil.ConvertToSmm(cpr);
-
-        viaConvertToSmm.Should().BeApproximately(viaHelper, 1e-12,
-            because: "the two agree to well within any financial tolerance — they are kept separate only "
-                     + "because they are not BIT-identical, which is what tie-out requires");
+        typeof(MathUtil).GetMethod(removedMethod).Should().BeNull(
+            because: $"{removedMethod} was an unreferenced second copy of the CPR-to-SMM formula written the "
+                     + "`* .01` way; reintroducing it recreates the one-formula-two-copies-one-guarded defect "
+                     + "that graam-harmony #4476 removed by subtraction");
     }
 }
