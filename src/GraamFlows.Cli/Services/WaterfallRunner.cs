@@ -1,5 +1,6 @@
 using GraamFlows.Api.Models;
 using GraamFlows.Api.Transformers;
+using GraamFlows.Api.Validation;
 using GraamFlows.Assumptions;
 using GraamFlows.Domain;
 using GraamFlows.Factories;
@@ -34,6 +35,29 @@ public class WaterfallRunner
         bool runToCall = false,
         bool useAbsPrepayment = false)
     {
+        // Same guard the HTTP boundary applies, reusing the same policy and wording
+        // rather than a second copy of the bounds (graam-harmony #4476). Without it
+        // `--cpr 1000` used to mint NaN and now silently saturates to a full-prepay
+        // projection, which is worse: the run looks plausible and reports nothing.
+        var validationError = AssumptionValidation.Validate(new CalcCollateralRequest
+        {
+            ProjectionDate = projectionDate,
+            Assumptions = new AssumptionsDto
+            {
+                Cpr = cpr,
+                Cdr = cdr,
+                Severity = sev,
+                Delinquency = dq,
+                // The CLI has no advancing switch: both CreateAbsAssumptions and the
+                // 4-arg CreateConstAssumptions hardcode it, so validate the value the
+                // engine will actually use.
+                Advancing = 100.0,
+                PrepaymentType = useAbsPrepayment ? "ABS" : "CPR",
+            },
+        });
+        if (validationError != null)
+            throw new ArgumentException(validationError);
+
         // Propagate closing date from top-level DealModelFile to DealDto
         if (dealModel.ClosingDate.HasValue && !dealModel.Deal.ClosingDate.HasValue)
             dealModel.Deal.ClosingDate = dealModel.ClosingDate;

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using GraamFlows.Api.Models;
+using GraamFlows.Api.Validation;
 using GraamFlows.Assumptions;
 using GraamFlows.Domain;
 using GraamFlows.Objects.DataObjects;
@@ -28,6 +29,20 @@ public class CalcCollateralController : ControllerBase
         var totalBalance = request.Assets.Sum(a => a.CurrentBalance);
         _logger.LogInformation("CalcCollateral: {AssetCount} assets, total balance {TotalBalance:N0}, projection date {ProjectionDate:yyyy-MM-dd}",
             request.Assets.Count, totalBalance, request.ProjectionDate);
+
+        // Reject out-of-range assumptions HERE, where they enter the system
+        // (graam-harmony #4476). Before this guard, cpr=1000 de-annualized to NaN,
+        // the amortizer's Math.Clamp(smm, 0, 1) failed to clamp it (NaN compares
+        // false against both bounds), and this endpoint returned 200 OK with NaN in
+        // every row — the mistake only surfaced one service call later, as a
+        // non-finite-cashflow rejection from /api/waterfall that named neither the
+        // field nor the value the user got wrong.
+        var validationError = AssumptionValidation.Validate(request);
+        if (validationError != null)
+        {
+            _logger.LogWarning("CalcCollateral rejected: {ValidationError}", validationError);
+            return BadRequest(new { error = validationError });
+        }
 
         try
         {
@@ -164,7 +179,7 @@ public class CalcCollateralController : ControllerBase
         }
 
         // Priority 3: Scalar values
-        if (string.Equals(dto.PrepaymentType, "ABS", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(dto.PrepaymentType?.Trim(), "ABS", StringComparison.OrdinalIgnoreCase))
         {
             return DealLevelAssumptions.CreateAbsAssumptions(
                 projectionDate, anchorAbsT,
@@ -222,20 +237,27 @@ public class CalcCollateralController : ControllerBase
         return new CurveRateProvider(projectionDate, curves);
     }
 
+    // The Trim() here is paired with the one in AssumptionValidation: the validator
+    // accepts " SMM " as SMM, so this must resolve it to SMM too. Trimming in only one
+    // of the two would be worse than trimming in neither — a padded string would pass
+    // validation and then be silently modelled as CPR (graam-harmony #4476).
     private static PrepaymentTypeEnum ParsePrepaymentType(string? prepaymentType)
     {
-        if (string.Equals(prepaymentType, "ABS", StringComparison.OrdinalIgnoreCase))
+        var value = prepaymentType?.Trim();
+        if (string.Equals(value, "ABS", StringComparison.OrdinalIgnoreCase))
             return PrepaymentTypeEnum.ABS;
-        if (string.Equals(prepaymentType, "SMM", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(value, "SMM", StringComparison.OrdinalIgnoreCase))
             return PrepaymentTypeEnum.SMM;
         return PrepaymentTypeEnum.CPR;
     }
 
+    /// <summary>See <see cref="ParsePrepaymentType"/> for why the trim is paired.</summary>
     private static DefaultTypeEnum ParseDefaultType(string? defaultType)
     {
-        if (string.Equals(defaultType, "MDR", StringComparison.OrdinalIgnoreCase))
+        var value = defaultType?.Trim();
+        if (string.Equals(value, "MDR", StringComparison.OrdinalIgnoreCase))
             return DefaultTypeEnum.MDR;
-        if (string.Equals(defaultType, "ORIGMDR", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(value, "ORIGMDR", StringComparison.OrdinalIgnoreCase))
             return DefaultTypeEnum.ORIGMDR;
         return DefaultTypeEnum.CDR;
     }

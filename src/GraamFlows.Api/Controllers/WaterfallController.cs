@@ -456,7 +456,15 @@ public class WaterfallController : ControllerBase
                 ("ForbearanceRecovery", cf.ForbearanceRecovery),
                 ("ForbearanceUnscheduled", cf.ForbearanceUnscheduled));
             if (bad != null)
-                return $"Collateral cashflow at index {i} ({cf.CashflowDate:yyyy-MM-dd}) has a non-finite {bad} value.";
+                // Backstop, not the front line: /api/calccollateral now rejects the
+                // out-of-range assumption that produces non-finite collateral
+                // (graam-harmony #4476). If one still reaches here, name the class of
+                // cause — the reader is looking at a waterfall error for a mistake
+                // made one service call earlier, in the collateral projection.
+                return $"Collateral cashflow at index {i} ({cf.CashflowDate:yyyy-MM-dd}) has a non-finite {bad} value. " +
+                       "Non-finite collateral almost always means an out-of-range assumption produced it upstream — " +
+                       "check that CPR, CDR and severity are percentages between 0 and 100 (6, not 1000) and re-run " +
+                       "the collateral projection.";
         }
 
         foreach (var tranche in request.Deal.Tranches)
