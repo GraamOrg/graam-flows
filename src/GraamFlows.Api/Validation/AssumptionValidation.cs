@@ -142,7 +142,7 @@ public static class AssumptionValidation
         var hasArrays = fields.Any(f => f.Vector != null);
         var hasVectorStrs = !hasArrays && fields.Any(f => !string.IsNullOrEmpty(f.VectorStr));
 
-        var errors = new List<string>();
+        var errors = new List<Problem>();
         var anchorAbsT = DateUtil.CalcAbsT(request!.ProjectionDate);
         var horizon = ProjectionHorizon(request);
 
@@ -180,7 +180,7 @@ public static class AssumptionValidation
     }
 
     private static void CheckPerAsset(
-        List<string> errors, string path, double[]? vector, double? scalar, RateField field)
+        List<Problem> errors, string path, double[]? vector, double? scalar, RateField field)
     {
         if (vector is { Length: > 0 })
             CheckVector(errors, $"{path}Vector", vector, field);
@@ -188,7 +188,7 @@ public static class AssumptionValidation
             Add(errors, Describe(path, scalar.Value, field));
     }
 
-    private static void CheckVector(List<string> errors, string path, double[] values, RateField field)
+    private static void CheckVector(List<Problem> errors, string path, double[] values, RateField field)
     {
         for (var i = 0; i < values.Length; i++)
         {
@@ -213,7 +213,7 @@ public static class AssumptionValidation
     /// error anywhere.
     /// </summary>
     private static void CheckVectorString(
-        List<string> errors, string path, string vectorStr, int anchorAbsT, int horizon, RateField field)
+        List<Problem> errors, string path, string vectorStr, int anchorAbsT, int horizon, RateField field)
     {
         IAnchorableVector parsed;
         try
@@ -222,9 +222,10 @@ public static class AssumptionValidation
         }
         catch (Exception ex)
         {
-            Add(errors, $"{path} = \"{vectorStr}\" is not a valid vector: {ex.Message} " +
-                        "Expected a PolyPaths vector — a plain number (\"6.0\"), a ramp (\"1.0R12,6.0\"), " +
-                        "or an anchored ramp (\"202301,1.0R12,6.0\").");
+            Add(errors, new Problem(
+                $"{path} = \"{vectorStr}\" is not a valid vector: {ex.Message} " +
+                "Expected a PolyPaths vector — a plain number (\"6.0\"), a ramp (\"1.0R12,6.0\"), " +
+                "or an anchored ramp (\"202301,1.0R12,6.0\").", null));
             return;
         }
 
@@ -239,42 +240,62 @@ public static class AssumptionValidation
         }
     }
 
+    private const string UnitsMistakeHint =
+        "A value above the maximum is usually a units mistake — a PSA speed, basis points, or a fraction that "
+        + "was already multiplied by 100.";
+
+    private const string NegativeHint =
+        "A rate here is a share of a balance, so it cannot be negative.";
+
     /// <summary>
     /// Describe what is wrong with one value, or <c>null</c> if it is acceptable.
+    ///
+    /// The generic closing hint is carried separately rather than baked in, because it
+    /// is identical for every field: with three bad boxes on the Scenarios screen,
+    /// inlining it would repeat the same sentence three times and bury the three field
+    /// names that are the actual content. <see cref="Summarize"/> appends it once.
     /// </summary>
-    private static string? Describe(string path, double value, RateField field)
+    private static Problem? Describe(string path, double value, RateField field)
     {
         if (double.IsNaN(value) || double.IsInfinity(value))
-            return $"{path} must be a finite number; got {Format(value)}. {field.Units}";
+            return new Problem($"{path} must be a finite number; got {Format(value)}. {field.Units}", null);
 
         if (value < 0.0)
-            return $"{path} = {Format(value)} is out of range. {field.Units} " +
-                   "A rate here is a share of a balance, so it cannot be negative.";
+            return new Problem($"{path} = {Format(value)} is out of range. {field.Units}", NegativeHint);
 
         if (value > field.Max)
-            return $"{path} = {Format(value)} is out of range. {field.Units} " +
-                   $"A value above {Format(field.Max)} is usually a units mistake — a PSA speed, basis points, " +
-                   "or a fraction that was already multiplied by 100.";
+            return new Problem($"{path} = {Format(value)} is out of range. {field.Units}", UnitsMistakeHint);
 
         return null;
     }
 
-    private static void Add(List<string> errors, string? error)
+    private static void Add(List<Problem> errors, Problem? error)
     {
         if (error != null && errors.Count < MaxCollectedErrors)
-            errors.Add(error);
+            errors.Add(error.Value);
     }
 
-    private static string? Summarize(List<string> errors)
+    private static string? Summarize(List<Problem> errors)
     {
         if (errors.Count == 0)
             return null;
-        if (errors.Count == 1)
-            return errors[0];
 
-        var shown = errors.Take(MaxReportedErrors);
-        var hidden = errors.Count - Math.Min(errors.Count, MaxReportedErrors);
+        // The single-problem case is the common one and the headline of this whole
+        // change, so it reads as one uninterrupted sentence with its hint attached.
+        if (errors.Count == 1)
+            return errors[0].Hint == null
+                ? errors[0].Text
+                : $"{errors[0].Text} {errors[0].Hint}";
+
+        var shown = errors.Take(MaxReportedErrors).ToList();
+        var hidden = errors.Count - shown.Count;
         var truncated = errors.Count >= MaxCollectedErrors;
+
+        var body = string.Join(" ", shown.Select(e => e.Text));
+
+        // Each distinct hint once, in the order first encountered.
+        var hints = errors.Select(e => e.Hint).Where(h => h != null).Distinct().ToList();
+        var hintText = hints.Count > 0 ? " " + string.Join(" ", hints) : string.Empty;
 
         var suffix = truncated
             ? " (More values may also be out of range; fix these first.)"
@@ -282,8 +303,12 @@ public static class AssumptionValidation
                 ? $" (And {hidden} more.)"
                 : string.Empty;
 
-        return $"{errors.Count} assumption values are invalid. " + string.Join(" ", shown) + suffix;
+        return $"{errors.Count} assumption values are invalid. {body}{suffix}{hintText}";
     }
+
+    /// <summary>One problem: the specific sentence, plus the generic hint it shares with
+    /// every other problem of its kind.</summary>
+    private readonly record struct Problem(string Text, string? Hint);
 
     /// <summary>
     /// How many periods of a PolyPaths vector to range-check. The engine sizes the
