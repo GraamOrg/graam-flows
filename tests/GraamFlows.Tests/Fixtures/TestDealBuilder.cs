@@ -27,6 +27,7 @@ public class TestDealBuilder
     private WaterfallOrderEnum _waterfallOrder = WaterfallOrderEnum.Standard;
     private OcTargetConfig? _ocTargetConfig;
     private ReinvestmentConfig? _reinvestmentConfig;
+    private List<CoverageLevelConfig>? _coverageCascade;
 
     public TestDealBuilder(
         string dealName = TestConstants.DefaultDealName,
@@ -340,6 +341,34 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>
+    ///     Configures the CLO per-level OC/IC coverage cascade (senior→junior).
+    /// </summary>
+    public TestDealBuilder WithCoverageCascade(params CoverageLevelConfig[] levels)
+    {
+        _coverageCascade = levels.ToList();
+        return this;
+    }
+
+    /// <summary>
+    ///     Adds a scheduled deal variable (e.g. the "ACPA" OC numerator) covering
+    ///     [begin, end].
+    /// </summary>
+    public TestDealBuilder WithScheduledVariable(string name, double value,
+        DateTime begin, DateTime end)
+    {
+        _deal.ScheduledVariables.Add(new ScheduledVariable
+        {
+            DealName = _deal.DealName,
+            ScheduleVariableName = name,
+            BeginDate = begin,
+            EndDate = end,
+            ValueNum = value,
+            GroupNum = "1"
+        });
+        return this;
+    }
+
     public TestDealBuilder WithPayRule(string name, string formula)
     {
         _payRuleFormulas.Add($"{name}|{formula}");
@@ -415,6 +444,9 @@ public class TestDealBuilder
 
         if (_reinvestmentConfig != null)
             _deal.ReinvestmentConfig = _reinvestmentConfig;
+
+        if (_coverageCascade != null)
+            _deal.CoverageCascade = _coverageCascade;
 
         // Add pay rules
         for (var i = 0; i < _payRuleFormulas.Count; i++)

@@ -46,6 +46,14 @@ public interface IDeal : IPayRuleAssemblyStore
     ReinvestmentConfig? ReinvestmentConfig { get; }
 
     /// <summary>
+    /// CLO per-level OC/IC coverage tests with interest→principal diversion cure
+    /// (optional). Ordered senior→junior; executed inside the INTEREST step by
+    /// ComposableStructure. Distinct from <see cref="OcTargetConfig"/>, the
+    /// single-level RMBS-style OC turbo.
+    /// </summary>
+    IList<CoverageLevelConfig>? CoverageCascade { get; }
+
+    /// <summary>
     /// Controls interleaving of INTEREST and PRINCIPAL steps.
     /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
     /// </summary>

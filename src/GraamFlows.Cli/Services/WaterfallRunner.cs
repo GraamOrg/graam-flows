@@ -328,6 +328,9 @@ public class WaterfallRunner
         // the reinvestment loop that consumes it is graam-flows#49.
         deal.ReinvestmentConfig = ReinvestmentConfigMapper.Map(dto.Reinvestment, dto.DealName);
 
+        // CLO per-level OC/IC coverage cascade (graam-flows#65).
+        deal.CoverageCascade = CoverageCascadeMapper.Map(dto.UnifiedWaterfall?.CoverageCascade, dto.DealName);
+
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())
             foreach (var schedDto in dto.ScheduledVariables)
