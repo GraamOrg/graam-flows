@@ -181,8 +181,16 @@ public class CfCore
                     recoveryLag[i] = assetLag;
                 }
                 delTime[i] = BuildAssumptionArray(aa?.DelinqRate, maxPeriods, startTime, false, 100.0);
-                delAdvIntTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctInt, maxPeriods, startTime, false, 1.0, 100.0);
-                delAdvPrinTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctPrin, maxPeriods, startTime, false, 1.0, 100.0);
+                // Advancing is a PERCENT, like severity (:176) and delinquency (:183)
+                // above — divisor 100, not 1.0 (graam-harmony #4481 §1). The amortizer
+                // consumes these as fractions (`1 - delAdvInt`), so a divisor of 1.0
+                // made `advancing = 100` mean 100x rather than 100%: `1 - 100 = -99`.
+                // Measured on a 100k/6%/360 loan at dq=5, advancing=100, that reported
+                // interest at 5.95x the true coupon, minted advanced P&I at 5x, and
+                // paid the loan off at month 333 instead of 360. The only value that
+                // meant "advance everything" was `1`.
+                delAdvIntTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctInt, maxPeriods, startTime, false, 100.0, 100.0);
+                delAdvPrinTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctPrin, maxPeriods, startTime, false, 100.0, 100.0);
                 forbRecovPpayTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryPrepay, maxPeriods, startTime, -1.0);
                 forbRecovMaturityTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryMaturity, maxPeriods, startTime, 1.0);
                 forbRecovDefaultTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryDefault, maxPeriods, startTime, -1.0);
@@ -672,8 +680,13 @@ public class CfCore
             defaultType == DefaultTypeEnum.CDR);
         var sevRow = BuildAssumptionArray(aa?.Severity, periods, startAbsT, false, 100.0);
         var delRow = BuildAssumptionArray(aa?.DelinqRate, periods, startAbsT, false, 100.0);
-        var delAdvIntRow = BuildAssumptionArray(aa?.DelinqAdvPctInt, periods, startAbsT, false, 1.0, 100.0);
-        var delAdvPrinRow = BuildAssumptionArray(aa?.DelinqAdvPctPrin, periods, startAbsT, false, 1.0, 100.0);
+        // Divisor 100, matching the primary path (:192-193) and sev/del above.
+        // These two are the SECOND copy of the same call and were missed on the
+        // first pass — leaving one of two identical sites unfixed is exactly how
+        // the original defect survived. Reinvested cohorts became a live path in
+        // #63, so this is no longer theoretical.
+        var delAdvIntRow = BuildAssumptionArray(aa?.DelinqAdvPctInt, periods, startAbsT, false, 100.0, 100.0);
+        var delAdvPrinRow = BuildAssumptionArray(aa?.DelinqAdvPctPrin, periods, startAbsT, false, 100.0, 100.0);
         var zeroRow = new double[periods];
 
         double[][] Rep(double[] row)

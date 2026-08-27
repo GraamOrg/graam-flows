@@ -404,11 +404,29 @@ public static class Amortizer
 
                 var defPrin = mdr * schedBal;
 
-                unadvInterest = interest * del * (1 - delAdvInt) - beginBalance * serviceFee * del * (1 - delAdvInt);
                 var schedPrinMdr = schedPrin * (1 - mdr);
+
+                // DELINQUENCY IS INERT AT THE COLLATERAL LEVEL (graam-harmony #4481 §1.1).
+                // A delinquent-but-not-defaulted loan is assumed to cure and pay in
+                // full, so neither scheduled principal nor interest is docked by `del`.
+                // Loss comes only from the default assumption (CDR/MDR + severity).
+                //
+                // This engine used to dock BOTH permanently:
+                //     schedPrinMdr -= schedPrinMdr * del * (1 - delAdvPrin);
+                //     interest     -= interest * del * (1 - delAdvInt) - ...;
+                // which left the performing balance permanently above the contractual
+                // schedule. At maturity that residual was then booked as a DEFAULT (see
+                // the block deleted below), so a dq=4 / cdr=0 run reported ~2.9MM of
+                // "defaults" — and, with any non-zero severity, a fabricated credit loss
+                // on a run with no default assumption at all.
+                //
+                // `unadvInterest` / `unadvPrincipal` survive as REPORTING-ONLY disclosure
+                // of the delinquent P&I a servicer would have to advance. Neither feeds
+                // cash. #4481 §1.3 makes advancing a real timing overlay on the default
+                // pipeline, which needs the liquidation pipeline (§2) to exist first.
+                var periodServiceFee = (beginBalance + forbearanceAmt) * serviceFee;
                 unadvPrincipal = schedPrinMdr * del * (1 - delAdvPrin);
-                schedPrinMdr -= unadvPrincipal;
-                interest -= unadvInterest + beginBalance * serviceFee * del * (1 - delAdvInt);
+                unadvInterest = (interest - periodServiceFee) * del * (1 - delAdvInt);
 
                 var defaultedPrincipal = defPrin;
                 var recoveryPrincipal = defaultedPrincipal - defaultedPrincipal * sev;
@@ -455,8 +473,9 @@ public static class Amortizer
                 }
 
                 var scheduledPrincipalOut = schedPrinMdr + cleanup;
-                var effectiveServiceFee = (beginBalance + forbearanceAmt) * serviceFee;
-                effectiveServiceFee -= effectiveServiceFee * del * (1 - delAdvInt);
+                // The servicing fee is no longer docked by delinquency either — same
+                // rule as P&I above (#4481 §1.1): the loan cures, the servicer is paid.
+                var effectiveServiceFee = periodServiceFee;
                 var netInterest = interest - effectiveServiceFee;
 
                 // Forbearance handling
@@ -483,21 +502,20 @@ public static class Amortizer
                     forbearanceLiquidated = beginForbearanceAmt - forbearanceAmt;
                 }
 
-                double delinqBalance = 0;
-                if (!hasCashflow && balance > 0 && unadvPrincipal > 0)
-                {
-                    // Balloon/maturity default of the residual balance. recoveryPrincipal
-                    // was computed above from defPrin only, so this chunk must carry its
-                    // own severity-adjusted recovery — otherwise it recovers zero
-                    // regardless of the `sev` assumption.
-                    defaultedPrincipal += balance;
-                    recoveryPrincipal += balance * (1 - sev);
-                    balance = 0;
-                }
-                else
-                {
-                    delinqBalance = dqBal;
-                }
+                // The maturity/balloon default of the residual balance is GONE
+                // (graam-harmony #4481 §1.1). It read:
+                //
+                //     if (!hasCashflow && balance > 0 && unadvPrincipal > 0)
+                //     { defaultedPrincipal += balance; recoveryPrincipal += balance * (1 - sev); }
+                //
+                // Its trigger was `unadvPrincipal > 0`, so it only ever fired for
+                // delinquency-docked loans — it existed to sweep up the residual the
+                // docking above created. With the docking removed the performing
+                // balance tracks the contractual schedule and there is no residual to
+                // sweep, so the branch is unreachable by construction rather than
+                // merely unused. A genuine balloon still repays through the
+                // `age >= term` scheduled-principal path, not as a default.
+                var delinqBalance = dqBal;
 
                 // Weighted average calculations
                 var prevBeginBal = resultBeginBalance[period];
@@ -527,9 +545,13 @@ public static class Amortizer
                 resultDelinqBalance[period] += delinqBalance;
                 resultUnAdvancedPrincipal[period] += unadvPrincipal;
                 resultUnAdvancedInterest[period] += unadvInterest;
-                resultAdvancedPrincipal[period] += (schedPrinMdr + unadvPrincipal) * del * delAdvPrin;
-                resultAdvancedInterest[period] += (interest + unadvInterest) * del * delAdvInt -
-                                                  effectiveServiceFee * del * delAdvInt;
+                // Advanced and unadvanced are now the two halves of one delinquent
+                // slice, so `advanced + unadvanced == slice` holds exactly for both
+                // P and I. The old form added `unadvPrincipal` back to an already
+                // docked `schedPrinMdr`, which double-counted once the docking is
+                // gone. Reporting-only either way (#4481 §1.1).
+                resultAdvancedPrincipal[period] += schedPrinMdr * del * delAdvPrin;
+                resultAdvancedInterest[period] += (interest - effectiveServiceFee) * del * delAdvInt;
                 resultForbearanceRecovery[period] += forbearanceRecovery;
                 resultForbearanceLiquidated[period] += forbearanceLiquidated;
                 resultAccumForbearance[period] += forbearanceAmt;
