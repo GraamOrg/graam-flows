@@ -332,6 +332,36 @@ public class ComposableStructureTests
     }
 
     [Fact]
+    public void ExcessStruct_NoCertificate_PaysDeclaredRecipient_NotDestroyed()
+    {
+        // graam-flows#68: an EXCESS step's structure lands in ExcessPayable
+        // (SET_EXCESS_STRUCT), but the shared EXCESS/EXCESS_RELEASE executor read
+        // only ReleasePayable. On a deal with NO Certificate class (the CLO-native
+        // shape — equity is a plain subordinated note), recipients resolved empty
+        // and the residual interest was silently DESTROYED every period. The
+        // declared recipient must receive it.
+        var collateral = CreateCollateral(6, 100_000_000, wacPct: 10.0); // high WAC → excess
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 100_000_000, 4.0, subOrder: 0) // low coupon → big excess
+            .WithTranche("Subordinated", 10_000_000, 0.0, subOrder: 1)
+            .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("ExcessStruct", "SET_EXCESS_STRUCT(SINGLE('Subordinated'))")
+            .BuildAndRun(collateral);
+
+        var subInt = GetCashflows(cf, "Subordinated").Sum(c => c.Value.Interest);
+        var aInt = GetCashflows(cf, "A").Sum(c => c.Value.Interest);
+
+        // Pool at 10% WAC vs A due at 4% → substantial residual interest, and it
+        // must land on the declared EXCESS recipient rather than vanish.
+        subInt.Should().BeGreaterThan(0, "the EXCESS structure names Subordinated as the sweep recipient");
+        (aInt + subInt).Should().BeGreaterThan(aInt, "cash conservation: residual interest is distributed, not destroyed");
+    }
+
+    [Fact]
     public void ExcessRelease_NestedStructure_StillYieldsXs()
     {
         // A nested release — SEQ(SEQ(XS), R) — must still resolve XS as the first

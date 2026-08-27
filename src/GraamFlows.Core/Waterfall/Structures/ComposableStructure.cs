@@ -1319,9 +1319,16 @@ public class ComposableStructure : BaseStructure
         // release — SEQ(SEQ(XS), R) — still yields XS as the first recipient
         // rather than silently dropping it (a flat OfType<DynamicClass>() misses
         // the inner SequentialStructure and reopens #1714).
-        var recipients = ReleaseRecipientsInOrder(dynGroup.ReleasePayable).ToList();
+        // An EXCESS step's structure lands in ExcessPayable (SET_EXCESS_STRUCT),
+        // an EXCESS_RELEASE step's in ReleasePayable (SET_RELEASE_STRUCT) — but both
+        // step types execute HERE. Reading only ReleasePayable meant a deal whose
+        // waterfall declared EXCESS(SINGLE(Sub)) with no Certificate class silently
+        // DESTROYED the residual interest every period: recipients resolved empty
+        // and availableInterest was zeroed by the caller (graam-flows#68, found on
+        // the CLO-native path where the equity tranche is a plain note class).
+        var recipients = ReleaseRecipientsInOrder(dynGroup.ReleasePayable ?? dynGroup.ExcessPayable).ToList();
         if (!recipients.Any())
-            // No release structure — fall back to the OC certificate(s).
+            // No release/excess structure — fall back to the OC certificate(s).
             recipients = dynGroup.DynamicClasses
                 .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
                 .ToList();
