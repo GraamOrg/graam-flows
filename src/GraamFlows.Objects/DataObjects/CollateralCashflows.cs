@@ -146,7 +146,12 @@ public class CollateralCashflows
                                           (periodCf.BeginBalance - periodCf.ScheduledPrincipal), 12));
                 periodCf.CDR = 100 * (1 - Math.Pow(1 - periodCf.DefaultedPrincipal / periodCf.BeginBalance, 12));
                 periodCf.SEV = 100 * (1 - periodCf.RecoveryPrincipal / periodCf.DefaultedPrincipal);
-                periodCf.DQ = 100 * (periodCf.DelinqBalance / periodCf.Balance);
+                // `dqBal = balance * del` is computed BEFORE the near-maturity cleanup
+                // zeroes `balance`, so a sub-$4 residual divides by zero and serializes
+                // as "Infinity". VPR/CDR/SEV below already guard; DQ never did.
+                periodCf.DQ = periodCf.Balance > 0
+                    ? 100 * (periodCf.DelinqBalance / periodCf.Balance)
+                    : 0.0;
 
                 if (double.IsNaN(periodCf.VPR))
                     periodCf.VPR = 0;

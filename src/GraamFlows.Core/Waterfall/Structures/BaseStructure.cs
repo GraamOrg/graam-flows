@@ -593,7 +593,16 @@ public abstract class BaseStructure : IWaterfall
             });
 
         // compute wac
-        var wac = 1200 * (periodCf.Interest + periodCf.UnAdvancedInterest - periodCf.ServiceFee - expenses) /
+        // `+ periodCf.UnAdvancedInterest` was here, and it was the exact algebraic
+        // inverse of the delinquency docking the amortizer used to apply: interest
+        // arrived short by `interest * dq * (1 - adv)` and this added it straight
+        // back, reconstructing the contractual net WAC. With the docking gone
+        // (graam-harmony #4481 §1.1) the add-back is uncompensated and inflates
+        // eff_wac by `1 + dq * (1 - adv)` — +113bp at dq=20/adv=0, which un-caps
+        // every `MIN(fixed, eff_wac)` tranche whose fixed rate sits in that band.
+        // This is a CASH path, not disclosure: eff_wac is the net-WAC cap exposed
+        // to the rules engine (RulesHost.cs:101).
+        var wac = 1200 * (periodCf.Interest - periodCf.ServiceFee - expenses) /
                   periodCf.BeginBalance;
         periodCf.Expenses = expenses;
         periodCf.EffectiveWac = wac;

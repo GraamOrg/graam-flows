@@ -32,7 +32,8 @@ namespace GraamFlows.Tests.Unit.AssetCashflowEngine;
 /// </summary>
 public class DelinquencyInertTests
 {
-    private static Asset Frm(double balance, double ratePct, int term, string id = "DQ")
+    private static Asset Frm(double balance, double ratePct, int term, string id = "DQ",
+        double serviceFeePct = 0.0)
     {
         return new Asset
         {
@@ -46,7 +47,7 @@ public class DelinquencyInertTests
             OriginalInterestRate = ratePct,
             CurrentInterestRate = ratePct,
             OriginalAmortizationTerm = term,
-            ServiceFee = 0.0,
+            ServiceFee = serviceFeePct,
             GroupNum = "1",
             IsIO = false,
         };
@@ -95,6 +96,7 @@ public class DelinquencyInertTests
             a.DefaultedPrincipal.Should().BeApproximately(e.DefaultedPrincipal, 1e-6, $"{because} (period {t}, defaults)");
             a.RecoveryPrincipal.Should().BeApproximately(e.RecoveryPrincipal, 1e-6, $"{because} (period {t}, recoveries)");
             a.Balance.Should().BeApproximately(e.Balance, 1e-6, $"{because} (period {t}, ending balance)");
+            a.ServiceFee.Should().BeApproximately(e.ServiceFee, 1e-6, $"{because} (period {t}, servicing fee)");
         }
     }
 
@@ -202,20 +204,61 @@ public class DelinquencyInertTests
             "booked defaults at periods 60, 120 and 180 — one per maturing cohort");
     }
 
+    [Theory]
+    [InlineData(4.0)]
+    [InlineData(20.0)]
+    [InlineData(50.0)]
+    public void AServicerIsPaidItsFullFeeOnADelinquentLoan(double dqPct)
+    {
+        // The third behavioural change in #4481 §1.1 — dropping
+        // `effectiveServiceFee -= effectiveServiceFee * del * (1 - delAdvInt)` —
+        // had no direct coverage while every asset here carried a zero fee.
+        // On a 1MM / 6% / 60mo loan at 0.35%, dq=20 used to dock the servicer
+        // from 9,022.66 to 7,944.69 of whole-life fee.
+        var withFee = new List<IAsset> { Frm(1_000_000, 6.0, 60, serviceFeePct: 0.35) };
+        var clean = Run(withFee, 0, 0, 0, dqPct: 0, advPct: 0);
+        var delinquent = Run(withFee, 0, 0, 0, dqPct, advPct: 0);
+
+        AssertCashIdentical(delinquent, clean,
+            $"a servicer is paid in full on a {dqPct}% delinquent pool — the loans cure, " +
+            "so the fee is not docked either");
+        delinquent.Sum(p => p.ServiceFee).Should().BeApproximately(
+            clean.Sum(p => p.ServiceFee), 1e-6,
+            "whole-life servicing fee must not depend on the delinquency assumption");
+        delinquent.Sum(p => p.ServiceFee).Should().BeGreaterThan(0.0,
+            "guard against this passing because the fee is zero everywhere");
+    }
+
     // ------------------------------------------------------------ the units
 
     [Fact]
     public void Advancing_IsAPercent_NotAMultiplier()
     {
+        const double dqPct = 5.0;
         var clean = Run(OneLoan(), 0, 0, 0, dqPct: 0, advPct: 0);
-        var full = Run(OneLoan(), 0, 0, 0, dqPct: 5.0, advPct: 100.0);
+        var full = Run(OneLoan(), 0, 0, 0, dqPct, advPct: 100.0);
 
         full[0].Interest.Should().BeApproximately(clean[0].Interest, 1e-6,
-            "`advancing = 100` means 100 PERCENT. It was divided by 1.0 rather than 100, so " +
-            "`1 - delAdvInt` became `1 - 100 = -99`: reported interest came out at 5.95x the " +
-            "true coupon and the loan paid off at month 333 of 360");
+            "delinquency is inert, so a delinquent loan's interest is the clean loan's");
         full.Should().HaveCount(clean.Count,
             "a fully-advanced delinquent loan amortizes on exactly the contractual schedule");
+
+        // The assertions above are satisfied by the amortizer change alone — they
+        // still pass with the CfCore divisor bug fully restored, because once the
+        // docking is gone `delAdvInt` cannot reach Interest at all. The units are
+        // only observable through the advanced/unadvanced split, so pin THAT:
+        // at 100% advancing the whole delinquent slice is advanced and none of it
+        // is unadvanced. Under the old `divisor: 1.0`, delAdvInt was 100 rather
+        // than 1.0, making advanced 100x the slice and unadvanced -99x it.
+        full[0].AdvancedInterest.Should().BeApproximately(
+            (full[0].Interest - full[0].ServiceFee) * (dqPct / 100.0), 1e-6,
+            "`advancing = 100` means 100 PERCENT of the delinquent slice, not 100x it");
+        full[0].UnAdvancedInterest.Should().BeApproximately(0.0, 1e-6,
+            "nothing is left unadvanced at 100% advancing");
+        full[0].AdvancedPrincipal.Should().BeApproximately(
+            full[0].ScheduledPrincipal * (dqPct / 100.0), 1e-6,
+            "same rule on the principal side");
+        full[0].UnAdvancedPrincipal.Should().BeApproximately(0.0, 1e-6);
     }
 
     [Theory]

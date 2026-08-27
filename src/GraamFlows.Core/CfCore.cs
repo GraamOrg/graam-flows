@@ -680,8 +680,13 @@ public class CfCore
             defaultType == DefaultTypeEnum.CDR);
         var sevRow = BuildAssumptionArray(aa?.Severity, periods, startAbsT, false, 100.0);
         var delRow = BuildAssumptionArray(aa?.DelinqRate, periods, startAbsT, false, 100.0);
-        var delAdvIntRow = BuildAssumptionArray(aa?.DelinqAdvPctInt, periods, startAbsT, false, 1.0, 100.0);
-        var delAdvPrinRow = BuildAssumptionArray(aa?.DelinqAdvPctPrin, periods, startAbsT, false, 1.0, 100.0);
+        // Divisor 100, matching the primary path (:192-193) and sev/del above.
+        // These two are the SECOND copy of the same call and were missed on the
+        // first pass — leaving one of two identical sites unfixed is exactly how
+        // the original defect survived. Reinvested cohorts became a live path in
+        // #63, so this is no longer theoretical.
+        var delAdvIntRow = BuildAssumptionArray(aa?.DelinqAdvPctInt, periods, startAbsT, false, 100.0, 100.0);
+        var delAdvPrinRow = BuildAssumptionArray(aa?.DelinqAdvPctPrin, periods, startAbsT, false, 100.0, 100.0);
         var zeroRow = new double[periods];
 
         double[][] Rep(double[] row)
