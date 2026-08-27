@@ -122,6 +122,9 @@ public class WaterfallController : ControllerBase
         var deal = new Deal(dto.DealName, factorDate);
         deal.CashflowEngine = dto.WaterfallType;
         deal.InterestTreatment = dto.InterestTreatment ?? "Guaranteed";
+        // Null keeps the derived boundary + Fold, so an existing request is byte-identical.
+        deal.CollateralAccrualStartDate = dto.CollateralAccrualStartDate;
+        deal.FirstPeriodCollateralPolicy = dto.FirstPeriodCollateralPolicy;
 
         // Handle alias: use ClassGroups if DealStructures is null
         var dealStructures = dto.DealStructures ?? dto.ClassGroups;

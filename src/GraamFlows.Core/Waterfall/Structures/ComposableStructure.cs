@@ -99,12 +99,22 @@ public class ComposableStructure : BaseStructure
                 var triggers = triggerMap[dynGroup.GroupNum];
                 var adjPeriodCf = AdjustPeriodCashflows(dynGroup, periodCf);
 
-                // Check cashflows before waterfall
-                if (periodCf.CashflowDate < dynGroup.FirstPayDate)
+                // Collateral periods dated before the first distribution. A deal's cut-off
+                // normally precedes its closing, so there is usually more than one; whether
+                // the waterfall may spend them is a modelling choice, not a fact.
+                //   Fold — accumulate into the first distribution (historical behaviour)
+                //   Drop — exclude them; the first distribution spends one period
+                // The boundary is the deal's stated CollateralAccrualStartDate when given,
+                // else the derived first-of-month of the first tranche's FirstPayDate.
+                if (periodCf.CashflowDate < dynGroup.CollateralAccrualStart)
                 {
-                    if (!cashflowsBeforeFirstPay.ContainsKey(periodCf.GroupNum))
-                        cashflowsBeforeFirstPay[periodCf.GroupNum] = new List<PeriodCashflows>();
-                    cashflowsBeforeFirstPay[periodCf.GroupNum].Add(periodCf);
+                    if (deal.FirstPeriodCollateralPolicyEnum == FirstPeriodCollateralPolicyEnum.Fold)
+                    {
+                        if (!cashflowsBeforeFirstPay.ContainsKey(periodCf.GroupNum))
+                            cashflowsBeforeFirstPay[periodCf.GroupNum] = new List<PeriodCashflows>();
+                        cashflowsBeforeFirstPay[periodCf.GroupNum].Add(periodCf);
+                    }
+
                     continue;
                 }
 

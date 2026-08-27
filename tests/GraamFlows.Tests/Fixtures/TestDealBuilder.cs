@@ -40,9 +40,23 @@ public class TestDealBuilder
         _deal.WaterfallType = "ComposableStructure";
     }
 
+    private string? _firstPeriodCollateralPolicy;
+    private DateTime? _collateralAccrualStartDate;
+
     public TestDealBuilder WithInterestTreatment(string treatment)
     {
         _interestTreatment = treatment;
+        return this;
+    }
+
+    /// <summary>
+    /// Set the first-period collateral policy and, optionally, an explicit accrual-start
+    /// boundary. Leaving both unset is the default the engine has always had.
+    /// </summary>
+    public TestDealBuilder WithFirstPeriodCollateral(string? policy, DateTime? accrualStart = null)
+    {
+        _firstPeriodCollateralPolicy = policy;
+        _collateralAccrualStartDate = accrualStart;
         return this;
     }
 
@@ -432,6 +446,8 @@ public class TestDealBuilder
     public IDeal Build()
     {
         _deal.InterestTreatment = _interestTreatment;
+        _deal.FirstPeriodCollateralPolicy = _firstPeriodCollateralPolicy;
+        _deal.CollateralAccrualStartDate = _collateralAccrualStartDate;
         _deal.BalanceAtIssuance = _balanceAtIssuance > 0 ? _balanceAtIssuance : 100_000_000;
 
         if (_executionOrder != null)

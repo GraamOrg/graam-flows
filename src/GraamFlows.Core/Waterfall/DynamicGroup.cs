@@ -57,6 +57,16 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         new(Deal.Tranches.First().FirstPayDate.Year, Deal.Tranches.First().FirstPayDate.Month, 1);
 
     /// <summary>
+    /// The date from which collateral periods may be spent by the waterfall.
+    ///
+    /// Prefers the deal's stated <c>CollateralAccrualStartDate</c>. Falls back to
+    /// <see cref="FirstPayDate"/>, which is derived from whichever tranche happens to be
+    /// FIRST in the list — incidental, not stated, and the reason this override exists.
+    /// </summary>
+    public DateTime CollateralAccrualStart =>
+        Deal.CollateralAccrualStartDate ?? FirstPayDate;
+
+    /// <summary>
     ///     returns the classes which make up the group's balance
     /// </summary>
     public IList<DynamicClass>? DealClasses { get; private set; }
