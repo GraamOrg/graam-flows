@@ -64,6 +64,30 @@ public class WaterfallController : ControllerBase
             // Execute waterfall
             var firstProjDate = collateralCashflows.PeriodCashflows.FirstOrDefault()?.CashflowDate ??
                                 request.ProjectionDate;
+            // Revolving-pool reinvestment over HTTP (graam-flows#62; harmony #4501).
+            // BuildDeal already mapped + VALIDATED deal.reinvestment, but until now the
+            // loop only ran on the CLI path (WaterfallRunner -> CfCore instance) — the
+            // API accepted the config and then never consumed it, so ON and OFF produced
+            // byte-identical waterfalls. Compose exactly as CfCore.GenerateAssetCashflows
+            // does: cohort cashflows from the posted base pool, appended before the
+            // waterfall distributes. Additive — no config, no change.
+            if (deal.ReinvestmentConfig is { } reinvestCfg && reinvestCfg.Templates.Count > 0)
+            {
+                var basePool = collateralCashflows.PeriodCashflows.ToList();
+                var cohorts = CfCore.BuildReinvestmentCashflows(
+                    basePool, reinvestCfg, firstProjDate, assumps, rateProvider);
+                if (cohorts.Count > 0)
+                {
+                    // The list-ctor CollateralCashflows has no aggregation dict, so
+                    // rebuild through the aggregating ctor and reuse the engine's own
+                    // per-(date, group) merge — never a duplicated merge here.
+                    var merged = new CollateralCashflows(saveAssetCf: false);
+                    foreach (var cf in basePool) merged.AddPeriodCashflow(cf);
+                    foreach (var cf in cohorts) merged.AddPeriodCashflow(cf);
+                    collateralCashflows = merged;
+                }
+            }
+
             var dealCashflows = waterfallEngine.Waterfall(deal, rateProvider, firstProjDate, collateralCashflows,
                 assumps, new TrancheAllocator());
 
