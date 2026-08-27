@@ -189,7 +189,8 @@ public class CfCore
             }
 
             // Build market rate arrays
-            var allMarketRates = BuildMarketRateArrays(rateProvider, firstProjDate, maxPeriods);
+            var allMarketRates = BuildMarketRateArrays(rateProvider, firstProjDate, maxPeriods,
+                assets.Select(a => a.IndexName));
 
             // Run the high-performance cashflow generator
             var results = Amortizer.GenerateCashflows(
@@ -340,7 +341,8 @@ public class CfCore
     /// <summary>
     ///     Build market rate arrays for all rate indices.
     /// </summary>
-    private static double[][] BuildMarketRateArrays(IRateProvider rateProvider, DateTime firstProjDate, int maxPeriods)
+    private static double[][] BuildMarketRateArrays(IRateProvider rateProvider, DateTime firstProjDate, int maxPeriods,
+        IEnumerable<MarketDataInstEnum> usedInsts)
     {
         if (rateProvider == null)
             return null;
@@ -367,12 +369,21 @@ public class CfCore
         }
 
         var allRates = new double[maxOrdinal + 1][];
-        foreach (var inst in insts)
+        for (var i = 0; i <= maxOrdinal; i++)
+            allRates[i] = new double[maxPeriods];
+
+        // Sweep ONLY the instruments the cohort's assets actually reference.
+        // A full-enum sweep is unsafe: MarketDataInstEnum.None means "no index"
+        // (fixed-rate), and a MarketData-backed provider (the HTTP path, #62/#64)
+        // throws on None AND on instruments its switch does not carry (e.g.
+        // Swap20Y) — the CLI's flat ConstantRateProvider(5.0) merely masked that
+        // by answering everything. Unreferenced rows stay zero and are never
+        // read: the amortizer indexes allRates by each asset's own IndexName.
+        foreach (var inst in usedInsts.Where(i => i != MarketDataInstEnum.None).Distinct())
         {
-            var row = new double[maxPeriods];
+            var row = allRates[(int)inst];
             for (var period = 0; period < maxPeriods; period++)
                 row[period] = rateProvider.GetRate(inst, firstProjDate.AddMonths(period));
-            allRates[(int)inst] = row;
         }
 
         return allRates;
@@ -554,7 +565,8 @@ public class CfCore
 
             var assetData = new AssetDataArrays(cohortAssets);
             var m = BuildReinvestAssumptionMatrices(reinvestAssumps, cohortAssets.Count, cohortPeriods, cohortStartAbsT);
-            var allMarketRates = BuildMarketRateArrays(rateProvider, date, cohortPeriods);
+            var allMarketRates = BuildMarketRateArrays(rateProvider, date, cohortPeriods,
+                cohortAssets.Select(a => a.IndexName));
 
             var cohortResult = Amortizer.GenerateCashflows(
                 assetData, cohortStartAbsT, cohortEndAbsT,

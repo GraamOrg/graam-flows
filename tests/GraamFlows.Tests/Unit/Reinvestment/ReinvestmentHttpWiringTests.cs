@@ -127,6 +127,34 @@ public class ReinvestmentHttpWiringTests
     }
 
     [Fact]
+    public void Floating_template_with_market_rates_runs_and_bites()
+    {
+        // Mike's real case: a floating bucket + posted market rates. This is the
+        // path that exposed the MarketDataInstEnum.None lookup in
+        // BuildMarketRateArrays (#64) — a MarketData-backed provider throws on
+        // None, which every enum sweep hit.
+        var request = Request(withReinvestment: true);
+        request.Deal.Reinvestment!.Templates![0].InterestRateType =
+            GraamFlows.Objects.TypeEnum.InterestRateType.ARM;
+        request.Deal.Reinvestment.Templates[0].CouponRate = 0.0;
+        request.Deal.Reinvestment.Templates[0].IndexName =
+            GraamFlows.Objects.TypeEnum.MarketDataInstEnum.Sofr30Avg;
+        request.Deal.Reinvestment.Templates[0].IndexMargin = 3.5;
+        request.MarketRates = new Dictionary<string, List<double[]>>
+        {
+            ["Sofr30Avg"] = new() { new[] { 0.0, 4.3 } }
+        };
+
+        var off = Request(withReinvestment: false);
+        off.MarketRates = request.MarketRates;
+
+        double Interest(WaterfallResponse r) =>
+            r.TrancheCashflows.Values.SelectMany(c => c).Sum(c => c.Interest);
+
+        Interest(Run(request)).Should().BeGreaterThan(Interest(Run(off)));
+    }
+
+    [Fact]
     public void No_config_path_is_untouched_and_deterministic()
     {
         double Total(WaterfallResponse r) =>
