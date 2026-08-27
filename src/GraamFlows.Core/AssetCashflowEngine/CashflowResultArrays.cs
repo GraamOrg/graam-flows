@@ -29,6 +29,7 @@ public class CashflowResultArrays
         ForbearanceRecovery = new double[maxPeriods];
         ForbearanceLiquidated = new double[maxPeriods];
         AccumForbearance = new double[maxPeriods];
+        LiquidationPipelineBalance = new double[maxPeriods];
         WAM = new double[maxPeriods];
         WALA = new double[maxPeriods];
     }
@@ -54,6 +55,24 @@ public class CashflowResultArrays
     public double[] ForbearanceRecovery { get; }
     public double[] ForbearanceLiquidated { get; }
     public double[] AccumForbearance { get; }
+
+    /// <summary>
+    ///     Defaulted principal that has been recognised but not yet liquidated —
+    ///     the balance sitting in the liquidation pipeline at the end of the period
+    ///     (graam-harmony #4481 §2). A default at t liquidates at t + RecoveryLag,
+    ///     so this holds the defaults from periods (t - lag, t].
+    ///
+    ///     Reported SEPARATELY and deliberately NOT summed into <see cref="Balance"/>.
+    ///     Three consumers read Balance as performing collateral — reinvestment gap
+    ///     sizing (CfCore), `oc_amt` (RulesHost) and the collateral-value call factor —
+    ///     and CLO indentures are explicit that a defaulted obligation is excluded from
+    ///     the OC numerator at par and re-admitted only at a rating-agency recovery
+    ///     value. Folding pipeline par into Balance would under-buy reinvestment and
+    ///     overstate OC. A consumer that wants the RMBS "reported balance" adds the
+    ///     two together itself.
+    /// </summary>
+    public double[] LiquidationPipelineBalance { get; }
+
     public double[] WAM { get; }
     public double[] WALA { get; }
 
@@ -87,6 +106,7 @@ public class CashflowResultArrays
                 ForbearanceRecovery = ForbearanceRecovery[period],
                 ForbearanceLiquidated = ForbearanceLiquidated[period],
                 AccumForbearance = AccumForbearance[period],
+                LiquidationPipelineBalance = LiquidationPipelineBalance[period],
                 WAM = WAM[period],
                 WALA = WALA[period]
             };

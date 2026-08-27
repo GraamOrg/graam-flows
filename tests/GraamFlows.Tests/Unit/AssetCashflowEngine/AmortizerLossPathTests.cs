@@ -208,13 +208,21 @@ public class AmortizerLossPathTests
                 $"period {t}: recovery has not arrived within the {lag}-month lag");
         }
 
-        // Default / prepay / interest / ending balance are unaffected by the lag,
-        // and the recovery curve is simply shifted forward by `lag`.
-        for (var t = 0; t < noLag.Count - 1; t++)
+        // #4481 §2 amended this contract. A default is only recognised if it can
+        // liquidate inside the collateral's remaining term, so the LAST `lag`
+        // periods of the schedule now book no default at all. Everywhere the
+        // default can still liquidate, the original #3449 contract holds exactly:
+        // only recovery timing moves.
+        // A default recognised at t liquidates at t + lag, and the schedule's last
+        // index is Count - 1. So it can liquidate iff t + lag <= Count - 1, and the
+        // first suppressed period is Count - lag.
+        var firstSuppressedPeriod = noLag.Count - lag;
+
+        for (var t = 0; t < firstSuppressedPeriod; t++)
         {
             var tol = Math.Max(0.01, 1e-7 * noLag[t].BeginBalance);
             lagged[t].DefaultedPrincipal.Should().BeApproximately(noLag[t].DefaultedPrincipal, tol,
-                $"period {t}: defaults unchanged by recovery lag");
+                $"period {t}: defaults unchanged by recovery lag while liquidation still fits in term");
             lagged[t].UnscheduledPrincipal.Should().BeApproximately(noLag[t].UnscheduledPrincipal, tol,
                 $"period {t}: prepays unchanged by recovery lag");
             lagged[t].Balance.Should().BeApproximately(noLag[t].Balance, tol,
@@ -225,10 +233,28 @@ public class AmortizerLossPathTests
                 $"period {t}: recovery is shifted forward by {lag} months");
         }
 
-        // Lifetime recovery is conserved (nothing lost to the shift, within horizon).
+        // The suppressed tail: no default booked, therefore no recovery either.
+        var suppressed = 0.0;
+        for (var t = firstSuppressedPeriod; t < noLag.Count; t++)
+        {
+            lagged[t].DefaultedPrincipal.Should().BeApproximately(0.0, 1e-9,
+                $"period {t}: a default here could not liquidate within the remaining term, " +
+                "so #4481 §2 books none at all rather than booking the loss and letting the " +
+                "recovery fall off the end");
+            suppressed += noLag[t].DefaultedPrincipal;
+        }
+        suppressed.Should().BeGreaterThan(0.0,
+            "the fixture must actually reach the suppression window, or this proves nothing");
+
+        // Recovery is no longer conserved against the no-lag run — the suppressed
+        // defaults produce none. What IS conserved is the relationship between what
+        // was booked and what came back.
         lagged.Sum(p => p.RecoveryPrincipal).Should().BeApproximately(
-            noLag.Sum(p => p.RecoveryPrincipal), 1.0,
-            "the lag re-times recoveries, it does not create or destroy them");
+            lagged.Sum(p => p.DefaultedPrincipal) * (1 - Sev), 1.0,
+            "every default that IS booked recovers (1 - severity) of itself, lag or no lag");
+        lagged.Sum(p => p.DefaultedPrincipal).Should().BeApproximately(
+            noLag.Sum(p => p.DefaultedPrincipal) - suppressed, 1.0,
+            "the only defaults the lag removes are the ones that could not liquidate in time");
     }
 
     private static List<PeriodCashflows> RunPeriods(int recoveryLag)

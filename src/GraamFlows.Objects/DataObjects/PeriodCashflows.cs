@@ -73,6 +73,13 @@ public class PeriodCashflows
     public double DelinqBalance { get; set; }
     public double UnAdvancedPrincipal { get; set; }
     public double UnAdvancedInterest { get; set; }
+
+    /// <summary>
+    ///     Defaulted principal recognised but not yet liquidated (graam-harmony
+    ///     #4481 §2). NOT included in <see cref="Balance"/> — see
+    ///     CashflowResultArrays.LiquidationPipelineBalance for why.
+    /// </summary>
+    public double LiquidationPipelineBalance { get; set; }
     public double AdvancedPrincipal { get; set; }
     public double AdvancedInterest { get; set; }
     public double VPR { get; set; }

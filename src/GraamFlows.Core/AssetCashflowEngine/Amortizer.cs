@@ -97,6 +97,7 @@ public static class Amortizer
         var resultDefaultedPrincipal = results.DefaultedPrincipal;
         var resultRecoveryPrincipal = results.RecoveryPrincipal;
         var resultDelinqBalance = results.DelinqBalance;
+        var resultLiquidationPipelineBalance = results.LiquidationPipelineBalance;
         var resultUnAdvancedPrincipal = results.UnAdvancedPrincipal;
         var resultUnAdvancedInterest = results.UnAdvancedInterest;
         var resultAdvancedPrincipal = results.AdvancedPrincipal;
@@ -142,6 +143,11 @@ public static class Amortizer
             var nextRateStepDate = 100000;
             var forbearanceAmt = rawForbearanceAmt[assetIndex];
             var assetRecoveryLag = recoveryLag?[assetIndex] ?? 0;
+            // Defaults awaiting liquidation, indexed by the period they were
+            // recognised in. A default at t leaves the pipeline at t + lag
+            // (#4481 §2). Only needed when there IS a lag.
+            var pipelineByPeriod = assetRecoveryLag > 0 ? new double[maxPeriods] : null;
+            var pipelineBalance = 0.0;
             var assetStepDatesIndex = nextAssetStepDatesIndex;
 
             var origBalance = rawOriginalBalance[assetIndex];
@@ -402,7 +408,16 @@ public static class Amortizer
                     mdr = schedBal > 0 ? origDefaultDollars / schedBal : 0.0;
                 }
 
-                var defPrin = mdr * schedBal;
+                // #4481 §2: a default is only recognised if it can actually
+                // liquidate within the collateral's remaining contractual term.
+                // Past that point the standard books no default at all, rather
+                // than booking the loss and letting the recovery fall off the
+                // end — which is what an unguarded lag does. Scoped to
+                // amortizing collateral: a CLO's collateral has no meaningful
+                // remaining term relative to the deal, and handles stale
+                // defaults by writing them to zero instead.
+                var canLiquidateInTerm = assetRecoveryLag <= 0 || assetRecoveryLag <= term - age;
+                var defPrin = canLiquidateInTerm ? mdr * schedBal : 0.0;
 
                 var schedPrinMdr = schedPrin * (1 - mdr);
 
@@ -542,6 +557,20 @@ public static class Amortizer
                 var recoveryPeriod = period + assetRecoveryLag;
                 if (recoveryPeriod < maxPeriods)
                     resultRecoveryPrincipal[recoveryPeriod] += recoveryPrincipal;
+                // Advance the liquidation pipeline: this period's default enters,
+                // and the cohort recognised `lag` periods ago leaves (its recovery
+                // is placed at the same period, just above). Reported on its own —
+                // deliberately NOT added to resultBalance.
+                if (pipelineByPeriod != null)
+                {
+                    pipelineByPeriod[period] = defaultedPrincipal;
+                    pipelineBalance += defaultedPrincipal;
+                    var liquidatingPeriod = period - assetRecoveryLag;
+                    if (liquidatingPeriod >= 0)
+                        pipelineBalance -= pipelineByPeriod[liquidatingPeriod];
+                    resultLiquidationPipelineBalance[period] += pipelineBalance;
+                }
+
                 resultDelinqBalance[period] += delinqBalance;
                 resultUnAdvancedPrincipal[period] += unadvPrincipal;
                 resultUnAdvancedInterest[period] += unadvInterest;

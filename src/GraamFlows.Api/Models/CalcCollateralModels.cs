@@ -164,6 +164,18 @@ public class PeriodCashflowDto
     public double RecoveryPrincipal { get; set; }
     public double CollateralLoss { get; set; }
     public double DelinqBalance { get; set; }
+
+    /// <summary>
+    ///     Defaulted principal recognised but not yet liquidated, at the end of the
+    ///     period (graam-harmony #4481 §2). A default at t liquidates at
+    ///     t + recoveryLag; this is what is still in the pipeline.
+    ///
+    ///     NOT included in <c>balance</c>. Add the two together for an RMBS-style
+    ///     "reported balance"; leave them apart wherever the balance is meant to be
+    ///     PERFORMING collateral (OC numerators, reinvestment sizing, call factors) —
+    ///     CLO indentures exclude defaulted obligations from the OC numerator at par.
+    /// </summary>
+    public double LiquidationPipelineBalance { get; set; }
     public double ForbearanceRecovery { get; set; }
     public double ForbearanceLiquidated { get; set; }
     public double ForbearanceUnscheduled { get; set; }

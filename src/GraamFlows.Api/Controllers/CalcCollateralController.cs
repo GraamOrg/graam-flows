@@ -383,6 +383,7 @@ public class CalcCollateralController : ControllerBase
                 RecoveryPrincipal = cf.RecoveryPrincipal,
                 CollateralLoss = cf.CollateralLoss,
                 DelinqBalance = cf.DelinqBalance,
+                LiquidationPipelineBalance = cf.LiquidationPipelineBalance,
                 ForbearanceRecovery = cf.ForbearanceRecovery,
                 ForbearanceLiquidated = cf.ForbearanceLiquidated,
                 ForbearanceUnscheduled = cf.ForbearanceUnscheduled,
