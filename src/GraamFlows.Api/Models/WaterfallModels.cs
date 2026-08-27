@@ -467,6 +467,34 @@ public class UnifiedWaterfallDto
     /// Used for STACR-style deals where variables like SenRedu depend on trigger state.
     /// </summary>
     public List<ComputedVariableDto>? ComputedVariables { get; set; }
+
+    /// <summary>
+    ///     CLO per-level OC/IC coverage tests, ordered senior→junior. Each failing
+    ///     level diverts available interest to sequential (senior-first) principal
+    ///     paydown of the note stack before any junior level's interest is paid.
+    ///     Distinct from the single-level RMBS-style OC turbo (EXCESS_TURBO/ocTarget).
+    /// </summary>
+    public List<CoverageLevelDto>? CoverageCascade { get; set; }
+}
+
+/// <summary>
+///     One level of the CLO coverage cascade. The OC numerator is the deal's "ACPA"
+///     scheduled/deal variable when present (harmony computes/discloses any CCC
+///     haircut), else the current collateral balance.
+/// </summary>
+public class CoverageLevelDto
+{
+    /// <summary>Level name, e.g. "A/B", "C", "D", "E".</summary>
+    public string Level { get; set; } = "";
+
+    /// <summary>Note classes AT OR ABOVE this level (the OC denominator set), senior-first.</summary>
+    public List<string> Tranches { get; set; } = new();
+
+    /// <summary>OC trigger in percent (121.58 means 121.58%); null = no OC test at this level.</summary>
+    public double? OcTriggerPct { get; set; }
+
+    /// <summary>IC trigger in percent; null = no IC test at this level.</summary>
+    public double? IcTriggerPct { get; set; }
 }
 
 /// <summary>

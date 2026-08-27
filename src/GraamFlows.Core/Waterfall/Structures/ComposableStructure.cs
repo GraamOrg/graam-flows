@@ -259,6 +259,16 @@ public class ComposableStructure : BaseStructure
             throw new DealModelingException(deal.DealName,
                 "ComposableStructure requires WRITEDOWN step in waterfall. Add SET_WRITEDOWN_STRUCT rule.");
 
+        // The coverage cascade IS a per-level interleaving of interest and principal
+        // (each failing level diverts interest to principal mid-interest-waterfall),
+        // so combining it with the interleaved waterfall orders would run two
+        // conflicting notions of "per level". Fail loudly instead of silently
+        // producing one of them.
+        if (deal.CoverageCascade is { Count: > 0 } && deal.WaterfallOrder != WfOrder.Standard)
+            throw new DealModelingException(deal.DealName,
+                "CoverageCascade requires the standard waterfall order; interleaved " +
+                "(interestFirst/principalFirst) INTEREST/PRINCIPAL is not supported with per-level coverage tests.");
+
         // At most one ExcessInterest (XS / monthly-excess-cashflow) tranche per interest
         // group. The interest sweep (DynamicClass.PayInterest) gives the first
         // such tranche `availableFunds - interestPaid` — i.e. ALL remaining
@@ -409,8 +419,15 @@ public class ComposableStructure : BaseStructure
                         // Skip subsequent INTEREST/PRINCIPAL steps — already handled
                         break;
                     }
-                    availableInterest = PayInterestStep(dynGroup, rateProvider, adjPeriodCf, availableInterest,
-                        allTranches, deal.InterestTreatmentEnum);
+                    // CLO per-level OC/IC coverage cascade replaces the flat interest
+                    // step when configured: pay each level's interest, test coverage,
+                    // and divert available interest to senior-first principal on a
+                    // failing test — before any junior level's interest.
+                    availableInterest = deal.CoverageCascade is { Count: > 0 }
+                        ? PayCoverageCascadeInterestStep(deal, dynGroup, rateProvider, adjPeriodCf,
+                            availableInterest, allTranches)
+                        : PayInterestStep(dynGroup, rateProvider, adjPeriodCf, availableInterest,
+                            allTranches, deal.InterestTreatmentEnum);
                     break;
 
                 case "PRINCIPAL_SCHEDULED":
@@ -617,6 +634,198 @@ public class ComposableStructure : BaseStructure
         // pool money, so exclude it from what we treat as "paid from available").
         var paidFromPool = Math.Max(0, paid - paidFromReserve);
         return availableInterest - paidFromPool;
+    }
+
+    /// <summary>
+    ///     Deal-variable name of the adjusted collateral principal amount — the CLO
+    ///     OC numerator. Supplied by harmony as a scheduled/deal variable when the
+    ///     deal carries CCC-haircut / defaulted-asset adjustments (the engine stays
+    ///     ratings-agnostic); absent, the OC numerator falls back to the period-end
+    ///     collateral balance.
+    /// </summary>
+    private const string AcpaVariableName = "ACPA";
+
+    /// <summary>
+    ///     CLO per-level OC/IC coverage cascade — replaces the flat INTEREST step
+    ///     when <see cref="IDeal.CoverageCascade" /> is configured. Per level, in
+    ///     senior→junior order (mirrors the validated reference model,
+    ///     graam-harmony clo/reference_model.py::forward_sim):
+    ///     1. pay the level's note interest (the classes new at this level — the
+    ///        Tranches lists are cumulative);
+    ///     2. test OC(L) = numerator / Σ BALANCE(level's Tranches) ×100 vs the
+    ///        level's ocTriggerPct, and IC(L) = period collateral interest
+    ///        collected / period interest due on the level's Tranches ×100 vs
+    ///        icTriggerPct (IC ratios are computed up-front, before any note
+    ///        interest or diversion moves, like the reference model's ic_now);
+    ///     3. on a failing test, divert available interest — up to the cure
+    ///        amount max(0, Σ BALANCE − numerator/(ocTriggerPct/100)) for an OC
+    ///        failure, or the remaining-interest sweep for an IC-only failure —
+    ///        to SEQUENTIAL senior-first principal paydown of the note stack,
+    ///        before any junior level's interest.
+    ///     Remaining interest then continues down the normal interest structure
+    ///     (junior/sub interest, residual sweep) in structure order.
+    ///     Per-level results are recorded as trigger results ("OC_{level}" /
+    ///     "IC_{level}") and the period's total diversion in the
+    ///     "coverage_diverted" variable. Collateral interest treatment only (no
+    ///     reserve draw / no Guaranteed top-up — CLO notes are unguaranteed).
+    /// </summary>
+    private double PayCoverageCascadeInterestStep(IDeal deal, DynamicGroup dynGroup,
+        IRateProvider rateProvider, PeriodCashflows periodCf, double availableInterest,
+        List<DynamicTranche> allTranches)
+    {
+        var cascade = deal.CoverageCascade!;
+        var cfDate = periodCf.CashflowDate;
+
+        // Resolve each level's classes once, failing loudly on an unknown name.
+        var levelClasses = new List<List<DynamicClass>>(cascade.Count);
+        foreach (var level in cascade)
+        {
+            var classes = new List<DynamicClass>();
+            foreach (var name in level.Tranches)
+            {
+                var cls = dynGroup.ClassByName(name);
+                if (cls == null)
+                    throw new DealModelingException(deal.DealName,
+                        $"CoverageCascade level '{level.Level}' references unknown class '{name}'.");
+                if (!classes.Contains(cls))
+                    classes.Add(cls);
+            }
+
+            levelClasses.Add(classes);
+        }
+
+        // OC numerator: the ACPA scheduled/deal variable when the deal carries one
+        // (per-date), else the current (period-end) collateral balance.
+        var numerator = DealCarriesVariable(deal, AcpaVariableName)
+            ? dynGroup.GetVariable(AcpaVariableName, cfDate)
+            : periodCf.Balance;
+
+        // IC ratios up-front: numerator is the period collateral interest collected
+        // (net of fees/expenses paid senior to the notes — the funds entering this
+        // step), denominator the level set's interest due this period.
+        var interestCollected = availableInterest;
+        var icRatioPct = new double?[cascade.Count];
+        for (var i = 0; i < cascade.Count; i++)
+        {
+            if (!cascade[i].IcTriggerPct.HasValue)
+                continue;
+            var due = levelClasses[i].Sum(c => c.InterestDue(cfDate, rateProvider, allTranches));
+            icRatioPct[i] = due > 0.005 ? interestCollected / due * 100.0 : double.PositiveInfinity;
+        }
+
+        // Cure diversions pay the full note stack sequentially, senior-first — the
+        // most junior level's (cumulative) class list is that stack in order.
+        var noteStack = new SequentialStructure(levelClasses[^1].Cast<IPayable>().ToList());
+
+        var paidClasses = new HashSet<DynamicClass>();
+        var totalDiverted = 0.0;
+
+        for (var i = 0; i < cascade.Count; i++)
+        {
+            var level = cascade[i];
+
+            // 1) This level's interest: the classes not already paid at a senior
+            // level. Pass all remaining funds — a coupon class takes only its due
+            // (DynamicClass.PayInterest), and with no funds it books the unpaid
+            // coupon as a shortfall (#58 parity with SequentialStructure).
+            foreach (var cls in levelClasses[i])
+            {
+                if (!paidClasses.Add(cls) || cls.IsLockedOut(cfDate))
+                    continue;
+                var funds = availableInterest < 0.01 ? 0 : availableInterest;
+                availableInterest -= cls.PayInterest(null, cfDate, funds, rateProvider, allTranches);
+            }
+
+            // 2) Test coverage at this level (current balances — senior levels'
+            // diversions this period have already paid the stack down).
+            var denom = levelClasses[i].Sum(c => c.Balance);
+            var ocRatioPct = denom > 0.005 ? numerator / denom * 100.0 : double.PositiveInfinity;
+            var ocFail = level.OcTriggerPct.HasValue && ocRatioPct < level.OcTriggerPct.Value;
+            var icFail = level.IcTriggerPct.HasValue && icRatioPct[i] < level.IcTriggerPct.Value;
+
+            if (level.OcTriggerPct.HasValue)
+                dynGroup.AddTriggerResult(cfDate, $"OC_{level.Level}",
+                    ocRatioPct, level.OcTriggerPct.Value, !ocFail);
+            if (level.IcTriggerPct.HasValue)
+                dynGroup.AddTriggerResult(cfDate, $"IC_{level.Level}",
+                    icRatioPct[i]!.Value, level.IcTriggerPct.Value, !icFail);
+
+            if (!ocFail && !icFail)
+                continue;
+
+            // 3) Cure: an OC failure needs exactly the paydown that restores
+            // OC(L) to its trigger; an IC-only failure sweeps the remaining
+            // interest (reference-model parity — IC cures by deleveraging, so all
+            // available interest turns to principal until the test passes).
+            var need = ocFail
+                ? Math.Max(0.0, denom - numerator / (level.OcTriggerPct!.Value / 100.0))
+                : availableInterest;
+            var cure = Math.Min(Math.Max(availableInterest, 0.0), need);
+            if (cure <= 0.005)
+                continue;
+
+            var noteBalBefore = dynGroup.Balance();
+            noteStack.PaySp(null, cfDate, cure, () => { });
+            var diverted = noteBalBefore - dynGroup.Balance();
+            availableInterest -= diverted;
+            totalDiverted += diverted;
+        }
+
+        dynGroup.SetVariable("coverage_diverted", totalDiverted);
+
+        // 4) Remaining interest continues down the normal interest structure — the
+        // classes below the cascade (junior/sub interest, residual sweep), in
+        // structure order, skipping the cascade classes already paid above.
+        if (dynGroup.InterestPayable != null)
+            availableInterest = PayInterestSkippingPaid(dynGroup.InterestPayable, paidClasses,
+                cfDate, availableInterest, rateProvider, allTranches);
+
+        return Math.Max(availableInterest, 0.0);
+    }
+
+    /// <summary>
+    ///     Pays interest through <paramref name="payable" /> while skipping classes
+    ///     the coverage cascade already paid. A container none of whose leaf
+    ///     classes was cascade-paid pays natively — preserving its own semantics
+    ///     (e.g. PRORATA scaling on a shortfall); a container holding cascade
+    ///     classes is descended in order so only the unpaid remainder pays.
+    /// </summary>
+    private static double PayInterestSkippingPaid(IPayable payable, HashSet<DynamicClass> paidClasses,
+        DateTime cfDate, double availableInterest, IRateProvider rateProvider,
+        List<DynamicTranche> allTranches)
+    {
+        if (payable is DynamicClass cls)
+        {
+            if (paidClasses.Contains(cls) || cls.IsLockedOut(cfDate))
+                return availableInterest;
+            var funds = availableInterest < 0.01 ? 0 : availableInterest;
+            return availableInterest - cls.PayInterest(null, cfDate, funds, rateProvider, allTranches);
+        }
+
+        if (!payable.Leafs().OfType<DynamicClass>().Any(paidClasses.Contains))
+        {
+            var funds = availableInterest < 0.01 ? 0 : availableInterest;
+            return availableInterest - payable.PayInterest(null, cfDate, funds, rateProvider, allTranches);
+        }
+
+        foreach (var child in payable.GetChildren() ?? new List<IPayable>())
+            availableInterest = PayInterestSkippingPaid(child, paidClasses, cfDate,
+                availableInterest, rateProvider, allTranches);
+        return availableInterest;
+    }
+
+    /// <summary>
+    ///     True when the deal defines <paramref name="varName" /> as a deal
+    ///     variable or scheduled variable — mirroring the lookup order (and
+    ///     casing rules) of <see cref="DynamicGroup.GetVariableObj" />, which
+    ///     otherwise silently returns 0 for a missing variable.
+    /// </summary>
+    private static bool DealCarriesVariable(IDeal deal, string varName)
+    {
+        return deal.DealVariables.Any(v =>
+                   v.VariableName.Equals(varName, StringComparison.InvariantCultureIgnoreCase)) ||
+               deal.ScheduledVariables.Any(sv =>
+                   sv.ScheduleVariableName.Equals(varName, StringComparison.InvariantCulture));
     }
 
     /// <summary>
