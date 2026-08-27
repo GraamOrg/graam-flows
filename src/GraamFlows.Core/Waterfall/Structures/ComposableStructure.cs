@@ -695,10 +695,18 @@ public class ComposableStructure : BaseStructure
         }
 
         // OC numerator: the ACPA scheduled/deal variable when the deal carries one
-        // (per-date), else the current (period-end) collateral balance.
+        // (per-date), else the Collateral Principal Amount — the period-end
+        // collateral balance PLUS this period's principal collections (scheduled,
+        // unscheduled, recoveries). Indentures include principal proceeds held in
+        // the collection account, and the cash is real: it redeems notes later
+        // this same payment date. Without it the test understates coverage by one
+        // period's collections all deal long and reads 0% on the final payment
+        // date (the whole pool is principal cash by then), spuriously diverting
+        // the junior classes' last coupon to equity's benefit (#67).
         var numerator = DealCarriesVariable(deal, AcpaVariableName)
             ? dynGroup.GetVariable(AcpaVariableName, cfDate)
-            : periodCf.Balance;
+            : periodCf.Balance + periodCf.ScheduledPrincipal
+              + periodCf.UnscheduledPrincipal + periodCf.RecoveryPrincipal;
 
         // IC ratios up-front: numerator is the period collateral interest collected
         // (net of fees/expenses paid senior to the notes — the funds entering this

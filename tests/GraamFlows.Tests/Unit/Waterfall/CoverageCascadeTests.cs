@@ -89,6 +89,47 @@ public class CoverageCascadeTests
     }
 
     [Fact]
+    public void FinalPeriodFullPayoff_PrincipalCashCountsInOcNumerator()
+    {
+        // Terminal-period regression (#67): on the final payment date the whole
+        // pool has converted to principal COLLECTIONS — period-end collateral
+        // balance is 0, but the cash is in the collection account and redeems
+        // the notes later this same date. Indenture Collateral Principal Amount
+        // includes principal proceeds, so OC = (0 + 1,000,000)/900,000 = 111.1%
+        // → PASSES the 110% trigger. Before the fix the numerator was the bare
+        // period-end balance → OC read 0%, spuriously diverting B's final
+        // coupon to senior principal.
+        var payoff = new TestCollateralBuilder()
+            .WithGroupNum("1")
+            .WithPeriod(
+                date: FirstPayDate,
+                beginBalance: 1_000_000,
+                scheduledPrincipal: 1_000_000,
+                unscheduledPrincipal: 0,
+                interest: 6_000,
+                defaultedPrincipal: 0,
+                recoveryPrincipal: 0)
+            .Build();
+
+        var (_, cf) = BuildDeal()
+            .WithCoverageCascade(
+                new CoverageLevelConfig { Level = "A/B", Tranches = new[] { "A", "B" }, OcTriggerPct = 110 })
+            .BuildAndRun(payoff);
+
+        var ocAb = cf.TriggerResults.Single(tr => tr.TriggerName == "OC_A/B");
+        ocAb.Passed.Should().BeTrue("principal collections are Collateral Principal Amount");
+        ocAb.ActualValue.Should().BeApproximately(1_000_000.0 / 900_000.0 * 100, 0.01);
+
+        // No diversion: B gets its final coupon, notes redeem from principal cash.
+        var bCf = GetFirstCashflow(cf, "B");
+        bCf.Interest.Should().BeApproximately(200_000 * 0.08 / 12, 50,
+            "no spurious OC failure may divert the junior class's last coupon");
+        var aCf = GetFirstCashflow(cf, "A");
+        (aCf.ScheduledPrincipal + aCf.UnscheduledPrincipal).Should().BeApproximately(
+            700_000, 0.01, "A redeems in full from principal collections");
+    }
+
+    [Fact]
     public void NoFailure_WaterfallIdenticalToDealWithoutCascade()
     {
         // Additive pin: a cascade whose tests all pass must leave the waterfall
