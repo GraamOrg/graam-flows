@@ -14,7 +14,21 @@ namespace GraamFlows.Objects.TypeEnum;
 /// </summary>
 public enum FirstPeriodCollateralPolicyEnum
 {
-    /// <summary>Accumulate them into the first distribution. The historical behaviour.</summary>
+    /// <summary>
+    /// RE-DATE the collateral 1:1 onto the pay schedule, so each collateral month funds
+    /// exactly one distribution and nothing is left before the boundary. This is what the
+    /// engine actually does today (`AlignStubPeriodsToPaySchedule`, added for harmony
+    /// #2748 to stop the residual sweeping ~2 months of interest in period 0) and so it
+    /// is the default. Note it PRE-EMPTS Fold: with alignment on, the fold below never
+    /// fires, which is why Fold and Drop were previously indistinguishable.
+    /// </summary>
+    Align,
+
+    /// <summary>
+    /// Accumulate the pre-first-pay periods into the first distribution — what Payscen
+    /// does, and what a deal whose Appendix G ladder assumes the whole cut-off-to-closing
+    /// window needs. Requires alignment to be off, which selecting this does.
+    /// </summary>
     Fold,
 
     /// <summary>Exclude them entirely; the first distribution spends one period.</summary>

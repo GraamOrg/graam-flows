@@ -20,12 +20,21 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 ///   Drop — exclude them. No flood, but a long first period starves the senior
 ///          (harmony #2454).
 ///
+///   Align — re-date the i-th collateral month onto the i-th pay date, so each month
+///          funds exactly one distribution. Added as AlignStubPeriodsToPaySchedule for
+///          harmony #2748 and, until this knob, applied UNCONDITIONALLY — which is why
+///          Fold and Drop were previously indistinguishable: alignment runs FIRST and
+///          leaves nothing before the boundary for the fold to act on.
+///
+/// Align is therefore the default: it is what the engine has actually been doing, and
+/// selecting Fold or Drop is what turns it off.
+///
 /// Before this knob existed the boundary was derived from whichever tranche happened
 /// to be FIRST in the deal's list, snapped to the 1st of its month — incidental, not
 /// stated — and callers expressed a collateral intent by moving the PROJECTION DATE,
 /// which is a different variable.
 ///
-/// These tests pin both behaviours and, most importantly, that omitting the knob
+/// These tests pin all three behaviours and, most importantly, that omitting the knob
 /// changes nothing.
 /// </summary>
 public class FirstPeriodCollateralPolicyTests
@@ -71,26 +80,28 @@ public class FirstPeriodCollateralPolicyTests
     // --- the default must not move ------------------------------------------------
 
     [Fact]
-    public void OmittingThePolicy_IsFold()
+    public void OmittingThePolicy_IsAlign()
     {
         var (deal, _) = Run(null);
-        deal.FirstPeriodCollateralPolicyEnum.Should().Be(FirstPeriodCollateralPolicyEnum.Fold,
-            "the engine has always folded, so a request that says nothing must keep doing that");
+        deal.FirstPeriodCollateralPolicyEnum.Should().Be(FirstPeriodCollateralPolicyEnum.Align,
+            "the engine has re-timed stub periods since #2748, so a request that says "
+            + "nothing must keep doing that");
     }
 
-    [Fact(Skip = "Fold and Drop produce IDENTICAL tranche cashflows on this fixture and money is conserved in both (total to tranches == total collateral principal), even though the fixture demonstrably has one collateral period before the boundary (2024-01-25 vs a 2024-02-01 boundary) and the branch is correctly placed. So the fold/drop choice is not changing what the tranches receive on this path. Whether that is an engine defect or an artifact of principal being allocated off the collateral BALANCE rather than the per-period cashflow is unresolved - it needs a trace inside ComposableStructure, not more inference. Unskip once that is answered; do not weaken the assertion to make it pass. Same anomaly blocks the STACR 2025-DNA1 tie-out (+0.032y on Class A-1).")]
-    public void OmittingThePolicy_ProducesIdenticalCashflowsToExplicitFold()
+    [Fact]
+    public void OmittingThePolicy_ProducesIdenticalCashflowsToExplicitAlign()
     {
         var (_, implicitCf) = Run(null);
-        var (_, explicitCf) = Run("Fold");
+        var (_, explicitCf) = Run("Align");
 
         foreach (var tranche in new[] { "A", "B" })
-        {
             TotalPrincipal(implicitCf, tranche).Should()
                 .BeApproximately(TotalPrincipal(explicitCf, tranche), 0.01);
-            FirstPrincipal(implicitCf, tranche).Should()
-                .BeApproximately(FirstPrincipal(explicitCf, tranche), 0.01);
-        }
+
+        // Only A amortises over this fixture's four periods — B is still full, so it has
+        // no first paying period to compare.
+        FirstPrincipal(implicitCf, "A").Should()
+            .BeApproximately(FirstPrincipal(explicitCf, "A"), 0.01);
     }
 
     [Fact]
@@ -104,7 +115,7 @@ public class FirstPeriodCollateralPolicyTests
 
     // --- Fold vs Drop -------------------------------------------------------------
 
-    [Fact(Skip = "Fold and Drop produce IDENTICAL tranche cashflows on this fixture and money is conserved in both (total to tranches == total collateral principal), even though the fixture demonstrably has one collateral period before the boundary (2024-01-25 vs a 2024-02-01 boundary) and the branch is correctly placed. So the fold/drop choice is not changing what the tranches receive on this path. Whether that is an engine defect or an artifact of principal being allocated off the collateral BALANCE rather than the per-period cashflow is unresolved - it needs a trace inside ComposableStructure, not more inference. Unskip once that is answered; do not weaken the assertion to make it pass. Same anomaly blocks the STACR 2025-DNA1 tie-out (+0.032y on Class A-1).")]
+    [Fact]
     public void Fold_SpendsThePreFirstPayPeriodInTheFirstDistribution()
     {
         var (_, fold) = Run("Fold");
@@ -114,7 +125,23 @@ public class FirstPeriodCollateralPolicyTests
             "folding adds the stub period's principal to the first distribution");
     }
 
-    [Fact(Skip = "Fold and Drop produce IDENTICAL tranche cashflows on this fixture and money is conserved in both (total to tranches == total collateral principal), even though the fixture demonstrably has one collateral period before the boundary (2024-01-25 vs a 2024-02-01 boundary) and the branch is correctly placed. So the fold/drop choice is not changing what the tranches receive on this path. Whether that is an engine defect or an artifact of principal being allocated off the collateral BALANCE rather than the per-period cashflow is unresolved - it needs a trace inside ComposableStructure, not more inference. Unskip once that is answered; do not weaken the assertion to make it pass. Same anomaly blocks the STACR 2025-DNA1 tie-out (+0.032y on Class A-1).")]
+    [Fact]
+    public void Fold_PutsMoreInTheFirstDistributionThanAlign()
+    {
+        // The distinction that matters in practice, and the one that was invisible
+        // while alignment ran unconditionally: Align gives the first distribution ONE
+        // collateral month, Fold gives it the whole cut-off-to-first-pay window.
+        // On STACR 2025-DNA1 this is the entire Class A-1 divergence from Payscen
+        // (Align 17,789,097.37 vs Payscen/Fold 20,662,500.00).
+        var (_, align) = Run("Align");
+        var (_, fold) = Run("Fold");
+
+        FirstPrincipal(fold, "A").Should().BeGreaterThan(FirstPrincipal(align, "A"),
+            "alignment re-dates the stub into its own distribution; folding spends it in "
+            + "the first one");
+    }
+
+    [Fact]
     public void Drop_ExcludesThePreFirstPayPeriodEntirely()
     {
         var (_, fold) = Run("Fold");
@@ -127,7 +154,7 @@ public class FirstPeriodCollateralPolicyTests
             "the dropped period's principal never reaches a distribution");
     }
 
-    [Fact(Skip = "Fold and Drop produce IDENTICAL tranche cashflows on this fixture and money is conserved in both (total to tranches == total collateral principal), even though the fixture demonstrably has one collateral period before the boundary (2024-01-25 vs a 2024-02-01 boundary) and the branch is correctly placed. So the fold/drop choice is not changing what the tranches receive on this path. Whether that is an engine defect or an artifact of principal being allocated off the collateral BALANCE rather than the per-period cashflow is unresolved - it needs a trace inside ComposableStructure, not more inference. Unskip once that is answered; do not weaken the assertion to make it pass. Same anomaly blocks the STACR 2025-DNA1 tie-out (+0.032y on Class A-1).")]
+    [Fact]
     public void Drop_LosesExactlyTheStubPeriod()
     {
         var collateral = CollateralStartingBeforeFirstPay();

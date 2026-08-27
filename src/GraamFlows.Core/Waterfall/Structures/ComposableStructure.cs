@@ -198,6 +198,13 @@ public class ComposableStructure : BaseStructure
     private static IList<PeriodCashflows> AlignStubPeriodsToPaySchedule(
         IDeal deal, IList<PeriodCashflows> periodCashflows)
     {
+        // Re-timing is itself a policy, and it PRE-EMPTS the fold: once every period has
+        // been moved onto the pay schedule nothing is left before the boundary, so Fold and
+        // Drop become indistinguishable. A caller asking for either is asking for the
+        // collateral NOT to be re-dated.
+        if (deal.FirstPeriodCollateralPolicyEnum != FirstPeriodCollateralPolicyEnum.Align)
+            return periodCashflows;
+
         var firstTranche = deal.Tranches.FirstOrDefault();
         if (firstTranche == null || firstTranche.PayFrequency != 12 || periodCashflows.Count == 0)
             return periodCashflows;
