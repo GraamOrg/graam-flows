@@ -147,7 +147,6 @@ public static class Amortizer
             // recognised in. A default at t leaves the pipeline at t + lag
             // (#4481 §2). Only needed when there IS a lag.
             var pipelineByPeriod = assetRecoveryLag > 0 ? new double[maxPeriods] : null;
-            var pipelineBalance = 0.0;
             var assetStepDatesIndex = nextAssetStepDatesIndex;
 
             var origBalance = rawOriginalBalance[assetIndex];
@@ -561,15 +560,11 @@ public static class Amortizer
                 // and the cohort recognised `lag` periods ago leaves (its recovery
                 // is placed at the same period, just above). Reported on its own —
                 // deliberately NOT added to resultBalance.
+                // Record this period's default; the pipeline window is summed after
+                // the asset loop (see below) so it keeps draining after the asset
+                // retires.
                 if (pipelineByPeriod != null)
-                {
                     pipelineByPeriod[period] = defaultedPrincipal;
-                    pipelineBalance += defaultedPrincipal;
-                    var liquidatingPeriod = period - assetRecoveryLag;
-                    if (liquidatingPeriod >= 0)
-                        pipelineBalance -= pipelineByPeriod[liquidatingPeriod];
-                    resultLiquidationPipelineBalance[period] += pipelineBalance;
-                }
 
                 resultDelinqBalance[period] += delinqBalance;
                 resultUnAdvancedPrincipal[period] += unadvPrincipal;
@@ -591,6 +586,35 @@ public static class Amortizer
                     resultUnscheduledPrincipal[period] += balance;
                     balance = 0;
                     break;
+                }
+            }
+
+            // The liquidation pipeline over the FULL horizon (#4481 §2).
+            //
+            // This runs AFTER the amortization loop on purpose. That loop breaks as
+            // soon as the asset retires (`balance < 1 || !hasCashflow`), but the
+            // recoveries it booked are placed at `period + lag`, which can be long
+            // after. Accumulating the window inside the loop therefore reported 0
+            // for exactly the periods the column exists to describe — an asset that
+            // prepaid or amortized early showed an empty pipeline while its
+            // recoveries were still arriving.
+            //
+            // Summing the window here is also correct by construction rather than
+            // by a running balance that has to be kept in step.
+            if (pipelineByPeriod != null)
+            {
+                var inFlight = 0.0;
+                for (var p = 0; p < maxPeriods; p++)
+                {
+                    inFlight += pipelineByPeriod[p];
+                    var liquidating = p - assetRecoveryLag;
+                    if (liquidating >= 0)
+                        inFlight -= pipelineByPeriod[liquidating];
+                    // Floating-point crumbs only; a real negative is impossible
+                    // because every entry leaves exactly `lag` periods after it
+                    // arrives.
+                    if (inFlight < 0 && inFlight > -1e-9) inFlight = 0.0;
+                    resultLiquidationPipelineBalance[p] += inFlight;
                 }
             }
         }

@@ -59,6 +59,8 @@ public class CollateralCashflows
                 periodCf.NetInterest += cf.NetInterest;
                 periodCf.ServiceFee += cf.ServiceFee;
                 periodCf.DelinqBalance += cf.DelinqBalance;
+            // (no LiquidationPipelineBalance here: IAssetCashflow has no such field, and
+            //  AddAssetCashflow has no callers — see #4481 §2 review.)
                 periodCf.UnAdvancedPrincipal += cf.UnAdvancedPrincipal;
                 periodCf.UnAdvancedInterest += cf.UnAdvancedInterest;
                 periodCf.AdvancedPrincipal += cf.AdvancedPrincipal;
@@ -99,6 +101,7 @@ public class CollateralCashflows
                 existingCf.NetInterest += periodCf.NetInterest;
                 existingCf.ServiceFee += periodCf.ServiceFee;
                 existingCf.DelinqBalance += periodCf.DelinqBalance;
+            existingCf.LiquidationPipelineBalance += periodCf.LiquidationPipelineBalance;
                 existingCf.UnAdvancedPrincipal += periodCf.UnAdvancedPrincipal;
                 existingCf.UnAdvancedInterest += periodCf.UnAdvancedInterest;
                 existingCf.AdvancedPrincipal += periodCf.AdvancedPrincipal;

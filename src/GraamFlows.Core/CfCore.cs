@@ -596,6 +596,7 @@ public class CfCore
                 cohortAccum.DefaultedPrincipal[gp] += cohortResult.DefaultedPrincipal[p];
                 cohortAccum.RecoveryPrincipal[gp] += cohortResult.RecoveryPrincipal[p];
                 cohortAccum.DelinqBalance[gp] += cohortResult.DelinqBalance[p];
+                cohortAccum.LiquidationPipelineBalance[gp] += cohortResult.LiquidationPipelineBalance[p];
                 cohortAccum.UnAdvancedPrincipal[gp] += cohortResult.UnAdvancedPrincipal[p];
                 cohortAccum.UnAdvancedInterest[gp] += cohortResult.UnAdvancedInterest[p];
                 cohortAccum.AdvancedPrincipal[gp] += cohortResult.AdvancedPrincipal[p];

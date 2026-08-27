@@ -119,6 +119,15 @@ public class PeriodCashflows
 
     public PeriodCashflows Clone()
     {
+        // LiquidationPipelineBalance is set after construction rather than threaded
+        // through the 35-arg positional ctor (#4481 §2).
+        var clone = CloneCore();
+        clone.LiquidationPipelineBalance = LiquidationPipelineBalance;
+        return clone;
+    }
+
+    private PeriodCashflows CloneCore()
+    {
         return new PeriodCashflows(CashflowDate, ScheduledPrincipal, Balance, UnscheduledPrincipal, Interest,
             NetInterest, ServiceFee, WAC, NetWac, WAM, WALA, EffectiveWac, BeginBalance,
             DefaultedPrincipal, RecoveryPrincipal, VPR, CDR, SEV, DQ, GroupNum, CumDefaultedPrincipal,

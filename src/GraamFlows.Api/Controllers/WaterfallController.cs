@@ -532,6 +532,7 @@ public class WaterfallController : ControllerBase
                 RecoveryPrincipal = dto.RecoveryPrincipal,
                 CollateralLoss = dto.CollateralLoss,
                 DelinqBalance = dto.DelinqBalance,
+                LiquidationPipelineBalance = dto.LiquidationPipelineBalance,
                 ForbearanceRecovery = dto.ForbearanceRecovery,
                 ForbearanceLiquidated = dto.ForbearanceLiquidated,
                 ForbearanceUnscheduled = dto.ForbearanceUnscheduled,
