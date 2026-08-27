@@ -75,25 +75,14 @@ public class AmortizerRecoveryLagApiTests
                 $"period {i}: recovery is delayed by the {lag}-month lag");
         }
 
-        // Recovery at period p (no lag) reappears at p + lag (lagged run).
-        //
-        // Defaults are untouched only while the default can still liquidate inside
-        // the remaining term: a default at p liquidates at p + lag, and the last
-        // index is Count - 1, so the first suppressed period is Count - lag
-        // (graam-harmony #4481 §2 — the standard books no default it cannot
-        // liquidate, rather than booking the loss and dropping the recovery).
-        var firstSuppressedPeriod = noLag.Count - lag;
-
-        for (var i = 0; i < firstSuppressedPeriod; i++)
+        // Recovery at period p (no lag) reappears at p + lag (lagged run); defaults
+        // are untouched.
+        for (var i = 0; i < noLag.Count - 1; i++)
         {
             lagged[i].DefaultedPrincipal.Should().BeApproximately(noLag[i].DefaultedPrincipal, 1.0,
-                $"period {i}: defaults unaffected by recovery lag while liquidation fits in term");
+                $"period {i}: defaults unaffected by recovery lag");
             lagged[i + lag].RecoveryPrincipal.Should().BeApproximately(noLag[i].RecoveryPrincipal, 1.0,
                 $"period {i}: recovery shifted forward {lag} months");
         }
-
-        for (var i = firstSuppressedPeriod; i < noLag.Count; i++)
-            lagged[i].DefaultedPrincipal.Should().BeApproximately(0.0, 1e-9,
-                $"period {i}: no default is booked once it could not liquidate within the term");
     }
 }

@@ -35,6 +35,25 @@ public class LiquidationPipelineTests
     private const double SevPct = 40.0;
     private const double Sev = SevPct / 100.0;
 
+    /// <summary>A loan that retires well before its contractual term.</summary>
+    private static Asset EarlyRetiring(int term) => new()
+    {
+        AssetName = "PIPE-EARLY",
+        AssetId = "PIPE-EARLY",
+        InterestRateType = InterestRateType.FRM,
+        OriginalDate = new DateTime(2026, 6, 1),
+        OriginalBalance = 100_000,
+        CurrentBalance = 100_000,
+        BalanceAtIssuance = 100_000,
+        OriginalInterestRate = 6.0,
+        CurrentInterestRate = 6.0,
+        OriginalAmortizationTerm = term,
+        DebtService = 3000.0,
+        ServiceFee = 0.0,
+        GroupNum = "1",
+        IsIO = false,
+    };
+
     private static Asset Frm(int term) => new()
     {
         AssetName = "PIPE",
@@ -52,7 +71,7 @@ public class LiquidationPipelineTests
         IsIO = false,
     };
 
-    private static List<PeriodCashflows> Run(int lag, int term = 60)
+    private static List<PeriodCashflows> Run(int lag, int term = 60, bool earlyRetiring = false)
     {
         var firstProjDate = new DateTime(2026, 7, 1);
         var anchorAbsT = DateUtil.CalcAbsT(firstProjDate);
@@ -65,7 +84,8 @@ public class LiquidationPipelineTests
         { RecoveryLag = lag };
 
         var result = CfCore.GenerateAssetCashflows(
-            new List<IAsset> { Frm(term) }, firstProjDate, null, _ => assumps, rateProvider);
+            new List<IAsset> { earlyRetiring ? EarlyRetiring(term) : Frm(term) },
+            firstProjDate, null, _ => assumps, rateProvider);
         return result.PeriodCashflows.OrderBy(p => p.CashflowDate).ToList();
     }
 
@@ -91,17 +111,54 @@ public class LiquidationPipelineTests
     }
 
     [Theory]
-    [InlineData(3)]
-    [InlineData(12)]
-    public void PipelineDrainsToZeroByTheEnd(int lag)
+    [InlineData(3, false)]
+    [InlineData(12, false)]
+    // An asset that RETIRES EARLY is the case that matters: the amortization loop
+    // breaks the moment it does, while its recoveries keep arriving at t + lag.
+    // Draining inside that loop reported an empty pipeline for exactly those
+    // periods — "drains to zero" was satisfied by the writer stopping, not by the
+    // pipeline emptying.
+    [InlineData(12, true)]
+    [InlineData(24, true)]
+    public void PipelineDrainsToZeroByTheEnd(int lag, bool earlyRetiring)
     {
-        var periods = Run(lag);
+        var periods = Run(lag, earlyRetiring: earlyRetiring);
 
         periods.Should().Contain(p => p.LiquidationPipelineBalance > 0,
             "the fixture must actually put something in the pipeline");
         periods[^1].LiquidationPipelineBalance.Should().BeApproximately(0.0, 1e-6,
-            "every recognised default must liquidate before the projection ends — a residual " +
-            "here means a default was booked whose recovery never arrived");
+            "every recognised default must liquidate before the projection ends");
+
+        // Every period that receives a recovery must have had something in flight
+        // in the period before it — the property that broke when the pipeline was
+        // accumulated inside the amortization loop.
+        for (var t = 1; t < periods.Count; t++)
+            if (periods[t].RecoveryPrincipal > 0.005)
+                periods[t - 1].LiquidationPipelineBalance.Should().BeGreaterThan(0.0,
+                    $"period {t} receives a recovery, so period {t - 1} must show it in flight");
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(12, false)]
+    [InlineData(12, true)]
+    [InlineData(24, true)]
+    public void PrincipalIsFullyAccountedFor(int lag, bool earlyRetiring)
+    {
+        var periods = Run(lag, earlyRetiring: earlyRetiring);
+
+        // Every dollar of original balance leaves as scheduled principal, prepayment
+        // or default, and the pool ends at zero. A reporting change must not strand
+        // principal — an earlier revision of this branch suppressed `defPrin` without
+        // also zeroing `mdr`, leaving the scheduled-principal haircut with no
+        // counterparty and up to 34.7bp permanently unaccounted for.
+        var accounted = periods.Sum(p =>
+            p.ScheduledPrincipal + p.UnscheduledPrincipal + p.DefaultedPrincipal);
+
+        accounted.Should().BeApproximately(100_000.0, 1.0,
+            "scheduled + prepaid + defaulted principal must equal the original balance");
+        periods[^1].Balance.Should().BeApproximately(0.0, 1.0,
+            "the pool must fully retire");
     }
 
     [Fact]
@@ -135,26 +192,6 @@ public class LiquidationPipelineTests
         }
 
         sawPipeline.Should().BeTrue("the fixture must actually exercise a non-empty pipeline");
-    }
-
-    [Theory]
-    [InlineData(6)]
-    [InlineData(12)]
-    [InlineData(24)]
-    public void NoDefaultIsBookedThatCannotLiquidateWithinTheTerm(int lag)
-    {
-        const int term = 60;
-        var periods = Run(lag, term);
-
-        // A default at t liquidates at t + lag; the last index is Count - 1.
-        var firstSuppressed = periods.Count - lag;
-        for (var t = firstSuppressed; t < periods.Count; t++)
-            periods[t].DefaultedPrincipal.Should().BeApproximately(0.0, 1e-9,
-                $"period {t}: booking this default would recognise a loss whose recovery " +
-                "falls outside the collateral's remaining term");
-
-        periods.Take(firstSuppressed).Sum(p => p.DefaultedPrincipal).Should().BeGreaterThan(0.0,
-            "defaults must still be booked wherever they CAN liquidate");
     }
 
     [Theory]

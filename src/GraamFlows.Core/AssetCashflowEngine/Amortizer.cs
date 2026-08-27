@@ -407,16 +407,7 @@ public static class Amortizer
                     mdr = schedBal > 0 ? origDefaultDollars / schedBal : 0.0;
                 }
 
-                // #4481 §2: a default is only recognised if it can actually
-                // liquidate within the collateral's remaining contractual term.
-                // Past that point the standard books no default at all, rather
-                // than booking the loss and letting the recovery fall off the
-                // end — which is what an unguarded lag does. Scoped to
-                // amortizing collateral: a CLO's collateral has no meaningful
-                // remaining term relative to the deal, and handles stale
-                // defaults by writing them to zero instead.
-                var canLiquidateInTerm = assetRecoveryLag <= 0 || assetRecoveryLag <= term - age;
-                var defPrin = canLiquidateInTerm ? mdr * schedBal : 0.0;
+                var defPrin = mdr * schedBal;
 
                 var schedPrinMdr = schedPrin * (1 - mdr);
 
