@@ -413,6 +413,24 @@ public class CfCore
     /// </summary>
     /// <param name="basePool">The already-projected (non-reinvesting) collateral
     /// period cashflows across all groups. Read only.</param>
+    /// <summary>
+    ///     Deal-level-assumptions convenience for callers outside CfCore (the HTTP
+    ///     path, graam-flows#62): resolves the representative reinvest assumptions
+    ///     from a sample template asset exactly as GenerateAssetCashflows does,
+    ///     then delegates to the core overload. No behavior change for the
+    ///     instance path.
+    /// </summary>
+    public static IList<PeriodCashflows> BuildReinvestmentCashflows(
+        IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
+        IAssumptionMill assumps, IRateProvider rateProvider)
+    {
+        if (cfg.Templates.Count == 0 || basePool == null || basePool.Count == 0)
+            return new List<PeriodCashflows>();
+        var sampleAsset = BuildReinvestAsset(cfg.Templates[0], 1.0, firstProjDate, rateProvider, 0);
+        var reinvestAssumps = assumps.GetAssumptionsForAsset(sampleAsset);
+        return BuildReinvestmentCashflows(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider);
+    }
+
     public static IList<PeriodCashflows> BuildReinvestmentCashflows(
         IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
         IAssetAssumptions reinvestAssumps, IRateProvider rateProvider)
