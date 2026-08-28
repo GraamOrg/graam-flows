@@ -78,7 +78,7 @@ public class Deal : IDeal
         get
         {
             if (string.IsNullOrWhiteSpace(FirstPeriodCollateralPolicy))
-                return FirstPeriodCollateralPolicyEnum.Align;
+                return FirstPeriodCollateralPolicyEnum.Drop;
             if (Enum.TryParse<FirstPeriodCollateralPolicyEnum>(
                     FirstPeriodCollateralPolicy.Trim(), true, out var parsed))
                 return parsed;
@@ -86,8 +86,7 @@ public class Deal : IDeal
             throw new ArgumentException(
                 $"firstPeriodCollateralPolicy '{FirstPeriodCollateralPolicy}' is not recognised. "
                 + "Supported: Fold (accumulate pre-first-pay collateral into the first "
-                + "distribution), Drop (exclude it), or Align (re-date the collateral onto the "
-                + "pay schedule). Omit the field for Align, which is what the engine does today.");
+                + "distribution) or Drop (exclude it). Omit the field for Drop.");
         }
     }
     public OcTargetConfig? OcTargetConfig { get; set; }

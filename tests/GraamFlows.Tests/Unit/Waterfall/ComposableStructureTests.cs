@@ -157,15 +157,22 @@ public class ComposableStructureTests
     }
 
     [Fact]
-    public void Interest_PreFirstPayStub_ReTimedToOneMonthPerDistribution()
+    public void Interest_PreFirstPayStub_NeverExceedsOneCollateralMonth()
     {
         // Repro of graam-harmony #2748. The pool is projected from the closing/
         // cutoff date, so its first period lands a full month BEFORE the first pay
         // date. The amortizer emits a full month of interest for every period, so
-        // without re-timing the first-pay fold sums that stub month INTO the first
-        // paying period and the residual (XS) sweeps ~2 months of collateral
-        // interest in period 0 — paying out more than the pool earned. After the
-        // fix each collateral month funds exactly one distribution.
+        // folding that stub month INTO the first paying period makes the residual
+        // (XS) sweep ~2 months of collateral interest in period 0 — paying out more
+        // than the pool earned in a period.
+        //
+        // The guard is the ceiling: no distribution may exceed one collateral month.
+        // This originally held by re-dating the collateral (AlignStubPeriodsToPay-
+        // Schedule), which also pushed the whole schedule out by the stub length and
+        // broke the STACR 2025-DNA1 tie-out. The re-dating is gone; the default
+        // FirstPeriodCollateralPolicy of Drop holds the same ceiling by excluding the
+        // stub instead of re-timing it. The i-th distribution is therefore funded by
+        // the (i+1)-th collateral period — the stub is period 0 and is not spent.
         const double bal = 100_000_000;
         var collateral = CreateCollateralBeforeFirstPay(4, bal, wacPct: 8.0);
         var collOrdered = collateral.PeriodCashflows.OrderBy(p => p.CashflowDate).ToList();
@@ -190,10 +197,10 @@ public class ComposableStructureTests
         var payDates = a.Keys.OrderBy(d => d).ToList();
         var firstPay = payDates.First();
 
-        // Each distribution is funded by exactly ONE collateral month (the i-th
-        // collateral period, re-timed onto the i-th pay date): the interest paid
-        // to all tranches never exceeds that single month's collateral interest.
-        for (var i = 0; i < payDates.Count && i < collOrdered.Count; i++)
+        // The i-th distribution is funded by the (i+1)-th collateral period: the
+        // interest paid to all tranches never exceeds that single month.
+        var spent = collOrdered.Skip(1).ToList();
+        for (var i = 0; i < payDates.Count && i < spent.Count; i++)
         {
             var d = payDates[i];
             var distributed =
@@ -201,29 +208,33 @@ public class ComposableStructureTests
                 (b.TryGetValue(d, out var bc) ? bc.Interest : 0) +
                 (xs.TryGetValue(d, out var xc) ? xc.Interest : 0) +
                 (aios.TryGetValue(d, out var ic) ? ic.Interest : 0);
-            distributed.Should().BeLessOrEqualTo(collOrdered[i].Interest + 1.0,
+            distributed.Should().BeLessOrEqualTo(spent[i].Interest + 1.0,
                 $"distribution {i} ({d:yyyy-MM-dd}) must not exceed one collateral month");
         }
 
-        // First distribution == ONE collateral month (the stub period), split
-        // coll - seniors - AIOS, NOT two months.
-        var stub = collOrdered[0];
-        aios[firstPay].Interest.Should().BeApproximately(stub.ServiceFee, 1.0,
+        // First distribution == ONE collateral month, split coll - seniors - AIOS,
+        // NOT two months. The bug was XS sweeping the stub month on top of this.
+        var funder = spent[0];
+        aios[firstPay].Interest.Should().BeApproximately(funder.ServiceFee, 1.0,
             "the strip receives one month of servicing fee");
         xs[firstPay].Interest.Should().BeApproximately(
-            stub.NetInterest - a[firstPay].Interest - b[firstPay].Interest, 1.0,
+            funder.NetInterest - a[firstPay].Interest - b[firstPay].Interest, 1.0,
             "XS = one month net interest - seniors (no folded stub month)");
-        xs[firstPay].Interest.Should().BeLessThan(stub.NetInterest,
+        xs[firstPay].Interest.Should().BeLessThan(funder.NetInterest,
             "the residual can never exceed a single month of pool interest");
 
-        // Conservation: over the run, all distributed interest ties to the
-        // collateral interest of the periods that were distributed (nothing
-        // dropped, nothing double-counted).
+        // Conservation over the periods that were actually spent: nothing
+        // double-counted, and nothing lost except the excluded stub.
         var distributedTotal = new[] { a, b, xs, aios }
             .Sum(t => t.Where(kv => kv.Key <= payDates.Last()).Sum(kv => kv.Value.Interest));
-        var collateralTotal = collOrdered.Take(payDates.Count).Sum(p => p.Interest);
+        var collateralTotal = spent.Take(payDates.Count).Sum(p => p.Interest);
         distributedTotal.Should().BeApproximately(collateralTotal, 5.0,
-            "total distributed interest ties to collateral interest — conserved");
+            "total distributed interest ties to the collateral interest of the spent "
+            + "periods — conserved");
+
+        // And the stub really was excluded, not quietly folded in somewhere.
+        distributedTotal.Should().BeLessThan(collOrdered.Take(payDates.Count + 1).Sum(p => p.Interest),
+            "the pre-first-pay stub month is not distributed under the default policy");
     }
 
     [Fact]

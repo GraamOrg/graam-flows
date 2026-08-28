@@ -15,22 +15,26 @@ namespace GraamFlows.Objects.TypeEnum;
 public enum FirstPeriodCollateralPolicyEnum
 {
     /// <summary>
-    /// RE-DATE the collateral 1:1 onto the pay schedule, so each collateral month funds
-    /// exactly one distribution and nothing is left before the boundary. This is what the
-    /// engine actually does today (`AlignStubPeriodsToPaySchedule`, added for harmony
-    /// #2748 to stop the residual sweeping ~2 months of interest in period 0) and so it
-    /// is the default. Note it PRE-EMPTS Fold: with alignment on, the fold below never
-    /// fires, which is why Fold and Drop were previously indistinguishable.
-    /// </summary>
-    Align,
-
-    /// <summary>
-    /// Accumulate the pre-first-pay periods into the first distribution — what Payscen
-    /// does, and what a deal whose Appendix G ladder assumes the whole cut-off-to-closing
-    /// window needs. Requires alignment to be off, which selecting this does.
+    /// Spend the pre-boundary periods in the first distribution. Correct when the
+    /// collateral dated before the first pay date is REAL trust property — a deal whose
+    /// cut-off precedes its closing collects over that whole window and distributes it
+    /// on the first payment date. This is the US ABS/RMBS convention and what Payscen
+    /// does.
     /// </summary>
     Fold,
 
-    /// <summary>Exclude them entirely; the first distribution spends one period.</summary>
+    /// <summary>
+    /// Exclude them entirely; the first distribution spends exactly one period. Correct
+    /// when the periods ahead of the first pay date are an artifact of where the
+    /// projection was started rather than real collections — the amortizer emits a full
+    /// month of interest for every period it is given, so a pool handed the closing date
+    /// produces a "stub" month that the trust never earned. Folding it made the residual
+    /// (XS) sweep ~2 months of collateral interest in period 0 (harmony #2748).
+    ///
+    /// This is the DEFAULT, because it is the fail-safe direction: a distribution can
+    /// never pay out more than the pool earned in one period. A deal whose cut-off
+    /// genuinely precedes its closing owns that window and must say so — state the
+    /// cut-off as CollateralAccrualStartDate and select Fold.
+    /// </summary>
     Drop
 }

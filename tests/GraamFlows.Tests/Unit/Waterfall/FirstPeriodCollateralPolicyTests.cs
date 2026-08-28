@@ -20,14 +20,18 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 ///   Drop — exclude them. No flood, but a long first period starves the senior
 ///          (harmony #2454).
 ///
-///   Align — re-date the i-th collateral month onto the i-th pay date, so each month
-///          funds exactly one distribution. Added as AlignStubPeriodsToPaySchedule for
-///          harmony #2748 and, until this knob, applied UNCONDITIONALLY — which is why
-///          Fold and Drop were previously indistinguishable: alignment runs FIRST and
-///          leaves nothing before the boundary for the fold to act on.
+/// Drop is the default: it is the fail-safe direction, since a distribution can never
+/// pay out more than the pool earned in one period. A deal whose cut-off genuinely
+/// precedes its closing owns that window and must say so.
 ///
-/// Align is therefore the default: it is what the engine has actually been doing, and
-/// selecting Fold or Drop is what turns it off.
+/// A third mechanism used to pre-empt both: AlignStubPeriodsToPaySchedule re-dated the
+/// i-th collateral period onto the i-th pay date, unconditionally and BEFORE the fold,
+/// so nothing was ever left before the boundary and Fold and Drop were indistinguishable.
+/// It was added for harmony #2748 and validated against Intex on the FIRST distribution
+/// only — which Drop satisfies equally, since both give a one-month first distribution.
+/// What it additionally did was push the whole schedule out by the stub length, which is
+/// what broke the STACR 2025-DNA1 tie-out. It has been removed; the engine no longer
+/// rewrites collateral dates.
 ///
 /// Before this knob existed the boundary was derived from whichever tranche happened
 /// to be FIRST in the deal's list, snapped to the 1st of its month — incidental, not
@@ -80,19 +84,19 @@ public class FirstPeriodCollateralPolicyTests
     // --- the default must not move ------------------------------------------------
 
     [Fact]
-    public void OmittingThePolicy_IsAlign()
+    public void OmittingThePolicy_IsDrop()
     {
         var (deal, _) = Run(null);
-        deal.FirstPeriodCollateralPolicyEnum.Should().Be(FirstPeriodCollateralPolicyEnum.Align,
-            "the engine has re-timed stub periods since #2748, so a request that says "
-            + "nothing must keep doing that");
+        deal.FirstPeriodCollateralPolicyEnum.Should().Be(FirstPeriodCollateralPolicyEnum.Drop,
+            "a distribution must never pay out more than the pool earned in one period "
+            + "unless the deal states that it owns the earlier window");
     }
 
     [Fact]
-    public void OmittingThePolicy_ProducesIdenticalCashflowsToExplicitAlign()
+    public void OmittingThePolicy_ProducesIdenticalCashflowsToExplicitDrop()
     {
         var (_, implicitCf) = Run(null);
-        var (_, explicitCf) = Run("Align");
+        var (_, explicitCf) = Run("Drop");
 
         foreach (var tranche in new[] { "A", "B" })
             TotalPrincipal(implicitCf, tranche).Should()
@@ -123,22 +127,9 @@ public class FirstPeriodCollateralPolicyTests
 
         FirstPrincipal(fold, "A").Should().BeGreaterThan(FirstPrincipal(drop, "A"),
             "folding adds the stub period's principal to the first distribution");
-    }
 
-    [Fact]
-    public void Fold_PutsMoreInTheFirstDistributionThanAlign()
-    {
-        // The distinction that matters in practice, and the one that was invisible
-        // while alignment ran unconditionally: Align gives the first distribution ONE
-        // collateral month, Fold gives it the whole cut-off-to-first-pay window.
-        // On STACR 2025-DNA1 this is the entire Class A-1 divergence from Payscen
-        // (Align 17,789,097.37 vs Payscen/Fold 20,662,500.00).
-        var (_, align) = Run("Align");
-        var (_, fold) = Run("Fold");
-
-        FirstPrincipal(fold, "A").Should().BeGreaterThan(FirstPrincipal(align, "A"),
-            "alignment re-dates the stub into its own distribution; folding spends it in "
-            + "the first one");
+        // On STACR 2025-DNA1 this is the entire Class A-1 divergence from Payscen:
+        // Drop/Align give 17,789,097.37, Fold and Payscen both give 20,662,500.00.
     }
 
     [Fact]
