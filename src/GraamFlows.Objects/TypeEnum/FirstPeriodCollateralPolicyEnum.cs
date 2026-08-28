@@ -16,11 +16,18 @@ public enum FirstPeriodCollateralPolicyEnum
 {
     /// <summary>
     /// RE-DATE the i-th pre-first-pay collateral period onto the i-th pay date, so each
-    /// collateral month funds exactly one distribution. THE DEFAULT, and the only policy
-    /// that satisfies both constraints at once: nothing is dropped (principal conserves)
-    /// and no distribution receives more than one collateral month (the #2748 ceiling —
-    /// a residual/XS class sweeps whatever interest is left, so two months in period 0
-    /// pays out more than the pool earned).
+    /// collateral month funds exactly one distribution. THE DEFAULT.
+    ///
+    /// Where the re-dating APPLIES, it is the only policy that satisfies both constraints
+    /// at once: nothing is dropped (principal conserves) and no distribution receives more
+    /// than one collateral month (the #2748 ceiling — a residual/XS class sweeps whatever
+    /// interest is left, so two months in period 0 pays out more than the pool earned).
+    ///
+    /// Where it does NOT apply — a non-monthly deal, or a boundary stated later than the
+    /// first pay date — it folds the remainder, and folding breaches that ceiling exactly
+    /// as Fold does. Measured: for PayFrequency 4 and 2 the default output is byte-identical
+    /// to Fold. That is what the engine has always done for those deals, so it is not a
+    /// regression; but the ceiling is a property of the re-dating, not of the policy.
     ///
     /// Fold conserves but breaches that ceiling; Drop holds the ceiling but pays the
     /// excluded stub to nobody. Removing this policy and defaulting to either of them was

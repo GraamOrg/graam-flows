@@ -173,6 +173,34 @@ public class ComposableStructure : BaseStructure
             PayNotionalClasses(period.Key, periodDynGroups, periodCfList);
         }
 
+        // The fold accumulator drains onto the first period at/after the boundary FOR THE
+        // SAME GROUP. If a group never reaches one, whatever was accumulated is neither
+        // paid, nor folded, nor written down — it is simply dropped on the floor when this
+        // dictionary goes out of scope, with no error and no trace. Reachable two ways, and
+        // both were silent: a CollateralAccrualStartDate past the end of the tape (100% of
+        // the pool, zero tranche rows returned, no exception), and a collateral group whose
+        // periods all precede the boundary.
+        //
+        // Failing loud rather than guessing where the money should go: a boundary the
+        // collateral never reaches is a mis-stated deal, and the engine cannot know whether
+        // the caller meant a later boundary or a longer tape. Returning an empty cashflow
+        // set for a funded pool is the one answer that must not ship.
+        if (cashflowsBeforeFirstPay.Any(kv => kv.Value.Count > 0))
+        {
+            var stranded = cashflowsBeforeFirstPay
+                .Where(kv => kv.Value.Count > 0)
+                .Select(kv =>
+                    $"group {kv.Key}: {kv.Value.Count} period(s), " +
+                    $"{kv.Value.Sum(p => p.ScheduledPrincipal + p.UnscheduledPrincipal):N2} principal");
+            throw new InvalidOperationException(
+                "Collateral was accumulated ahead of the first distribution and never "
+                + "reached one — no period in the group falls on or after "
+                + $"CollateralAccrualStart ({string.Join("; ", stranded)}). That principal "
+                + "would be paid to nobody and written down nowhere. Check "
+                + "CollateralAccrualStartDate against the collateral's last period, or the "
+                + "group's pay schedule.");
+        }
+
         var dealCashflows = dynDeal.DynamicGroups.CreateDealCashflows(cashflows, assumps);
         return dealCashflows;
     }

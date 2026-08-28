@@ -350,17 +350,50 @@ public class FirstPeriodCollateralPolicyTests
         foreach (var pc in reversed)
             descending.PeriodCashflows.Add(pc);
 
-        double Run(CollateralCashflows c) =>
-            TotalPrincipal(
-                new TestDealBuilder()
-                    .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
-                    .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
-                    .WithSequentialWaterfall("A", "B")
-                    .WithFirstPeriodCollateral(policy)
-                    .BuildAndRun(c).Cashflows,
-                "A");
+        (double Prin, double Int) Run(CollateralCashflows c)
+        {
+            var cf = new TestDealBuilder()
+                .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+                .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+                .WithSequentialWaterfall("A", "B")
+                .WithFirstPeriodCollateral(policy)
+                .BuildAndRun(c).Cashflows;
+            return (TotalPrincipal(cf, "A") + TotalPrincipal(cf, "B"),
+                Rows(cf, "A").Sum(r => r.Interest) + Rows(cf, "B").Sum(r => r.Interest));
+        }
 
-        Run(descending).Should().BeApproximately(Run(ascending), 0.01,
+        var (ascPrin, ascInt) = Run(ascending);
+        var (descPrin, descInt) = Run(descending);
+
+        descPrin.Should().BeApproximately(ascPrin, 0.01,
             "a tape is a set of periods, not a sequence the caller gets to reorder");
+        // Interest too: a reordered tape with NO stub moves interest while principal
+        // stays put, so a principal-only assertion is blind to a whole class of it.
+        descInt.Should().BeApproximately(ascInt, 0.01,
+            "reordering must not move interest either");
+    }
+
+    [Fact]
+    public void CollateralThatNeverReachesADistribution_FailsLoud()
+    {
+        // The fold accumulator drains onto the first period at/after the boundary for the
+        // SAME group. State a boundary past the end of the tape and no period ever reaches
+        // it — every accumulated period was then discarded when the dictionary went out of
+        // scope: zero tranche rows, zero interest, zero writedown, no error, and 100% of a
+        // funded pool gone. Under the DEFAULT policy, through this PR's own new field.
+        //
+        // `AStatedAccrualBoundary_DoesNotCostTheDealPrincipal` picks a boundary well inside
+        // the tape, so it cannot see this.
+        var act = () => new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithFirstPeriodCollateral(null, new DateTime(2030, 1, 1))
+            .BuildAndRun(CollateralStartingBeforeFirstPay(24));
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*never reached one*",
+                "an empty cashflow set for a funded pool is the one answer that must not "
+                + "ship silently");
     }
 }
