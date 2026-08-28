@@ -41,8 +41,10 @@ public interface IDeal : IPayRuleAssemblyStore
     DateTime? CollateralAccrualStartDate { get; }
 
     /// <summary>
-    /// What to do with collateral periods dated before that boundary. Null means Fold,
-    /// which is what the engine has always done.
+    /// What to do with collateral periods dated before that boundary. Null means Fold —
+    /// what the engine did on every path where the two policies differ, and the only one
+    /// of them that conserves principal. Drop pays the excluded stub to nobody and writes
+    /// it down nowhere.
     /// </summary>
     string FirstPeriodCollateralPolicy { get; }
 

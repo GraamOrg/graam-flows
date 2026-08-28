@@ -20,9 +20,12 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 ///   Drop — exclude them. No flood, but a long first period starves the senior
 ///          (harmony #2454).
 ///
-/// Drop is the default: it is the fail-safe direction, since a distribution can never
-/// pay out more than the pool earned in one period. A deal whose cut-off genuinely
-/// precedes its closing owns that window and must say so.
+/// Fold is the default. It is what the engine did on every path where the two differ —
+/// the re-timing described below bailed out for any deal whose PayFrequency was not 12,
+/// so on quarterly and semi-annual deals the fold was live and was the shipped behaviour
+/// — and it is the only one of the two that CONSERVES principal. Drop pays the excluded
+/// stub to nobody and writes it down nowhere, so the pool balance falls while the bond
+/// balance does not.
 ///
 /// A third mechanism used to pre-empt both: AlignStubPeriodsToPaySchedule re-dated the
 /// i-th collateral period onto the i-th pay date, unconditionally and BEFORE the fold,
@@ -84,19 +87,19 @@ public class FirstPeriodCollateralPolicyTests
     // --- the default must not move ------------------------------------------------
 
     [Fact]
-    public void OmittingThePolicy_IsDrop()
+    public void OmittingThePolicy_IsAlign()
     {
         var (deal, _) = Run(null);
-        deal.FirstPeriodCollateralPolicyEnum.Should().Be(FirstPeriodCollateralPolicyEnum.Drop,
-            "a distribution must never pay out more than the pool earned in one period "
-            + "unless the deal states that it owns the earlier window");
+        deal.FirstPeriodCollateralPolicyEnum.Should().Be(FirstPeriodCollateralPolicyEnum.Align,
+            "Align is what the engine has done since #2748, and the only policy that both "
+            + "conserves principal and holds the one-collateral-month ceiling");
     }
 
     [Fact]
-    public void OmittingThePolicy_ProducesIdenticalCashflowsToExplicitDrop()
+    public void OmittingThePolicy_ProducesIdenticalCashflowsToExplicitAlign()
     {
         var (_, implicitCf) = Run(null);
-        var (_, explicitCf) = Run("Drop");
+        var (_, explicitCf) = Run("Align");
 
         foreach (var tranche in new[] { "A", "B" })
             TotalPrincipal(implicitCf, tranche).Should()
@@ -221,5 +224,95 @@ public class FirstPeriodCollateralPolicyTests
 
         var act = () => deal.FirstPeriodCollateralPolicyEnum;
         act.Should().NotThrow();
+    }
+
+    // --- principal conservation, measured against the POOL -----------------------
+    //
+    // The gap that let a principal-destroying default ship. Every other assertion here
+    // compares the two policies to EACH OTHER, or checks a first-period ceiling; none
+    // asked whether the money that left the pool reached a bond. It did not: Drop
+    // excludes the stub's principal, pays it to nobody and writes it down nowhere, so
+    // the stack ends permanently under-collateralized by exactly that amount — and the
+    // classes that never amortized keep accruing on principal the pool no longer holds,
+    // so over the deal's life Drop pays MORE interest, not less.
+
+    private static (IDeal Deal, DealCashflows Cf) RunToExhaustion(
+        string? policy, int numPeriods = 400)
+    {
+        var collateral = CollateralStartingBeforeFirstPay(numPeriods);
+        return new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithFirstPeriodCollateral(policy)
+            .BuildAndRun(collateral);
+    }
+
+    private static double PoolPrincipal(CollateralCashflows c) =>
+        c.PeriodCashflows.Sum(p => p.ScheduledPrincipal + p.UnscheduledPrincipal);
+
+    [Fact]
+    public void TheDefault_DeliversEveryDollarThePoolPaid()
+    {
+        var collateral = CollateralStartingBeforeFirstPay(400);
+        var (_, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(collateral);
+
+        var toBonds = TotalPrincipal(cf, "A") + TotalPrincipal(cf, "B");
+        var fromPool = PoolPrincipal(collateral);
+
+        // Two-sided. `BeLessOrEqualTo` is what the existing conservation test uses, and
+        // it is exactly what cannot see money going missing.
+        toBonds.Should().BeApproximately(Math.Min(fromPool, 100_000_000), 1.0,
+            "principal that leaves the pool must reach a bond or be written down — under "
+            + "the default it may not simply disappear");
+    }
+
+    [Fact]
+    public void Drop_IsTheOneThatLosesPrincipal_AndSaysSo()
+    {
+        var collateral = CollateralStartingBeforeFirstPay(400);
+        var stub = collateral.PeriodCashflows
+            .Where(p => p.CashflowDate < new DateTime(2024, 2, 1))
+            .Sum(p => p.ScheduledPrincipal + p.UnscheduledPrincipal);
+        stub.Should().BeGreaterThan(0);
+
+        var (_, fold) = RunToExhaustion("Fold");
+        var (_, drop) = RunToExhaustion("Drop");
+
+        var foldTotal = TotalPrincipal(fold, "A") + TotalPrincipal(fold, "B");
+        var dropTotal = TotalPrincipal(drop, "A") + TotalPrincipal(drop, "B");
+
+        (foldTotal - dropTotal).Should().BeApproximately(stub, 1.0,
+            "the shortfall is exactly the excluded stub — pinned so that anyone making "
+            + "Drop the default has to delete this line first");
+    }
+
+    [Fact]
+    public void ANonMonthlyDeal_KeepsItsPrincipalUnderTheDefault()
+    {
+        // The re-timing that used to precede the fold bailed out on PayFrequency != 12,
+        // so quarterly and semi-annual deals took the FOLD branch and it was never dead
+        // code for them. A default that excluded the stub would take ~7.5% of a quarterly
+        // pool without the caller asking. The CLO work is quarterly-pay.
+        var deal = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithPayFrequency(4, new DateTime(2024, 4, 25))
+            .Build();
+
+        deal.Tranches.First().PayFrequency.Should().Be(4);
+        // The default is Align, and Align is monthly-only — so a quarterly deal falls
+        // through to the fold, which is exactly what the engine did for it before the
+        // policy existed. The bug this pins is a default that EXCLUDES the stub: that
+        // would take ~7.5% of a quarterly pool without the caller asking, and the CLO
+        // work is quarterly-pay.
+        deal.FirstPeriodCollateralPolicyEnum.Should().NotBe(FirstPeriodCollateralPolicyEnum.Drop,
+            "no deal may lose principal by default, least of all one the re-timing never "
+            + "touched");
     }
 }

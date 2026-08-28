@@ -30,7 +30,13 @@ public class ComposableStructure : BaseStructure
     public override DealCashflows Waterfall(IDeal deal, IRateProvider rateProvider, DateTime firstProjectionDate,
         CollateralCashflows cashflows, IAssumptionMill assumps, ITrancheAllocator trancheAllocator)
     {
-        var periodCashflows = cashflows.PeriodCashflows;
+        // Sort explicitly. `AlignStubPeriodsToPaySchedule` sorts as a side effect of
+        // re-dating, but it is a no-op under Fold/Drop and for non-monthly deals — and the
+        // waterfall IS order-sensitive (a date-descending tape gives a different answer),
+        // so relying on that side effect made correctness depend on the policy.
+        var periodCashflows = AlignStubPeriodsToPaySchedule(
+            deal,
+            cashflows.PeriodCashflows.OrderBy(pc => pc.CashflowDate).ToList());
         var triggerMap = new Dictionary<string, IList<ITrigger>>();
 
         var formulaExecutor = new GenericExecutor(deal);
@@ -161,6 +167,80 @@ public class ComposableStructure : BaseStructure
 
         var dealCashflows = dynDeal.DynamicGroups.CreateDealCashflows(cashflows, assumps);
         return dealCashflows;
+    }
+
+    /// <summary>
+    ///     Re-times collateral periods that fall BEFORE the first pay date onto
+    ///     the deal's pay schedule, one collateral month per distribution.
+    ///
+    ///     The pool is projected monthly starting at whatever date it is handed
+    ///     (for pricing at/near closing this is the closing/cutoff date, which is
+    ///     before — and often on a different day-of-month than — the first pay
+    ///     date). The amortizer emits a FULL month of interest for every period,
+    ///     so a pool projected one month ahead of the first pay date produces an
+    ///     extra full "stub" month. The first-pay fold in <see cref="Waterfall" />
+    ///     then adds that stub month INTO the first paying period, and because the
+    ///     ResidualInterest (XS) class sweeps whatever interest is left after the
+    ///     coupon classes, it collects ~2 months of collateral interest in the
+    ///     first period — paying out more than the pool earned (graam-harmony
+    ///     #2748).
+    ///
+    ///     Mapping the i-th monthly collateral period to the i-th pay date makes
+    ///     the earliest (stub) period fund the first distribution and shifts the
+    ///     rest forward one slot each — one month per distribution, nothing
+    ///     double-counted and nothing dropped. This is a no-op for a pool that
+    ///     already starts on the first pay date (the common case: all WAL and
+    ///     scenario-screen deals), and only applies to monthly-pay deals since the
+    ///     amortizer emits monthly collateral.
+    /// </summary>
+    private static IList<PeriodCashflows> AlignStubPeriodsToPaySchedule(
+        IDeal deal, IList<PeriodCashflows> periodCashflows)
+    {
+        // Re-timing is itself a policy, and it PRE-EMPTS the fold: once every period has
+        // been moved onto the pay schedule nothing is left before the boundary, so Fold and
+        // Drop become indistinguishable. A caller asking for either is asking for the
+        // collateral NOT to be re-dated.
+        if (deal.FirstPeriodCollateralPolicyEnum != FirstPeriodCollateralPolicyEnum.Align)
+            return periodCashflows;
+
+        // Re-timing is a POLICY now, not an unconditional rewrite. A caller asking for
+        // Fold or Drop is asking for the collateral NOT to be re-dated.
+        if (deal.FirstPeriodCollateralPolicyEnum != FirstPeriodCollateralPolicyEnum.Align)
+            return periodCashflows;
+
+        var firstTranche = deal.Tranches.FirstOrDefault();
+        if (firstTranche == null || firstTranche.PayFrequency != 12 || periodCashflows.Count == 0)
+            return periodCashflows;
+
+        var firstPayActual = firstTranche.FirstPayDate;
+        var firstPayMonth = new DateTime(firstPayActual.Year, firstPayActual.Month, 1);
+
+        var result = new List<PeriodCashflows>(periodCashflows.Count);
+        var changed = false;
+
+        foreach (var group in periodCashflows.GroupBy(p => p.GroupNum))
+        {
+            var ordered = group.OrderBy(p => p.CashflowDate).ToList();
+
+            // No stub — pool already starts on/after the first pay date. Leave
+            // this group's dates untouched.
+            if (ordered[0].CashflowDate >= firstPayMonth)
+            {
+                result.AddRange(ordered);
+                continue;
+            }
+
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                var cf = ordered[i].Clone();
+                cf.CashflowDate = firstPayActual.AddMonths(i);
+                result.Add(cf);
+            }
+
+            changed = true;
+        }
+
+        return changed ? result : periodCashflows;
     }
 
     /// <summary>
