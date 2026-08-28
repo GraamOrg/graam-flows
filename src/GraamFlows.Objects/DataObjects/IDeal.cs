@@ -43,10 +43,12 @@ public interface IDeal : IPayRuleAssemblyStore
     /// <summary>
     /// What to do with collateral periods dated before that boundary: "Align", "Fold" or
     /// "Drop". Null means ALIGN — re-date onto the pay schedule where that applies and fold
-    /// whatever it cannot reach — which is what the engine has done since #2748 and is the
-    /// only policy that both conserves principal and keeps any one distribution to a single
-    /// collateral month. Drop is the only one that discards; it pays the excluded stub to
-    /// nobody and writes it down nowhere.
+    /// whatever it cannot reach — which is what the engine has done since #2748.
+    /// Where the re-dating APPLIES it is the only policy that conserves principal AND keeps a
+    /// distribution to one collateral month; where it does not (non-monthly, or a boundary
+    /// later than first pay) it folds the remainder and the output is byte-identical to Fold.
+    /// Drop is the only
+    /// one that discards: it pays the excluded stub to nobody and writes it down nowhere.
     /// </summary>
     string FirstPeriodCollateralPolicy { get; }
 

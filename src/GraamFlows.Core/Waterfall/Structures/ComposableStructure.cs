@@ -34,15 +34,28 @@ public class ComposableStructure : BaseStructure
         // re-dating, but it is a no-op under Fold/Drop and for non-monthly deals — and the
         // waterfall IS order-sensitive (a date-descending tape gives a different answer),
         // so relying on that side effect made correctness depend on the policy.
+        // Sorted AFTER the re-dating as well as before. Sorting only the input is not
+        // enough: `AlignStubPeriodsToPaySchedule` rebuilds the list GROUP-MAJOR whenever any
+        // group is re-dated, and the loop below groups by `CashflowDate` — which yields keys
+        // in first-occurrence order, so a multi-group deal would walk dates out of sequence
+        // even though the input was sorted.
         var periodCashflows = AlignStubPeriodsToPaySchedule(
-            deal,
-            cashflows.PeriodCashflows.OrderBy(pc => pc.CashflowDate).ToList());
+                deal,
+                cashflows.PeriodCashflows.OrderBy(pc => pc.CashflowDate).ToList())
+            .OrderBy(pc => pc.CashflowDate)
+            .ToList();
         var triggerMap = new Dictionary<string, IList<ITrigger>>();
 
         var formulaExecutor = new GenericExecutor(deal);
         var payRuleExecutor = new PayRuleExecutor(formulaExecutor, this);
         var dynDeal = new DynamicDeal(deal);
         var cashflowsBeforeFirstPay = new Dictionary<string, List<PeriodCashflows>>();
+        // Every group that had collateral BEFORE the boundary, recorded whatever the policy
+        // is, and removed when the group reaches a distribution. `cashflowsBeforeFirstPay`
+        // cannot serve this: under Drop it is never populated, so a guard reading it is
+        // blind to exactly the policy that discards on purpose — and "discard the stub" is
+        // not "return no cashflows at all for a funded pool".
+        var groupsAwaitingFirstPay = new Dictionary<string, (int Periods, double Value)>();
 
         // Get execution order from deal or use default (handle both null and empty list)
         var executionOrder = (deal.ExecutionOrder == null || !deal.ExecutionOrder.Any())
@@ -114,6 +127,19 @@ public class ComposableStructure : BaseStructure
                 // else the derived first-of-month of the first tranche's FirstPayDate.
                 if (periodCf.CashflowDate < dynGroup.CollateralAccrualStart)
                 {
+                    // Counted for every policy. The VALUE is everything the period would
+                    // have delivered — scheduled and unscheduled principal, recoveries
+                    // (which fund PRINCIPAL_RECOVERY and are principal), and interest — so
+                    // the diagnostic cannot report "0.00" while a million of recoveries is
+                    // stranded.
+                    var prior = groupsAwaitingFirstPay.TryGetValue(periodCf.GroupNum, out var got)
+                        ? got
+                        : (Periods: 0, Value: 0.0);
+                    groupsAwaitingFirstPay[periodCf.GroupNum] = (
+                        prior.Periods + 1,
+                        prior.Value + periodCf.ScheduledPrincipal + periodCf.UnscheduledPrincipal
+                            + periodCf.RecoveryPrincipal + periodCf.Interest);
+
                     if (deal.FirstPeriodCollateralPolicyEnum != FirstPeriodCollateralPolicyEnum.Drop)
                     {
                         if (!cashflowsBeforeFirstPay.ContainsKey(periodCf.GroupNum))
@@ -123,6 +149,8 @@ public class ComposableStructure : BaseStructure
 
                     continue;
                 }
+
+                groupsAwaitingFirstPay.Remove(periodCf.GroupNum);
 
                 if (cashflowsBeforeFirstPay.ContainsKey(periodCf.GroupNum))
                 {
@@ -173,32 +201,29 @@ public class ComposableStructure : BaseStructure
             PayNotionalClasses(period.Key, periodDynGroups, periodCfList);
         }
 
-        // The fold accumulator drains onto the first period at/after the boundary FOR THE
-        // SAME GROUP. If a group never reaches one, whatever was accumulated is neither
-        // paid, nor folded, nor written down — it is simply dropped on the floor when this
-        // dictionary goes out of scope, with no error and no trace. Reachable two ways, and
-        // both were silent: a CollateralAccrualStartDate past the end of the tape (100% of
-        // the pool, zero tranche rows returned, no exception), and a collateral group whose
-        // periods all precede the boundary.
+        // A group with collateral before the boundary that never reaches a distribution
+        // delivers NOTHING — under Fold/Align the accumulator is silently discarded when it
+        // goes out of scope, and under Drop the periods were dropped by design and no
+        // distribution follows to make up for it. Either way the answer is an empty
+        // cashflow set for a funded pool, with no error and no writedown. Reachable via a
+        // CollateralAccrualStartDate past the end of the tape (100% of the pool), and via a
+        // FirstPayDate past it on a deal the re-dating does not cover.
         //
-        // Failing loud rather than guessing where the money should go: a boundary the
-        // collateral never reaches is a mis-stated deal, and the engine cannot know whether
-        // the caller meant a later boundary or a longer tape. Returning an empty cashflow
-        // set for a funded pool is the one answer that must not ship.
-        if (cashflowsBeforeFirstPay.Any(kv => kv.Value.Count > 0))
+        // Failing loud rather than guessing where the money should go: the engine cannot
+        // know whether the caller meant a later boundary or a longer tape.
+        if (groupsAwaitingFirstPay.Count > 0)
         {
-            var stranded = cashflowsBeforeFirstPay
-                .Where(kv => kv.Value.Count > 0)
-                .Select(kv =>
-                    $"group {kv.Key}: {kv.Value.Count} period(s), " +
-                    $"{kv.Value.Sum(p => p.ScheduledPrincipal + p.UnscheduledPrincipal):N2} principal");
+            var stranded = groupsAwaitingFirstPay
+                .OrderBy(kv => kv.Key)
+                .Select(kv => $"group {kv.Key}: {kv.Value.Periods} period(s), "
+                            + $"{kv.Value.Value:N2} of principal and interest");
             throw new InvalidOperationException(
-                "Collateral was accumulated ahead of the first distribution and never "
-                + "reached one — no period in the group falls on or after "
-                + $"CollateralAccrualStart ({string.Join("; ", stranded)}). That principal "
-                + "would be paid to nobody and written down nowhere. Check "
-                + "CollateralAccrualStartDate against the collateral's last period, or the "
-                + "group's pay schedule.");
+                "Collateral dated before the first distribution never reached one — no "
+                + "period in the group falls on or after CollateralAccrualStart "
+                + $"({string.Join("; ", stranded)}). Those periods are paid to nobody and "
+                + "written down nowhere, so the deal would return no cashflows for a funded "
+                + "pool. Check CollateralAccrualStartDate and FirstPayDate against the "
+                + "collateral's last period.");
         }
 
         var dealCashflows = dynDeal.DynamicGroups.CreateDealCashflows(cashflows, assumps);

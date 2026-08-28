@@ -30,7 +30,9 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 /// It was added for harmony #2748, and it is the DEFAULT. Removing it was tried and
 /// reverted: Fold conserves principal but fails #2748's own test (two collateral months
 /// reach distribution 0), and Drop holds that ceiling but pays the excluded stub to
-/// nobody. Align is the only policy that does both. Stating Fold or Drop is what turns
+/// nobody. Align does both WHERE ITS RE-DATING APPLIES; where it does not — a
+/// non-monthly deal, or a boundary later than first pay — it folds the remainder
+/// and the output is byte-identical to Fold, ceiling and all. Stating Fold or Drop is what turns
 /// the re-dating off — which STACR 2025-DNA1 does, because its first Reporting Period
 /// genuinely spans two months and Appendix G prints the resulting payment.
 ///
@@ -89,8 +91,9 @@ public class FirstPeriodCollateralPolicyTests
     {
         var (deal, _) = Run(null);
         deal.FirstPeriodCollateralPolicyEnum.Should().Be(FirstPeriodCollateralPolicyEnum.Align,
-            "Align is what the engine has done since #2748, and the only policy that both "
-            + "conserves principal and holds the one-collateral-month ceiling");
+            "Align is what the engine has done since #2748; it conserves principal on every "
+            + "shape, and holds the one-collateral-month ceiling wherever its re-dating "
+            + "applies");
     }
 
     [Fact]
@@ -371,6 +374,46 @@ public class FirstPeriodCollateralPolicyTests
         // stays put, so a principal-only assertion is blind to a whole class of it.
         descInt.Should().BeApproximately(ascInt, 0.01,
             "reordering must not move interest either");
+    }
+
+    [Theory]
+    [InlineData(null)]     // the default
+    [InlineData("Align")]
+    [InlineData("Fold")]
+    [InlineData("Drop")]
+    public void CollateralThatNeverReachesADistribution_FailsLoudUnderEveryPolicy(string? policy)
+    {
+        // The first version of this guard read the FOLD ACCUMULATOR, which `Drop` never
+        // populates — so the one policy that discards by design was the one policy the
+        // guard could not see, and a Drop deal still returned zero rows for a funded pool
+        // with no error. "Discard the stub" is not "deliver nothing at all".
+        var act = () => new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithFirstPeriodCollateral(policy, new DateTime(2030, 1, 1))
+            .BuildAndRun(CollateralStartingBeforeFirstPay(24));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*never reached one*");
+    }
+
+    [Fact]
+    public void TheStrandedFigureCountsRecoveriesAndInterest()
+    {
+        // The message reported scheduled+unscheduled principal only, so a period carrying
+        // recoveries (which fund PRINCIPAL_RECOVERY and ARE principal) and interest was
+        // announced as "0.00 principal" — a diagnostic that misleads on exactly the deals
+        // it exists for.
+        var act = () => new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithFirstPeriodCollateral(null, new DateTime(2030, 1, 1))
+            .BuildAndRun(CollateralStartingBeforeFirstPay(24));
+
+        act.Should().Throw<InvalidOperationException>()
+            .Where(e => !e.Message.Contains("0.00 of principal and interest"),
+                "a stranded period with interest is not a stranded period worth nothing");
     }
 
     [Fact]
