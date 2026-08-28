@@ -50,17 +50,19 @@ public class TestDealBuilder
     }
 
     /// <summary>
-    /// Set the first-period collateral policy and, optionally, an explicit accrual-start
-    /// boundary. Leaving both unset is the default the engine has always had.
-    /// </summary>
-    /// <summary>
-    ///     Pay frequency for every tranche (12 monthly, 4 quarterly, 2 semi-annual), with the
-    ///     matching first pay date. Quarterly matters here: the re-timing this policy replaced
-    ///     bailed out on any deal whose PayFrequency was not 12, so those deals took the fold
-    ///     branch and it was never dead code for them.
+    ///     Pay frequency for every tranche added SO FAR (12 monthly, 4 quarterly, 2
+    ///     semi-annual), with the matching first pay date. Quarterly matters here: the
+    ///     re-timing is monthly-only, so a non-monthly deal is precisely the case where the
+    ///     default policy has to fold rather than discard.
     /// </summary>
     public TestDealBuilder WithPayFrequency(int payFrequency, DateTime? firstPayDate = null)
     {
+        if (_deal.Tranches.Count == 0)
+            throw new InvalidOperationException(
+                "WithPayFrequency applies to the tranches added so far — call it AFTER "
+                + "WithTranche, or it silently does nothing and the test measures a monthly "
+                + "deal while claiming to measure a quarterly one.");
+
         foreach (var t in _deal.Tranches.OfType<Tranche>())
         {
             t.PayFrequency = payFrequency;
@@ -71,6 +73,10 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>
+    /// Set the first-period collateral policy and, optionally, an explicit accrual-start
+    /// boundary. Leaving both unset is the default the engine has always had.
+    /// </summary>
     public TestDealBuilder WithFirstPeriodCollateral(string? policy, DateTime? accrualStart = null)
     {
         _firstPeriodCollateralPolicy = policy;

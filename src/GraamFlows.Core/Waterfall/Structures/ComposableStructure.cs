@@ -100,13 +100,21 @@ public class ComposableStructure : BaseStructure
                 // Collateral periods dated before the first distribution. A deal's cut-off
                 // normally precedes its closing, so there is usually more than one; whether
                 // the waterfall may spend them is a modelling choice, not a fact.
-                //   Fold — accumulate into the first distribution (historical behaviour)
-                //   Drop — exclude them; the first distribution spends one period
+                //   Align — re-date onto the pay schedule, and FOLD whatever the re-dating
+                //           could not reach. It is monthly-only, and it re-dates onto the
+                //           first pay date rather than a stated CollateralAccrualStartDate,
+                //           so periods survive it on any quarterly or semi-annual deal and
+                //           on any deal that states a later boundary. Gating the fold on
+                //           `== Fold` discarded exactly those — Align became Drop for every
+                //           non-monthly deal, taking 4,474,457.84 of a 100M quarterly pool
+                //           and 8,748,707.96 of a semi-annual one, written down nowhere.
+                //   Fold  — accumulate into the first distribution (historical behaviour)
+                //   Drop  — exclude them; the first distribution spends one period
                 // The boundary is the deal's stated CollateralAccrualStartDate when given,
                 // else the derived first-of-month of the first tranche's FirstPayDate.
                 if (periodCf.CashflowDate < dynGroup.CollateralAccrualStart)
                 {
-                    if (deal.FirstPeriodCollateralPolicyEnum == FirstPeriodCollateralPolicyEnum.Fold)
+                    if (deal.FirstPeriodCollateralPolicyEnum != FirstPeriodCollateralPolicyEnum.Drop)
                     {
                         if (!cashflowsBeforeFirstPay.ContainsKey(periodCf.GroupNum))
                             cashflowsBeforeFirstPay[periodCf.GroupNum] = new List<PeriodCashflows>();
@@ -200,11 +208,6 @@ public class ComposableStructure : BaseStructure
         // been moved onto the pay schedule nothing is left before the boundary, so Fold and
         // Drop become indistinguishable. A caller asking for either is asking for the
         // collateral NOT to be re-dated.
-        if (deal.FirstPeriodCollateralPolicyEnum != FirstPeriodCollateralPolicyEnum.Align)
-            return periodCashflows;
-
-        // Re-timing is a POLICY now, not an unconditional rewrite. A caller asking for
-        // Fold or Drop is asking for the collateral NOT to be re-dated.
         if (deal.FirstPeriodCollateralPolicyEnum != FirstPeriodCollateralPolicyEnum.Align)
             return periodCashflows;
 

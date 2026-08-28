@@ -122,10 +122,9 @@ public class WaterfallController : ControllerBase
         var deal = new Deal(dto.DealName, factorDate);
         deal.CashflowEngine = dto.WaterfallType;
         deal.InterestTreatment = dto.InterestTreatment ?? "Guaranteed";
-        // Null keeps the derived boundary and folds. A request whose collateral starts on
-        // the first pay date is byte-identical; one with pre-boundary periods gets the same
-        // TOTALS as before (principal conserved), on the deal's own dates rather than the
-        // re-dated schedule the engine used to impose.
+        // Null keeps the derived boundary and ALIGNS, which is what the engine has done
+        // since #2748 — so an existing request is unchanged, including the re-dating.
+        // Stating Fold or Drop is what turns the re-dating off.
         deal.CollateralAccrualStartDate = dto.CollateralAccrualStartDate;
         deal.FirstPeriodCollateralPolicy = dto.FirstPeriodCollateralPolicy;
         // Force the parse HERE. The enum is otherwise only read inside the pre-boundary

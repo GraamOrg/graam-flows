@@ -126,11 +126,14 @@ public class DealDto
 
     /// <summary>
     /// What to do with collateral periods dated before the first distribution:
-    /// "Fold" (accumulate them into it — the historical behaviour, and the default when
-    /// omitted) or "Drop" (exclude them, paying that principal to nobody). Anything else
-    /// is rejected rather than defaulted, and the rejection happens when the deal is built
-    /// rather than when the branch is first reached, so a typo fails on every deal and not
-    /// only on one that happens to have a pre-boundary period.
+    /// "Align" (re-date them onto the pay schedule, folding whatever that cannot reach —
+    /// the historical behaviour, and THE DEFAULT when omitted), "Fold" (accumulate them
+    /// into the first distribution), or "Drop" (exclude them, paying that principal to
+    /// nobody and writing it down nowhere).
+    ///
+    /// Anything else is rejected rather than defaulted, and the rejection happens when the
+    /// deal is built rather than when the branch is first reached, so a typo fails on every
+    /// deal and not only on one that happens to have a pre-boundary period.
     /// </summary>
     public string? FirstPeriodCollateralPolicy { get; set; }
 

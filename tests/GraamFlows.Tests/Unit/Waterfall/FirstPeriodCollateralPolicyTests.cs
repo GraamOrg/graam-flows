@@ -20,21 +20,19 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 ///   Drop — exclude them. No flood, but a long first period starves the senior
 ///          (harmony #2454).
 ///
-/// Fold is the default. It is what the engine did on every path where the two differ —
-/// the re-timing described below bailed out for any deal whose PayFrequency was not 12,
-/// so on quarterly and semi-annual deals the fold was live and was the shipped behaviour
-/// — and it is the only one of the two that CONSERVES principal. Drop pays the excluded
-/// stub to nobody and writes it down nowhere, so the pool balance falls while the bond
-/// balance does not.
+/// Align is the default. Drop pays the excluded stub to nobody and writes it down
+/// nowhere, so the pool balance falls while the bond balance does not; Fold conserves but
+/// lets a distribution receive more than one collateral month.
 ///
 /// A third mechanism used to pre-empt both: AlignStubPeriodsToPaySchedule re-dated the
 /// i-th collateral period onto the i-th pay date, unconditionally and BEFORE the fold,
 /// so nothing was ever left before the boundary and Fold and Drop were indistinguishable.
-/// It was added for harmony #2748 and validated against Intex on the FIRST distribution
-/// only — which Drop satisfies equally, since both give a one-month first distribution.
-/// What it additionally did was push the whole schedule out by the stub length, which is
-/// what broke the STACR 2025-DNA1 tie-out. It has been removed; the engine no longer
-/// rewrites collateral dates.
+/// It was added for harmony #2748, and it is the DEFAULT. Removing it was tried and
+/// reverted: Fold conserves principal but fails #2748's own test (two collateral months
+/// reach distribution 0), and Drop holds that ceiling but pays the excluded stub to
+/// nobody. Align is the only policy that does both. Stating Fold or Drop is what turns
+/// the re-dating off — which STACR 2025-DNA1 does, because its first Reporting Period
+/// genuinely spans two months and Appendix G prints the resulting payment.
 ///
 /// Before this knob existed the boundary was derived from whichever tranche happened
 /// to be FIRST in the deal's list, snapped to the 1st of its month — incidental, not
@@ -291,28 +289,78 @@ public class FirstPeriodCollateralPolicyTests
             + "Drop the default has to delete this line first");
     }
 
-    [Fact]
-    public void ANonMonthlyDeal_KeepsItsPrincipalUnderTheDefault()
+    [Theory]
+    [InlineData(4)]   // quarterly — the CLO work
+    [InlineData(2)]   // semi-annual
+    public void ANonMonthlyDeal_KeepsEveryDollarUnderTheDefault(int payFrequency)
     {
-        // The re-timing that used to precede the fold bailed out on PayFrequency != 12,
-        // so quarterly and semi-annual deals took the FOLD branch and it was never dead
-        // code for them. A default that excluded the stub would take ~7.5% of a quarterly
-        // pool without the caller asking. The CLO work is quarterly-pay.
-        var deal = new TestDealBuilder()
+        // This RUNS the waterfall. The version that shipped asserted only that the enum
+        // default was not Drop and never touched a pool — so it stayed green while the
+        // default discarded 4,474,457.84 of a 100M quarterly pool, because Align is
+        // monthly-only and the fold was gated on `== Fold`, which Align is not.
+        var collateral = CollateralStartingBeforeFirstPay(400);
+        var (_, cf) = new TestDealBuilder()
             .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
             .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
             .WithSequentialWaterfall("A", "B")
-            .WithPayFrequency(4, new DateTime(2024, 4, 25))
-            .Build();
+            .WithPayFrequency(payFrequency, new DateTime(2024, 4, 25))
+            .BuildAndRun(collateral);
 
-        deal.Tranches.First().PayFrequency.Should().Be(4);
-        // The default is Align, and Align is monthly-only — so a quarterly deal falls
-        // through to the fold, which is exactly what the engine did for it before the
-        // policy existed. The bug this pins is a default that EXCLUDES the stub: that
-        // would take ~7.5% of a quarterly pool without the caller asking, and the CLO
-        // work is quarterly-pay.
-        deal.FirstPeriodCollateralPolicyEnum.Should().NotBe(FirstPeriodCollateralPolicyEnum.Drop,
-            "no deal may lose principal by default, least of all one the re-timing never "
-            + "touched");
+        var toBonds = TotalPrincipal(cf, "A") + TotalPrincipal(cf, "B");
+        toBonds.Should().BeApproximately(Math.Min(PoolPrincipal(collateral), 100_000_000), 1.0,
+            "a deal the re-timing cannot touch must still be paid every dollar the pool "
+            + "produced — Align means re-date where possible and FOLD the rest, never drop");
+    }
+
+    [Fact]
+    public void AStatedAccrualBoundary_DoesNotCostTheDealPrincipal()
+    {
+        // The same hole on MONTHLY deals, through the PR's own new field. The re-timing
+        // lands periods on the first pay date, but the boundary can be stated LATER, so
+        // periods survive re-dating and then fall before the boundary. A caller who states
+        // only the boundary — and correctly omits the policy, which every doc comment says
+        // is the safe thing to do — was losing that principal silently.
+        var collateral = CollateralStartingBeforeFirstPay(400);
+        var (_, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithFirstPeriodCollateral(null, new DateTime(2024, 5, 1))
+            .BuildAndRun(collateral);
+
+        var toBonds = TotalPrincipal(cf, "A") + TotalPrincipal(cf, "B");
+        toBonds.Should().BeApproximately(Math.Min(PoolPrincipal(collateral), 100_000_000), 1.0,
+            "stating a boundary asks WHEN distributions begin, not that principal before it "
+            + "should vanish");
+    }
+
+    [Theory]
+    [InlineData("Fold")]
+    [InlineData("Drop")]
+    public void TheAnswerDoesNotDependOnTheOrderTheTapeArrivesIn(string policy)
+    {
+        // Align sorts as a side effect of re-dating, so on the default path order never
+        // mattered and an explicit sort looks redundant. Under Fold and Drop nothing
+        // re-dates, and the waterfall walks the caller's order — so the sort is load-bearing
+        // exactly where it is least visible.
+        var ascending = CollateralStartingBeforeFirstPay(24);
+        var descending = CollateralStartingBeforeFirstPay(24);
+        var reversed = descending.PeriodCashflows.OrderByDescending(p => p.CashflowDate).ToList();
+        descending.PeriodCashflows.Clear();
+        foreach (var pc in reversed)
+            descending.PeriodCashflows.Add(pc);
+
+        double Run(CollateralCashflows c) =>
+            TotalPrincipal(
+                new TestDealBuilder()
+                    .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+                    .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+                    .WithSequentialWaterfall("A", "B")
+                    .WithFirstPeriodCollateral(policy)
+                    .BuildAndRun(c).Cashflows,
+                "A");
+
+        Run(descending).Should().BeApproximately(Run(ascending), 0.01,
+            "a tape is a set of periods, not a sequence the caller gets to reorder");
     }
 }

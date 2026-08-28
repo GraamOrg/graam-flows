@@ -27,9 +27,11 @@ public enum FirstPeriodCollateralPolicyEnum
     /// tried on this branch and both failed — which is what established that it is doing
     /// a job neither replacement does.
     ///
-    /// Monthly deals only, exactly as before: for any other PayFrequency this is a no-op
-    /// and the fold runs, which is what the engine has always done for quarterly and
-    /// semi-annual deals.
+    /// The re-dating is monthly-only, exactly as before. For any other PayFrequency, and
+    /// for a deal that states a boundary later than its first pay date, it is a no-op and
+    /// the periods it could not reach are FOLDED — Align never discards. Gating the fold on
+    /// `== Fold` instead of `!= Drop` made Align behave as Drop for every quarterly and
+    /// semi-annual deal, which is 4,474,457.84 of a 100M quarterly pool.
     ///
     /// Declared FIRST so `default(FirstPeriodCollateralPolicyEnum)` agrees with the
     /// documented default rather than contradicting it.
@@ -67,8 +69,10 @@ public enum FirstPeriodCollateralPolicyEnum
     /// ends permanently under-collateralized by exactly the dropped stub, and the classes
     /// that never amortized keep accruing on principal the pool no longer holds. Measured
     /// on a 100M pool with one stub period, run to full amortization, Drop delivers
-    /// 1,514,301.28 LESS principal and 1,369,692.94 MORE interest than Fold. The ceiling
-    /// it enforces is a FIRST-PERIOD ceiling only.
+    /// 1,514,301.28 LESS principal than Fold, and 1,369,692.94 more interest than ALIGN
+    /// (1,796,716.68 more than Fold) — because the classes that never amortized keep
+    /// accruing on principal the pool no longer holds. The ceiling it enforces is a
+    /// FIRST-PERIOD ceiling only.
     ///
     /// Select it only for a pool whose pre-first-pay periods are an artifact of where the
     /// projection was started — where that principal is not the trust's and was never
