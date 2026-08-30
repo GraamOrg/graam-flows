@@ -64,6 +64,32 @@ public class Deal : IDeal
 
     public string WaterfallType { get; set; }
     public IList<string> ExecutionOrder { get; set; }
+
+    public DateTime? CollateralAccrualStartDate { get; set; }
+    public string FirstPeriodCollateralPolicy { get; set; }
+
+    /// <summary>
+    /// Parsed policy. An UNRECOGNISED value throws rather than silently defaulting: the
+    /// two behaviours move money in opposite directions, so quietly picking one would
+    /// mis-state a deal without failing.
+    /// </summary>
+    public FirstPeriodCollateralPolicyEnum FirstPeriodCollateralPolicyEnum
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(FirstPeriodCollateralPolicy))
+                return FirstPeriodCollateralPolicyEnum.Align;
+            if (Enum.TryParse<FirstPeriodCollateralPolicyEnum>(
+                    FirstPeriodCollateralPolicy.Trim(), true, out var parsed))
+                return parsed;
+            // ArgumentException, not DealModelingException: Domain does not reference Core.
+            throw new ArgumentException(
+                $"firstPeriodCollateralPolicy '{FirstPeriodCollateralPolicy}' is not recognised. "
+                + "Supported: Fold (accumulate pre-first-pay collateral into the first "
+                + "distribution), Drop (exclude it), or Align (re-date it onto the pay "
+                + "schedule). Omit the field for Align.");
+        }
+    }
     public OcTargetConfig? OcTargetConfig { get; set; }
     public ReinvestmentConfig? ReinvestmentConfig { get; set; }
     public IList<CoverageLevelConfig>? CoverageCascade { get; set; }

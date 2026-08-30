@@ -122,6 +122,16 @@ public class WaterfallController : ControllerBase
         var deal = new Deal(dto.DealName, factorDate);
         deal.CashflowEngine = dto.WaterfallType;
         deal.InterestTreatment = dto.InterestTreatment ?? "Guaranteed";
+        // Null keeps the derived boundary and ALIGNS, which is what the engine has done
+        // since #2748 — so an existing request is unchanged, including the re-dating.
+        // Stating Fold or Drop is what turns the re-dating off.
+        deal.CollateralAccrualStartDate = dto.CollateralAccrualStartDate;
+        deal.FirstPeriodCollateralPolicy = dto.FirstPeriodCollateralPolicy;
+        // Force the parse HERE. The enum is otherwise only read inside the pre-boundary
+        // branch, so a typo threw on a deal that happens to have a stub and ran silently
+        // on one that does not — the same string rejected or accepted depending on the
+        // collateral. Reading it at build makes the rejection a property of the request.
+        _ = deal.FirstPeriodCollateralPolicyEnum;
 
         // Handle alias: use ClassGroups if DealStructures is null
         var dealStructures = dto.DealStructures ?? dto.ClassGroups;

@@ -112,6 +112,32 @@ public class DealDto
     public DateTime? ClosingDate { get; set; }
 
     /// <summary>
+    /// Date from which collateral cashflows participate in distributions.
+    ///
+    /// The BOND side of this already has a knob — <see cref="ClosingDate"/> sets each
+    /// tranche's FirstSettleDate and so its first accrual. The collateral side had none:
+    /// the boundary was derived from whichever tranche happened to be FIRST in the list,
+    /// snapped to the 1st of its month. That asymmetry is why callers moved the projection
+    /// date to express a collateral intent.
+    ///
+    /// Null keeps the derived boundary, so existing requests are unaffected.
+    /// </summary>
+    public DateTime? CollateralAccrualStartDate { get; set; }
+
+    /// <summary>
+    /// What to do with collateral periods dated before the first distribution:
+    /// "Align" (re-date them onto the pay schedule, folding whatever that cannot reach —
+    /// the historical behaviour, and THE DEFAULT when omitted), "Fold" (accumulate them
+    /// into the first distribution), or "Drop" (exclude them, paying that principal to
+    /// nobody and writing it down nowhere).
+    ///
+    /// Anything else is rejected rather than defaulted, and the rejection happens when the
+    /// deal is built rather than when the branch is first reached, so a typo fails on every
+    /// deal and not only on one that happens to have a pre-boundary period.
+    /// </summary>
+    public string? FirstPeriodCollateralPolicy { get; set; }
+
+    /// <summary>
     ///     Revolving / reinvesting collateral-pool configuration (optional).
     ///     Bound but not yet consumed by the engine (graam-flows#48); the
     ///     reinvestment loop is graam-flows#49.

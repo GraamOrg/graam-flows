@@ -105,6 +105,16 @@ public class WaterfallRunner
         deal.CashflowEngine = "ComposableStructure";
         deal.WaterfallType = "ComposableStructure";
         deal.InterestTreatment = dto.InterestTreatment ?? "Guaranteed";
+        // Same two fields the API controller maps. Omitting them here does not fall back
+        // to a default — it DISCARDS a value the caller stated, which is the one failure
+        // the throw-on-unrecognised design cannot catch.
+        deal.CollateralAccrualStartDate = dto.CollateralAccrualStartDate;
+        deal.FirstPeriodCollateralPolicy = dto.FirstPeriodCollateralPolicy;
+        // Force the parse HERE. The enum is otherwise only read inside the pre-boundary
+        // branch, so a typo threw on a deal that happens to have a stub and ran silently
+        // on one that does not — the same string rejected or accepted depending on the
+        // collateral. Reading it at build makes the rejection a property of the request.
+        _ = deal.FirstPeriodCollateralPolicyEnum;
 
         var dealStructures = dto.DealStructures ?? dto.ClassGroups;
         var dealVariables = dto.DealVariables ?? dto.Variables;
