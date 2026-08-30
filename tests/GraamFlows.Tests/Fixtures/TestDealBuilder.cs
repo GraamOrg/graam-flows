@@ -40,9 +40,47 @@ public class TestDealBuilder
         _deal.WaterfallType = "ComposableStructure";
     }
 
+    private string? _firstPeriodCollateralPolicy;
+    private DateTime? _collateralAccrualStartDate;
+
     public TestDealBuilder WithInterestTreatment(string treatment)
     {
         _interestTreatment = treatment;
+        return this;
+    }
+
+    /// <summary>
+    ///     Pay frequency for every tranche added SO FAR (12 monthly, 4 quarterly, 2
+    ///     semi-annual), with the matching first pay date. Quarterly matters here: the
+    ///     re-timing is monthly-only, so a non-monthly deal is precisely the case where the
+    ///     default policy has to fold rather than discard.
+    /// </summary>
+    public TestDealBuilder WithPayFrequency(int payFrequency, DateTime? firstPayDate = null)
+    {
+        if (_deal.Tranches.Count == 0)
+            throw new InvalidOperationException(
+                "WithPayFrequency applies to the tranches added so far — call it AFTER "
+                + "WithTranche, or it silently does nothing and the test measures a monthly "
+                + "deal while claiming to measure a quarterly one.");
+
+        foreach (var t in _deal.Tranches.OfType<Tranche>())
+        {
+            t.PayFrequency = payFrequency;
+            if (firstPayDate.HasValue)
+                t.FirstPayDate = firstPayDate.Value;
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// Set the first-period collateral policy and, optionally, an explicit accrual-start
+    /// boundary. Leaving both unset is the default the engine has always had.
+    /// </summary>
+    public TestDealBuilder WithFirstPeriodCollateral(string? policy, DateTime? accrualStart = null)
+    {
+        _firstPeriodCollateralPolicy = policy;
+        _collateralAccrualStartDate = accrualStart;
         return this;
     }
 
@@ -432,6 +470,8 @@ public class TestDealBuilder
     public IDeal Build()
     {
         _deal.InterestTreatment = _interestTreatment;
+        _deal.FirstPeriodCollateralPolicy = _firstPeriodCollateralPolicy;
+        _deal.CollateralAccrualStartDate = _collateralAccrualStartDate;
         _deal.BalanceAtIssuance = _balanceAtIssuance > 0 ? _balanceAtIssuance : 100_000_000;
 
         if (_executionOrder != null)

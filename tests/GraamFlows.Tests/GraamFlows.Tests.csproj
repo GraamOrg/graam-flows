@@ -30,6 +30,9 @@
     <ProjectReference Include="..\..\src\GraamFlows.Core\GraamFlows.Core.csproj" />
     <ProjectReference Include="..\..\src\GraamFlows.Domain\GraamFlows.Domain.csproj" />
     <ProjectReference Include="..\..\src\GraamFlows.Api\GraamFlows.Api.csproj" />
+    <!-- The CLI reads the same DealDto as the API. It was unreferenced here, which is
+         why its unwired deal mapping went unnoticed. -->
+    <ProjectReference Include="..\..\src\GraamFlows.Cli\GraamFlows.Cli.csproj" />
   </ItemGroup>
 
 </Project>

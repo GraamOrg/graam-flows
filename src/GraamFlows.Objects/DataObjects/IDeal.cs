@@ -34,6 +34,27 @@ public interface IDeal : IPayRuleAssemblyStore
     IList<string> ExecutionOrder { get; }
 
     /// <summary>
+    /// Date from which collateral cashflows participate in distributions. Null keeps the
+    /// derived boundary (first-of-month of the first tranche's FirstPayDate), so an
+    /// existing caller is unaffected.
+    /// </summary>
+    DateTime? CollateralAccrualStartDate { get; }
+
+    /// <summary>
+    /// What to do with collateral periods dated before that boundary: "Align", "Fold" or
+    /// "Drop". Null means ALIGN — re-date onto the pay schedule where that applies and fold
+    /// whatever it cannot reach — which is what the engine has done since #2748.
+    /// Where the re-dating APPLIES it is the only policy that conserves principal AND keeps a
+    /// distribution to one collateral month; where it does not (non-monthly, or a boundary
+    /// later than first pay) it folds the remainder and the output is byte-identical to Fold.
+    /// Drop is the only
+    /// one that discards: it pays the excluded stub to nobody and writes it down nowhere.
+    /// </summary>
+    string FirstPeriodCollateralPolicy { get; }
+
+    FirstPeriodCollateralPolicyEnum FirstPeriodCollateralPolicyEnum { get; }
+
+    /// <summary>
     /// Configuration for OC turbo paydown step (optional).
     /// </summary>
     OcTargetConfig? OcTargetConfig { get; }
