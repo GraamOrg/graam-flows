@@ -240,6 +240,60 @@ public class TestDealBuilder
     ///     has independent economics and must accrue from it, where a derived one means the class
     ///     is a view of its components and must mirror them (#4572).
     /// </summary>
+    /// <summary>
+    ///     An exchange class whose components are TRANCHES at stated quantities — a MACR
+    ///     recombination drawn from a strip inside another class (#4586). No `ExchangableTranche`
+    ///     and no stated coupon: the composition IS the coupon.
+    /// </summary>
+    public TestDealBuilder WithTrancheLevelExchangeClass(string name, int subOrder,
+        params (string Tranche, double Quantity)[] components)
+    {
+        _deal.Tranches.Add(new Tranche
+        {
+            TrancheName = name,
+            DealName = _deal.DealName,
+            OriginalBalance = components.Sum(c => c.Quantity),
+            Factor = 1.0,
+            CouponType = "None",
+            TrancheType = "Exchanged",
+            CashflowType = "PI",
+            ClassReference = name,
+            FirstPayDate = _firstPayDate,
+            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            LegalMaturityDate = _firstPayDate.AddYears(10),
+            StatedMaturityDate = _firstPayDate.AddYears(8),
+            PayFrequency = 12,
+            PayDelay = 0,
+            PayDay = _firstPayDate.Day,
+            DayCount = "30/360",
+            BusinessDayConvention = "Following",
+            HolidayCalendar = "Settlement",
+            Deal = _deal
+        });
+
+        _deal.DealStructures.Add(new DealStructure
+        {
+            DealName = _deal.DealName,
+            ClassGroupName = name,
+            SubordinationOrder = subOrder,
+            PayFrom = "Exchange",
+            ExchangableTranche = null,
+            GroupNum = "1"
+        });
+
+        foreach (var c in components)
+            _deal.ExchShares.Add(new ExchShare
+            {
+                DealName = _deal.DealName,
+                ClassGroupName = name,
+                TrancheName = c.Tranche,
+                Quantity = c.Quantity,
+                ByTranche = true
+            });
+
+        return this;
+    }
+
     public TestDealBuilder WithExchangeClassStatingCoupon(string name, int subOrder, double couponPct,
         params string[] componentTranches)
     {
