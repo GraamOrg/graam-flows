@@ -1,4 +1,5 @@
 ﻿using GraamFlows.Objects.DataObjects;
+using GraamFlows.Objects.TypeEnum;
 using GraamFlows.RulesEngine;
 using GraamFlows.Triggers;
 using GraamFlows.Util;
@@ -140,7 +141,8 @@ public abstract class BaseStructure : IWaterfall
     }
 
     protected void PayExchangeables(DateTime cashflowDate, IEnumerable<DynamicGroup> dynGroups,
-        IEnumerable<PeriodCashflows> periodCfs, out IList<DynamicClass> payFromAllocator)
+        IEnumerable<PeriodCashflows> periodCfs, out IList<DynamicClass> payFromAllocator,
+        IRateProvider rateProvider = null)
     {
         var nestedExchClasses = new HashSet<DynamicClass>();
         var payHash = new HashSet<DynamicClass>();
@@ -199,7 +201,7 @@ public abstract class BaseStructure : IWaterfall
                 else
                     exchClass.Writedown(cashflowDate, wd);
 
-                PayExchangeInterest(dynGroup, exchClass, parentClass, cashflowDate);
+                PayExchangeInterest(dynGroup, exchClass, parentClass, cashflowDate, rateProvider);
             }
 
             foreach (var exchClass in nestedExchClasses)
@@ -221,7 +223,7 @@ public abstract class BaseStructure : IWaterfall
                 else
                     exchClass.Writedown(cashflowDate, wd);
 
-                PayExchangeInterest(dynGroup, exchClass, parentClass, cashflowDate);
+                PayExchangeInterest(dynGroup, exchClass, parentClass, cashflowDate, rateProvider);
             }
 
             // pay exchange off group
@@ -297,8 +299,24 @@ public abstract class BaseStructure : IWaterfall
     ///     balance) so the output reads it directly.
     /// </summary>
     private void PayExchangeInterest(DynamicGroup dynGroup, DynamicClass exchClass,
-        IEnumerable<DynamicClass> parentClass, DateTime cashflowDate)
+        IEnumerable<DynamicClass> parentClass, DateTime cashflowDate, IRateProvider rateProvider = null)
     {
+        // A class that states its OWN coupon accrues from it, and does not receive its
+        // components' interest passed through (#4572).
+        //
+        // The pass-through below is right for a COMBINATION exchange — Class M-2 IS M-2A plus
+        // M-2B, and its holder collects each underlying's coupon. It is wrong for a
+        // coupon-STRIPPING exchange, where the received class carries a lower stated coupon and
+        // the stripped margin goes to a separate interest-only class. On STACR 2025-DNA1,
+        // M-2R/S/T/U state four different coupons (SOFR+0.60/0.75/0.90/1.05) and every one of
+        // them was handed the identical pass-through amount — their coupons were never read, so
+        // the cashflow reported `Coupon: 0`. Worse, the strip was ADDED where it should be
+        // subtracted: M-2AR came out at M-2A + M-2AI when it is M-2A minus M-2AI.
+        //
+        // Accruing from the stated coupon also restores the invariant the document is built on:
+        // received equals surrendered. M-2R + M-2I now sums to M-2A + M-2B, because the
+        // published coupons are designed to. The pass-through summed to 1.696x that.
+
         // Interest is credited to the component's DynamicTranche cashflows, not the
         // DynamicClass wrapper (which aggregates principal but not interest), so read
         // it from the tranches before applying the exchange share.
@@ -306,6 +324,12 @@ public abstract class BaseStructure : IWaterfall
             GetExchangeShare(dynGroup, exchClass, pc,
                 pc.DynamicTranches.Sum(t => t.GetCashflow(cashflowDate).Interest)));
         if (Math.Abs(interest) < 1e-9)
+            return;
+
+        // Split what the components RECEIVED by this class's stated coupon, when it states one.
+        if (rateProvider != null &&
+            SplitExchangeInterestByStatedCoupon(exchClass, parentClass, cashflowDate, rateProvider,
+                interest))
             return;
 
         var tranches = exchClass.DynamicTranches;
@@ -320,6 +344,89 @@ public abstract class BaseStructure : IWaterfall
                 ? interest * (cf.BeginBalance / totalBal)
                 : interest / tranches.Count;
         }
+    }
+
+    /// <summary>
+    ///     Split the interest the components ACTUALLY received across the received class by its
+    ///     own stated coupon. Returns false when it states none, leaving the caller's straight
+    ///     pass-through in place (#4572).
+    /// </summary>
+    private static bool SplitExchangeInterestByStatedCoupon(DynamicClass exchClass,
+        IEnumerable<DynamicClass> parentClass, DateTime cashflowDate, IRateProvider rateProvider,
+        double receivedInterest)
+    {
+        var tranches = exchClass.DynamicTranches;
+        if (tranches == null || tranches.Count == 0)
+            return false;
+
+        // ONLY a coupon the document STATES for this class — Fixed or Floating. A `Formula`
+        // (`eff_wac`) or `TrancheWac` coupon is DERIVED from the deal rather than stated against
+        // the class, so it carries no independent economics and the straight pass-through is
+        // still right. `ExchangeClass_MirrorsSumOfComponents_PrincipalAndInterest` caught the
+        // first version of this fix for exactly that.
+        foreach (var dynTran in tranches)
+        {
+            var kind = dynTran.Tranche.CouponTypeEnum;
+            if (kind != CouponType.Fixed && kind != CouponType.Floating)
+                return false;
+        }
+
+        var coupons = new List<double>(tranches.Count);
+        var ownWeight = 0.0;
+        foreach (var dynTran in tranches)
+        {
+            var coupon = dynTran.Coupon(rateProvider, cashflowDate, tranches);
+            if (double.IsNaN(coupon) || double.IsInfinity(coupon) || Math.Abs(coupon) < 1e-9)
+                return false;
+            coupons.Add(coupon);
+            ownWeight += dynTran.TrancheBalance(dynTran.GetCashflow(cashflowDate)) * coupon;
+        }
+
+        // The components' own coupon-weighted balance. The ratio of the two is the share of the
+        // period's interest this class's stated coupon entitles it to.
+        var parentWeight = 0.0;
+        foreach (var pc in parentClass)
+        foreach (var pt in pc.DynamicTranches ?? new List<DynamicTranche>())
+        {
+            var pcf = pt.GetCashflow(cashflowDate);
+            if (pcf == null) continue;
+            parentWeight += pt.TrancheBalance(pcf) *
+                            pt.Coupon(rateProvider, cashflowDate, pc.DynamicTranches);
+        }
+
+        if (Math.Abs(parentWeight) < 1e-9 || ownWeight <= 0)
+            return false;
+
+        // CONSERVATION IS INHERITED, NOT RE-DERIVED. `receivedInterest` is what the components
+        // were actually paid, so a shortfall is already baked into it and this only decides how
+        // it is SHARED — pro-rata by stated coupon. An earlier version accrued the class's own
+        // coupon independently instead, which paid an exchangeable MORE than the deal collected
+        // (1.85x on an uneven shortfall) because it replaced the pass-through's built-in
+        // guarantee with nothing. The two shortfall tests exist to keep that from coming back.
+        //
+        // Note the year fraction cancels: both weights are balance x coupon over the SAME
+        // period, so the accrual calendar never enters. That also removes the 30/34 stub
+        // discrepancy an absolute accrual had to work around.
+        var share = ownWeight / parentWeight;
+
+        // Distribute WITHIN the class by the same coupon weight the share was computed from.
+        // Balance-weighting would be inconsistent, and it matters: a class can hold tranches
+        // with different coupons — harmony wires a MACR interest-only strip into its P&I
+        // sibling's class (harmony#4586), so class M-2 holds M-2 at SOFR+1.35 and M-2I at
+        // 0.75. Splitting that by balance hands each half the interest; splitting by coupon
+        // weight gives the P&I class its coupon and the strip its own.
+        for (var i = 0; i < tranches.Count; i++)
+        {
+            var dynTran = tranches[i];
+            var cf = dynTran.GetCashflow(cashflowDate);
+            var w = dynTran.TrancheBalance(cf) * coupons[i];
+            cf.Interest += receivedInterest * share *
+                           (ownWeight > 1e-9 ? w / ownWeight : 1.0 / tranches.Count);
+            cf.Coupon = coupons[i];
+            cf.EffectiveCoupon = coupons[i];
+        }
+
+        return true;
     }
 
     public void ExecutePayRules(IDeal deal, DynamicGroup dynGroup, IPayRuleExecutor payRuleExecutor,
