@@ -33,6 +33,26 @@ public class WaterfallRequest
         MarketRates { get; set; } // e.g., {"SOFR30Avg": [[0.25, 5.0], [1.0, 4.8]]}
 
     public DateTime ProjectionDate { get; set; }
+
+    /// <summary>
+    ///     Settlement date the caller is measuring from. Optional; falls back to
+    ///     <see cref="ProjectionDate" />, which is what this endpoint used unconditionally
+    ///     before — so an omitted value keeps the previous behaviour exactly.
+    ///
+    ///     They are NOT the same thing and callers already distinguish them: harmony's
+    ///     sensitivity tie-out projects from 2025-03-02 on OBX 2025-NQM6 and settles on the
+    ///     closing date 2025-04-14, and its pricing path settles on TODAY by design
+    ///     ("an IC analysis run today should price as of today, not the deal's historical
+    ///     closing date"). The projection start is where cashflows begin; settlement is where
+    ///     the holder's clock starts.
+    ///
+    ///     It has been sent on the wire as "settleDate" for some time and silently DROPPED,
+    ///     because no property bound it and System.Text.Json ignores unmapped members. Nothing
+    ///     broke only because nothing here consumed a settle date the caller chose — the
+    ///     moment this endpoint returns anything settle-anchored (a WAL), that silence becomes
+    ///     a wrong number.
+    /// </summary>
+    public DateTime? SettleDate { get; set; }
     public List<TriggerForecastDto>? TriggerForecasts { get; set; }
 
     /// <summary>
@@ -715,6 +735,28 @@ public class WaterfallSummaryDto
 
 public class TrancheSummaryDto
 {
+    /// <summary>
+    ///     Weighted average life in years, from the request's settle date, computed by
+    ///     <c>Cashflow.WeightedAverageLife()</c> — ActualActual-ISDA, and balance-weighted
+    ///     rather than principal-weighted for an IO stream, so a notional strip gets the WAL
+    ///     of its notional instead of nothing.
+    ///
+    ///     This endpoint returned no WAL, so every caller computed its own. harmony grew two
+    ///     that disagreed — one anchored at settle, one at <c>period / 12</c> from the
+    ///     projection start, which overstated every WAL by the cutoff-to-closing gap — and
+    ///     consolidated them into a third that approximates ActualActual-ISDA as
+    ///     actual/365.25. Returning the engine's own number is what stops the fourth.
+    /// </summary>
+    public double Wal { get; set; }
+
+    /// <summary>
+    ///     WAL from the balance change (<c>PrevBalance - Balance</c>) on a Thirty360Us day
+    ///     count — <c>Cashflow.BalanceWeightedAverageLife()</c>. Distinct from
+    ///     <see cref="Wal" /> in BOTH weighting and day count, and the convention prospectus
+    ///     decrement tables are usually quoted on.
+    /// </summary>
+    public double BalanceWal { get; set; }
+
     public double TotalPrincipal { get; set; }
     public double TotalInterest { get; set; }
     public double TotalExpense { get; set; } // Total expense for expense tranches
