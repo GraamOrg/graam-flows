@@ -286,6 +286,17 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
 
             if (dealStructure.PayFromEnum == PayFromEnum.Exchange)
             {
+                // An exchange class need not have CLASS-level components: a MACR recombination
+                // is drawn from tranches inside other classes (#4586), so its subordination is
+                // carried by those tranches' own classes and there is nothing to derive here.
+                // Previously this dereferenced a null and took the whole waterfall down with a
+                // NullReferenceException surfaced as a bare 400.
+                if (string.IsNullOrEmpty(dealStructure.ExchangableTranche))
+                {
+                    _subordinateClassesCache[tranche] = new List<DynamicClass>();
+                    return _subordinateClassesCache[tranche];
+                }
+
                 var exClasses = dealStructure.ExchangableTranche.Split(",");
                 var subClass = exClasses
                     .Select(@class => new { Class = @class, CreditSupp = ClassByName(@class)?.CreditSupport() })
