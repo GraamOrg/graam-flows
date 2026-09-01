@@ -747,7 +747,7 @@ public class TrancheSummaryDto
     ///     consolidated them into a third that approximates ActualActual-ISDA as
     ///     actual/365.25. Returning the engine's own number is what stops the fourth.
     /// </summary>
-    public double Wal { get; set; }
+    public double? Wal { get; set; }
 
     /// <summary>
     ///     WAL from the balance change (<c>PrevBalance - Balance</c>) on a Thirty360Us day
@@ -755,7 +755,7 @@ public class TrancheSummaryDto
     ///     <see cref="Wal" /> in BOTH weighting and day count, and the convention prospectus
     ///     decrement tables are usually quoted on.
     /// </summary>
-    public double BalanceWal { get; set; }
+    public double? BalanceWal { get; set; }
 
     public double TotalPrincipal { get; set; }
     public double TotalInterest { get; set; }

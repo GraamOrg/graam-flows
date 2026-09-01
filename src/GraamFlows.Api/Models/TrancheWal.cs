@@ -28,7 +28,18 @@ public static class TrancheWal
     ///     change instead, which is what gives a notional strip a WAL at all — principal
     ///     weighting returns nothing for it.
     /// </param>
-    public static (double Wal, double BalanceWal) Compute(
+    /// <returns>
+    ///     the two WALs, or <c>null</c> for either when there is nothing to weight.
+    ///
+    ///     NULL rather than 0.0 on purpose. The engine's own functions return 0 when the
+    ///     weighted total is below a cent, and 0.0 in a non-nullable field is indistinguishable
+    ///     from a real answer — a class whose balance went entirely to WRITEDOWN reports
+    ///     `Wal 0.0000` beside a perfectly good `BalanceWal 2.2793`, and STACR 2025-DNA1's
+    ///     B2H and B3H do exactly that. A consumer that falls back when the field is ABSENT
+    ///     would not fall back on a present-and-zero value, so the wrong number would win
+    ///     silently. Null says "this stream has no such life", which is the truth.
+    /// </returns>
+    public static (double? Wal, double? BalanceWal) Compute(
         IEnumerable<TrancheCashflowDto> cashflows, DateTime settleDate, bool isIo)
     {
         var rows = new List<ICashflow>();
@@ -47,7 +58,7 @@ public static class TrancheWal
             });
 
         if (rows.Count == 0)
-            return (0, 0);
+            return (null, null);
 
         var stream = new CashflowStreamImpl
         {
@@ -59,6 +70,18 @@ public static class TrancheWal
         // `Cashflow` is the engine's cashflow CALCULATOR (PricingController aliases it as
         // CashflowCalculator). Null market rates: WAL needs no curve.
         var calc = new CashflowCalculator(stream, null);
-        return (calc.WeightedAverageLife(), calc.BalanceWeightedAverageLife());
+
+        // Mirrors the engine's own `totalCf < .01` guard so the two cannot disagree about
+        // what "nothing to weight" means. `WeightedAverageLife` weights the balance change
+        // for an IO stream and the principal otherwise; `BalanceWeightedAverageLife` always
+        // weights the balance change.
+        var inScope = rows.Where(r => r.CashflowDate >= settleDate).ToList();
+        var principalTotal = inScope.Where(r => r.Principal >= 0).Sum(r => r.Principal);
+        var balanceTotal = inScope.Where(r => r.Principal >= 0).Sum(r => r.PrevBalance - r.Balance);
+
+        var walTotal = isIo ? balanceTotal : principalTotal;
+        return (
+            walTotal < .01 ? null : calc.WeightedAverageLife(),
+            balanceTotal < .01 ? null : calc.BalanceWeightedAverageLife());
     }
 }
