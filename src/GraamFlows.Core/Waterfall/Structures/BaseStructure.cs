@@ -384,7 +384,8 @@ public abstract class BaseStructure : IWaterfall
     ///     balance) so the output reads it directly.
     /// </summary>
     private void PayExchangeInterest(DynamicGroup dynGroup, DynamicClass exchClass,
-        IEnumerable<DynamicClass> parentClass, DateTime cashflowDate, IRateProvider rateProvider = null)
+        IReadOnlyList<(DynamicTranche Tranche, double Proportion)> components, DateTime cashflowDate,
+        IRateProvider rateProvider = null)
     {
         // A class that states its OWN coupon accrues from it, and does not receive its
         // components' interest passed through (#4572).
@@ -405,15 +406,18 @@ public abstract class BaseStructure : IWaterfall
         // Interest is credited to the component's DynamicTranche cashflows, not the
         // DynamicClass wrapper (which aggregates principal but not interest), so read
         // it from the tranches before applying the exchange share.
-        var interest = parentClass.Sum(pc =>
-            GetExchangeShare(dynGroup, exchClass, pc,
-                pc.DynamicTranches.Sum(t => t.GetCashflow(cashflowDate).Interest)));
+        // What the COMPONENT TRANCHES were actually paid, at their stated proportions (#73).
+        var interest = components.Sum(c =>
+        {
+            var ccf = c.Tranche.GetCashflow(cashflowDate);
+            return ccf == null ? 0 : ccf.Interest * c.Proportion;
+        });
         if (Math.Abs(interest) < 1e-9)
             return;
 
         // Split what the components RECEIVED by this class's stated coupon, when it states one.
         if (rateProvider != null &&
-            SplitExchangeInterestByStatedCoupon(exchClass, parentClass, cashflowDate, rateProvider,
+            SplitExchangeInterestByStatedCoupon(exchClass, components, cashflowDate, rateProvider,
                 interest))
             return;
 
@@ -437,8 +441,8 @@ public abstract class BaseStructure : IWaterfall
     ///     pass-through in place (#4572).
     /// </summary>
     private static bool SplitExchangeInterestByStatedCoupon(DynamicClass exchClass,
-        IEnumerable<DynamicClass> parentClass, DateTime cashflowDate, IRateProvider rateProvider,
-        double receivedInterest)
+        IReadOnlyList<(DynamicTranche Tranche, double Proportion)> components, DateTime cashflowDate,
+        IRateProvider rateProvider, double receivedInterest)
     {
         var tranches = exchClass.DynamicTranches;
         if (tranches == null || tranches.Count == 0)
@@ -469,14 +473,15 @@ public abstract class BaseStructure : IWaterfall
 
         // The components' own coupon-weighted balance. The ratio of the two is the share of the
         // period's interest this class's stated coupon entitles it to.
+        // The COMPONENTS' coupon-weighted balance, on the same basis and at the same
+        // proportions the received interest was summed at. Both sides must use one basis.
         var parentWeight = 0.0;
-        foreach (var pc in parentClass)
-        foreach (var pt in pc.DynamicTranches ?? new List<DynamicTranche>())
+        foreach (var c in components)
         {
-            var pcf = pt.GetCashflow(cashflowDate);
+            var pcf = c.Tranche.GetCashflow(cashflowDate);
             if (pcf == null) continue;
-            parentWeight += pt.TrancheBalance(pcf) *
-                            pt.Coupon(rateProvider, cashflowDate, pc.DynamicTranches);
+            parentWeight += c.Tranche.TrancheBalance(pcf) *
+                            c.Tranche.Coupon(rateProvider, cashflowDate, tranches) * c.Proportion;
         }
 
         if (Math.Abs(parentWeight) < 1e-9 || ownWeight <= 0)
