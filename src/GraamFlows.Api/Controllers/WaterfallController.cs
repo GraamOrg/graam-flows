@@ -49,9 +49,15 @@ public class WaterfallController : ControllerBase
             // Create rate provider
             var rateProvider = BuildRateProvider(request.MarketRates);
 
-            // Create assumptions
+            // Create assumptions. The first parameter of CreateConstAssumptions is the SETTLE
+            // date, and this passed ProjectionDate for it unconditionally — the two are
+            // different quantities and callers already distinguish them (see
+            // WaterfallRequest.SettleDate). Falls back to ProjectionDate when the caller does
+            // not say, which is exactly what happened before, so a request that omits it is
+            // byte-for-byte unchanged.
             var anchorAbsT = DateUtil.CalcAbsT(request.ProjectionDate);
-            var assumps = DealLevelAssumptions.CreateConstAssumptions(request.ProjectionDate, anchorAbsT, 0, 0, 0);
+            var settleDate = request.SettleDate ?? request.ProjectionDate;
+            var assumps = DealLevelAssumptions.CreateConstAssumptions(settleDate, anchorAbsT, 0, 0, 0);
 
             // Add trigger forecasts if provided
             if (request.TriggerForecasts != null)
@@ -92,7 +98,7 @@ public class WaterfallController : ControllerBase
                 assumps, new TrancheAllocator());
 
             // Convert to response
-            var response = ConvertToResponse(dealCashflows);
+            var response = ConvertToResponse(dealCashflows, settleDate);
 
             stopwatch.Stop();
             var totalTrancheCashflows = response.TrancheCashflows.Values.Sum(cfs => cfs.Count);
@@ -609,7 +615,12 @@ public class WaterfallController : ControllerBase
         }
     }
 
-    private static WaterfallResponse ConvertToResponse(DealCashflows dealCashflows)
+    /// <param name="settleDate">
+    ///     the caller's settle date (request.SettleDate ?? request.ProjectionDate). Required
+    ///     rather than defaulted here: <c>WeightedAverageLife()</c> drops cashflows before it,
+    ///     so a default would silently answer a different question than the caller asked.
+    /// </param>
+    private static WaterfallResponse ConvertToResponse(DealCashflows dealCashflows, DateTime settleDate)
     {
         var response = new WaterfallResponse
         {
@@ -670,8 +681,13 @@ public class WaterfallController : ControllerBase
             var lastCf = cashflowList.LastOrDefault();
             var origBal = cashflowList.FirstOrDefault()?.BeginBalance ?? 0;
             var totalWritedown = cashflowList.Sum(c => c.Writedown);
+            var (wal, balanceWal) = TrancheWal.Compute(
+                cashflowList, settleDate,
+                trancheCf.Key.CashflowTypeEnum == CashflowType.InterestOnly);
             response.Summary.TranchesSummary[trancheName] = new TrancheSummaryDto
             {
+                Wal = wal,
+                BalanceWal = balanceWal,
                 TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
                 TotalInterest = cashflowList.Sum(c => c.Interest),
                 TotalExpense = cashflowList.Sum(c => c.Expense),
@@ -743,8 +759,13 @@ public class WaterfallController : ControllerBase
                 var lastCf = cashflowList.LastOrDefault();
                 var origBal = cashflowList.FirstOrDefault()?.BeginBalance ?? 0;
                 var totalWritedown = cashflowList.Sum(c => c.Writedown);
+                var (wal, balanceWal) = TrancheWal.Compute(
+                    cashflowList, settleDate,
+                    classCf.Key.CashflowTypeEnum == CashflowType.InterestOnly);
                 response.Summary.TranchesSummary[trancheName] = new TrancheSummaryDto
                 {
+                    Wal = wal,
+                    BalanceWal = balanceWal,
                     TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
                     TotalInterest = cashflowList.Sum(c => c.Interest),
                     TotalExpense = cashflowList.Sum(c => c.Expense),
