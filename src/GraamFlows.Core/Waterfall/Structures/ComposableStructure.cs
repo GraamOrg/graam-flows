@@ -381,10 +381,26 @@ public class ComposableStructure : BaseStructure
                 continue;
 
             if (string.IsNullOrWhiteSpace(ds.ExchangableTranche))
-                throw new DealModelingException(deal.DealName,
-                    $"Class '{dc.Tranche.TrancheName}' is typed Exchanged but names no component classes " +
-                    "(exchangableTranche is empty). An Exchanged/combinable class must reference the classes " +
-                    "it combines; a plain debt note should be typed Offered (or similar), not Exchanged.");
+            {
+                // ...unless it names component TRANCHES instead (#4586). A MACR recombination is
+                // drawn from a tranche inside another class — STACR 2025-DNA1 Combination 15 is
+                // Class M-2B plus 80% of Class M-2AI, and M-2AI is a tranche of class M-2A — so
+                // there is no component CLASS to name. The requirement this guard exists to
+                // enforce is that an Exchanged class references what it combines; a tranche-level
+                // share satisfies it, and `PayExchangeTrancheShares` settles the class from it.
+                var byTranche = deal.ExchShares?.Any(es =>
+                    es.ByTranche && string.Equals(es.ClassGroupName, dc.Tranche.TrancheName,
+                        StringComparison.OrdinalIgnoreCase)) ?? false;
+
+                if (!byTranche)
+                    throw new DealModelingException(deal.DealName,
+                        $"Class '{dc.Tranche.TrancheName}' is typed Exchanged but names no components " +
+                        "(exchangableTranche is empty and it carries no tranche-level exchange shares). " +
+                        "An Exchanged/combinable class must reference the classes or tranches it combines; " +
+                        "a plain debt note should be typed Offered (or similar), not Exchanged.");
+
+                continue;
+            }
 
             foreach (var component in ds.ExchangableTranche.Split(
                          ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
