@@ -736,6 +736,91 @@ public class ComposableStructureTests
     #region Exchangeable / MACR classes
 
     [Fact]
+    public void TrancheLevelExchange_TakesItsStatedFRACTION_OfEachComponent()
+    {
+        // #4586. A MACR recombination is drawn from a tranche INSIDE another class, at a stated
+        // fraction of that tranche's original face — Combination 15 is Class M-2B plus 80% of
+        // Class M-2AI. An exchange share names a CLASS, so this cannot be expressed that way,
+        // and a flat coupon standing in for it is right only at issuance.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithTrancheLevelExchangeClass("AB_HALF", subOrder: 50, ("A", 40_000_000), ("B", 20_000_000))
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 8.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var ab = GetCashflows(cf, "AB_HALF");
+        ab.Should().NotBeEmpty("a tranche-level exchange class must produce cashflows");
+
+        foreach (var date in a.Keys.Where(d => ab.ContainsKey(d)))
+        {
+            // 40m of A's 80m face = 0.5; 20m of B's 20m = 1.0.
+            var expected = a[date].Interest * 0.5 + b[date].Interest * 1.0;
+            ab[date].Interest.Should().BeApproximately(expected, 0.01,
+                $"AB_HALF takes half of A and all of B on {date:yyyy-MM-dd}");
+        }
+    }
+
+    [Fact]
+    public void TrancheLevelExchange_ConservesUnderShortfall()
+    {
+        // Conservation is STRUCTURAL here: the class is settled from what its components were
+        // actually PAID, so a shortfall propagates without being modelled. That is the property
+        // #71's first attempt threw away by accruing an independent coupon, and it is why this
+        // pass sums cashflows rather than deriving a rate.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithTrancheLevelExchangeClass("AB_ALL", subOrder: 50, ("A", 80_000_000), ("B", 20_000_000))
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 1.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var ab = GetCashflows(cf, "AB_ALL");
+
+        foreach (var date in a.Keys.Where(d => ab.ContainsKey(d)))
+        {
+            var received = a[date].Interest + b[date].Interest;
+            ab[date].Interest.Should().BeApproximately(received, 0.01,
+                $"at 100% of both components the class returns exactly what they received " +
+                $"on {date:yyyy-MM-dd}, shortfall included");
+        }
+    }
+
+    [Fact]
+    public void TrancheLevelExchange_DoesNotDivertCashFromTheComponents()
+    {
+        // An exchange class MIRRORS; it must not consume. Same guarantee the class-level
+        // overlay carries, asserted for the tranche-level one.
+        var collateral = CreateCollateral(6, 100_000_000, wacPct: 8.0);
+        var (_, withOut) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(collateral);
+        var (_, with) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithTrancheLevelExchangeClass("AB_ALL", subOrder: 50, ("A", 80_000_000), ("B", 20_000_000))
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(collateral);
+
+        foreach (var name in new[] { "A", "B" })
+        {
+            var before = GetCashflows(withOut, name);
+            var after = GetCashflows(with, name);
+            foreach (var date in before.Keys)
+                after[date].Interest.Should().BeApproximately(before[date].Interest, 0.01,
+                    $"{name} is unchanged by the overlay on {date:yyyy-MM-dd}");
+        }
+    }
+
+
+
+    [Fact]
     public void ExchangeClass_UnderInterestShortfall_DoesNotOutPayItsComponents()
     {
         // CONSERVATION UNDER SHORTFALL. Accruing an exchangeable from its own STATED coupon
