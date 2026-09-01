@@ -196,7 +196,7 @@ public class ComposableStructure : BaseStructure
             // have PayFrom=Exchange/Notional and are excluded from the cash-consuming
             // DealClasses, so they mirror — never double-count — the primaries.
             var periodDynGroups = dynDeal.DynamicGroups.ToList();
-            PayExchangeables(period.Key, periodDynGroups, periodCfList, out _);
+            PayExchangeables(period.Key, periodDynGroups, periodCfList, out _, rateProvider);
             PayExchangeableStructures(period.Key, periodCfList, periodDynGroups, payRuleExecutor, periodTriggerValues);
             PayNotionalClasses(period.Key, periodDynGroups, periodCfList);
         }

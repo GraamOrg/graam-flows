@@ -235,6 +235,23 @@ public class TestDealBuilder
         => WithExchangeClass(name, subOrder, wellFormed: true, componentTranches);
 
     /// <summary>
+    ///     An exchangeable class that states its OWN fixed coupon, rather than deriving one from
+    ///     the deal (`eff_wac`). That distinction is load-bearing: a stated coupon means the class
+    ///     has independent economics and must accrue from it, where a derived one means the class
+    ///     is a view of its components and must mirror them (#4572).
+    /// </summary>
+    public TestDealBuilder WithExchangeClassStatingCoupon(string name, int subOrder, double couponPct,
+        params string[] componentTranches)
+    {
+        WithExchangeClass(name, subOrder, wellFormed: true, componentTranches);
+        var t = (Tranche)_deal.Tranches.First(x => x.TrancheName == name);
+        t.CouponType = "Fixed";
+        t.CouponFormula = null;
+        t.FixedCoupon = couponPct;
+        return this;
+    }
+
+    /// <summary>
     ///     Overload allowing a deliberately malformed Exchanged class for negative
     ///     tests: <paramref name="wellFormed" /> = false omits the ExchangableTranche
     ///     reference (and ExchShares), reproducing a class typed Exchanged with no

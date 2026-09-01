@@ -736,6 +736,129 @@ public class ComposableStructureTests
     #region Exchangeable / MACR classes
 
     [Fact]
+    public void ExchangeClass_UnderInterestShortfall_DoesNotOutPayItsComponents()
+    {
+        // CONSERVATION UNDER SHORTFALL. Accruing an exchangeable from its own STATED coupon
+        // risks paying it a coupon the deal never collected: the components are shortfalled,
+        // the overlay is not, and the exchange hands out more than it received. Collateral at
+        // 1% WAC against 5% classes forces that.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 5.0, subOrder: 1)
+            .WithExchangeClassStatingCoupon("AB3", subOrder: 50, 5.0, "A", "B")
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 1.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var ab = GetCashflows(cf, "AB3");
+
+        foreach (var date in a.Keys.Where(d => ab.ContainsKey(d)))
+        {
+            var received = a[date].Interest + b[date].Interest;
+            ab[date].Interest.Should().BeLessThanOrEqualTo(received + 0.01,
+                $"the exchange class cannot pay out more interest than its components " +
+                $"actually received on {date:yyyy-MM-dd}");
+        }
+    }
+
+    [Fact]
+    public void ExchangeClass_UnderUNEVENShortfall_StillDoesNotOutPayItsComponents()
+    {
+        // The harder case, and the one a single-parent accrual fraction would miss: components
+        // shortfalled by DIFFERENT amounts. A sequential waterfall starves the junior class
+        // first, so B takes the hit and A does not.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 50_000_000, 3.0, subOrder: 0)
+            .WithTranche("B", 50_000_000, 9.0, subOrder: 1)
+            .WithExchangeClassStatingCoupon("AB4", subOrder: 50, 6.0, "A", "B")
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 3.5));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var ab = GetCashflows(cf, "AB4");
+
+        foreach (var date in a.Keys.Where(d => ab.ContainsKey(d)))
+        {
+            var received = a[date].Interest + b[date].Interest;
+            ab[date].Interest.Should().BeLessThanOrEqualTo(received + 0.01,
+                $"uneven shortfall: AB4 paid {ab[date].Interest:N2} against components' " +
+                $"{received:N2} on {date:yyyy-MM-dd}");
+        }
+    }
+
+
+
+    [Fact]
+    public void ExchangeClass_StatingItsOwnCoupon_AccruesFromIt_NotFromComponents()
+    {
+        // #4572. The pass-through is right for a COMBINATION exchange and wrong for a
+        // coupon-STRIPPING one, where the received class carries a lower stated coupon and the
+        // stripped margin goes elsewhere. Before this, a class stating its own coupon was handed
+        // its components' interest and its coupon was never read — on STACR 2025-DNA1, four
+        // classes stating four different coupons all received the identical amount.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 5.0, subOrder: 1)
+            .WithExchangeClassStatingCoupon("AR", subOrder: 50, 3.0, "A", "B")
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 8.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var ar = GetCashflows(cf, "AR");
+        ar.Should().NotBeEmpty();
+
+        foreach (var date in a.Keys.Where(d => ar.ContainsKey(d)))
+        {
+            var passThrough = a[date].Interest + b[date].Interest;
+            var own = ar[date];
+            if (own.BeginBalance <= 0.01) continue;
+
+            // It states 3.0 against components at 5.0, so it must be strictly less than the
+            // pass-through — the assertion the old model could not satisfy.
+            own.Interest.Should().BeLessThan(passThrough * 0.99,
+                $"AR states 3.0% against components at 5.0% on {date:yyyy-MM-dd}");
+
+            // And the coupon must be REPORTED, not left at zero as the pass-through left it.
+            own.Coupon.Should().BeApproximately(3.0, 1e-6);
+        }
+    }
+
+    [Fact]
+    public void ExchangeClass_StatedCoupon_AccruesOverTheComponentsPeriod()
+    {
+        // The accrual PERIOD comes from the components, not from the overlay class's own
+        // calendar. An exchangeable class carries no accrual history, so a nominal year
+        // fraction reads a clean whole month while the components sit mid-stub — which left
+        // every exchanged class at exactly 30/34 of its stated coupon on the opening period.
+        // Ratio-to-components is the shape that catches it: at equal coupons the exchange class
+        // must equal the sum EXACTLY, in every period including the first.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 5.0, subOrder: 1)
+            .WithExchangeClassStatingCoupon("AB2", subOrder: 50, 5.0, "A", "B")
+            .WithSequentialWaterfall("A", "B")
+            // A STUB opening period is the whole point — with a clean whole month the class's own
+            // year fraction and its components' agree, and the bug is invisible.
+            .BuildAndRun(CreateCollateralBeforeFirstPay(6, 100_000_000, wacPct: 8.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var ab = GetCashflows(cf, "AB2");
+
+        foreach (var date in a.Keys.Where(d => ab.ContainsKey(d)))
+        {
+            if (ab[date].BeginBalance <= 0.01) continue;
+            ab[date].Interest.Should().BeApproximately(a[date].Interest + b[date].Interest, 0.01,
+                $"a stated coupon equal to the components' must reproduce their sum on {date:yyyy-MM-dd}");
+        }
+    }
+
+
+
+    [Fact]
     public void ExchangeClass_MirrorsSumOfComponents_PrincipalAndInterest()
     {
         // A MACR / combined class "AB" holds 100% of A and 100% of B. Its cashflow
