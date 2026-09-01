@@ -11,4 +11,6 @@ public class ExchShare : IExchShare
     [Database("Tranche_Name")] public string TrancheName { get; set; }
 
     [Database("Quantity")] public double Quantity { get; set; }
+
+    [Database("By_Tranche")] public bool ByTranche { get; set; }
 }

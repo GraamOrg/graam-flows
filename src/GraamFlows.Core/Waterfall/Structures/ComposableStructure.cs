@@ -197,6 +197,9 @@ public class ComposableStructure : BaseStructure
             // DealClasses, so they mirror — never double-count — the primaries.
             var periodDynGroups = dynDeal.DynamicGroups.ToList();
             PayExchangeables(period.Key, periodDynGroups, periodCfList, out _, rateProvider);
+            // Tranche-level combinations settle AFTER the class-level exchange, so the
+            // components they draw from already carry this period's cashflow (#4586).
+            PayExchangeTrancheShares(period.Key, periodDynGroups);
             PayExchangeableStructures(period.Key, periodCfList, periodDynGroups, payRuleExecutor, periodTriggerValues);
             PayNotionalClasses(period.Key, periodDynGroups, periodCfList);
         }

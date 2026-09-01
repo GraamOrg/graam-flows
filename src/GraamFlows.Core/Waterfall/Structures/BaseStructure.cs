@@ -429,6 +429,104 @@ public abstract class BaseStructure : IWaterfall
         return true;
     }
 
+    /// <summary>
+    ///     Settle exchange classes whose components are TRANCHES, after the class-level exchange
+    ///     has run and those tranches carry their period's cashflow.
+    /// </summary>
+    /// <remarks>
+    ///     A MACR recombination is drawn from a tranche INSIDE another class. STACR 2025-DNA1
+    ///     Combination 15 exchanges Class M-2B (100%) plus 80% of Class M-2AI for Class M-2SB,
+    ///     and M-2AI is a tranche of class M-2A — there is no class to name, so the class-level
+    ///     share mechanism cannot express it. Modelling it as a flat coupon instead is right only
+    ///     at issuance: the stated 6.33548% is exactly 5.73548 + 0.8 x 0.75, and it drifts as soon
+    ///     as M-2B and M-2AI amortize on different schedules, which they do because M-2AI's
+    ///     notional tracks the senior M-2A.
+    ///
+    ///     Proportions are constant fractions of the ORIGINAL balance (or original notional), per
+    ///     the prospectus's own definition of an exchange proportion, so the share is fixed and
+    ///     the cashflow it draws moves with the component.
+    ///
+    ///     CONSERVATION IS STRUCTURAL. This sums what the component tranches were actually paid,
+    ///     so a shortfall propagates without being modelled, and the prospectus's own invariant
+    ///     holds — the aggregate interest payable to the MACR Notes of a Combination equals that
+    ///     payable to the Exchangeable Notes they were exchanged for.
+    ///
+    ///     Runs AFTER the class-level pass and pays only classes the class-level pass did not:
+    ///     `UnifiedWaterfallBuilder` keeps tranche-level components out of `ExchangableTranche`,
+    ///     so a class settled here has no class-level components and cannot be paid twice.
+    /// </remarks>
+    protected void PayExchangeTrancheShares(DateTime cashflowDate, IEnumerable<DynamicGroup> dynGroups)
+    {
+        foreach (var dynGroup in dynGroups)
+        {
+            var shares = dynGroup.Deal.ExchShares?.Where(es => es.ByTranche).ToList();
+            if (shares == null || shares.Count == 0)
+                continue;
+
+            var allTranches = dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches).ToList();
+
+            foreach (var byClass in shares.GroupBy(es => es.ClassGroupName))
+            {
+                var exchClass = dynGroup.DynamicClasses
+                    .FirstOrDefault(dc => string.Equals(dc.Tranche.TrancheName, byClass.Key,
+                        StringComparison.OrdinalIgnoreCase));
+                if (exchClass?.DynamicTranches == null || exchClass.DynamicTranches.Count == 0)
+                    continue;
+
+                double usp = 0, sp = 0, wd = 0, interest = 0;
+                var resolved = 0;
+                foreach (var share in byClass)
+                {
+                    var comp = allTranches.FirstOrDefault(t => string.Equals(
+                        t.Tranche.TrancheName, share.TrancheName, StringComparison.OrdinalIgnoreCase));
+                    if (comp == null)
+                        continue;
+
+                    // The proportion is against the component's ORIGINAL face — its notional for
+                    // an interest-only tranche, whose Class Principal Balance is zero.
+                    var basis = comp.Tranche.OriginalBalance;
+                    if (Math.Abs(basis) < 0.01)
+                        continue;
+                    var prop = share.Quantity / basis;
+
+                    var cf = comp.GetCashflow(cashflowDate);
+                    if (cf == null)
+                        continue;
+
+                    usp += cf.UnscheduledPrincipal * prop;
+                    sp += cf.ScheduledPrincipal * prop;
+                    wd += cf.Writedown * prop;
+                    interest += cf.Interest * prop;
+                    resolved++;
+                }
+
+                // All or nothing. A partially-resolved combination would pay a class a fraction
+                // of itself and read as a modelled result, which is worse than paying it nothing.
+                if (resolved != byClass.Count())
+                    continue;
+
+                if (sp + usp > exchClass.Balance)
+                    exchClass.Pay(cashflowDate, exchClass.Balance, 0);
+                else
+                    exchClass.Pay(cashflowDate, usp, sp);
+
+                exchClass.Writedown(cashflowDate, Math.Min(wd, exchClass.Balance));
+
+                if (Math.Abs(interest) < 1e-9)
+                    continue;
+
+                var totalBal = exchClass.DynamicTranches.Sum(t => t.GetCashflow(cashflowDate).BeginBalance);
+                foreach (var dynTran in exchClass.DynamicTranches)
+                {
+                    var tcf = dynTran.GetCashflow(cashflowDate);
+                    tcf.Interest += totalBal > 0.01
+                        ? interest * (tcf.BeginBalance / totalBal)
+                        : interest / exchClass.DynamicTranches.Count;
+                }
+            }
+        }
+    }
+
     public void ExecutePayRules(IDeal deal, DynamicGroup dynGroup, IPayRuleExecutor payRuleExecutor,
         List<TriggerValue> triggerValues, PeriodCashflows adjPeriodCf)
     {
