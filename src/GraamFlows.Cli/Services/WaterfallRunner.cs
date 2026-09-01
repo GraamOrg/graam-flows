@@ -95,7 +95,7 @@ public class WaterfallRunner
         var dealCashflows = cfCore.GenerateTrancheCashflows(collateralCashflows, rateProvider, assumps);
 
         // Convert to result
-        return ConvertToResult(dealCashflows, collateralCashflows);
+        return ConvertToResult(dealCashflows, collateralCashflows, projectionDate);
     }
 
     private static IDeal BuildDeal(DealDto dto, DateTime factorDate, Dictionary<string, FactorEntry>? factors = null)
@@ -417,7 +417,13 @@ public class WaterfallRunner
         return deal;
     }
 
-    private static WaterfallResult ConvertToResult(DealCashflows dealCashflows, CollateralCashflows collateralCashflows)
+    /// <param name="settleDate">
+    ///     the date the WAL is measured from. The CLI takes no separate settle input, so this
+    ///     is the projection date — the same value the API falls back to when a caller omits
+    ///     SettleDate. Passed explicitly rather than defaulted inside, so the two readers of
+    ///     this DTO cannot drift on it the way reserveConfig and FirstPeriodCollateralPolicy did.
+    /// </param>
+    private static WaterfallResult ConvertToResult(DealCashflows dealCashflows, CollateralCashflows collateralCashflows, DateTime settleDate)
     {
         var result = new WaterfallResult
         {
@@ -473,8 +479,13 @@ public class WaterfallRunner
             result.TrancheCashflows[trancheName] = cashflowList;
 
             var lastCf = cashflowList.LastOrDefault();
+            var (wal, balanceWal) = TrancheWal.Compute(
+                cashflowList, settleDate,
+                trancheCf.Key.CashflowTypeEnum == CashflowType.InterestOnly);
             result.Summary.TranchesSummary[trancheName] = new TrancheSummaryDto
             {
+                Wal = wal,
+                BalanceWal = balanceWal,
                 TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
                 TotalInterest = cashflowList.Sum(c => c.Interest),
                 TotalExpense = cashflowList.Sum(c => c.Expense),
@@ -525,8 +536,13 @@ public class WaterfallRunner
                 result.TrancheCashflows[trancheName] = cashflowList;
 
                 var lastCf = cashflowList.LastOrDefault();
+                var (wal, balanceWal) = TrancheWal.Compute(
+                    cashflowList, settleDate,
+                    classCf.Key.CashflowTypeEnum == CashflowType.InterestOnly);
                 result.Summary.TranchesSummary[trancheName] = new TrancheSummaryDto
                 {
+                    Wal = wal,
+                    BalanceWal = balanceWal,
                     TotalPrincipal = cashflowList.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal),
                     TotalInterest = cashflowList.Sum(c => c.Interest),
                     TotalExpense = cashflowList.Sum(c => c.Expense),
