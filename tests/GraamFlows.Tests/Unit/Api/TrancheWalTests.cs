@@ -39,7 +39,8 @@ public class TrancheWalTests
     {
         var (wal, _) = TrancheWal.Compute(Level(), Settle, isIo: false);
         // (50*1 + 50*2) / 100 = 1.5
-        wal.Should().BeApproximately(1.5, 0.01);
+        wal.Should().NotBeNull();
+        wal!.Value.Should().BeApproximately(1.5, 0.01);
     }
 
     [Fact]
@@ -51,8 +52,10 @@ public class TrancheWalTests
         // dropped `settleDate` field: with it ignored, both settle dates give the same number.
         var (early, _) = TrancheWal.Compute(Level(), Settle, isIo: false);
         var (late, _) = TrancheWal.Compute(Level(), new DateTime(2026, 4, 15), isIo: false);
-        early.Should().BeApproximately(1.5, 0.01);
-        late.Should().BeApproximately(1.0, 0.01);
+        early.Should().NotBeNull();
+        late.Should().NotBeNull();
+        early!.Value.Should().BeApproximately(1.5, 0.01);
+        late!.Value.Should().BeApproximately(1.0, 0.01);
         late.Should().NotBe(early);
     }
 
@@ -80,8 +83,10 @@ public class TrancheWalTests
         var (principalWeighted, _) = TrancheWal.Compute(io, Settle, isIo: false);
         var (notionalWeighted, _) = TrancheWal.Compute(io, Settle, isIo: true);
 
-        principalWeighted.Should().Be(0, "there is no principal to weight");
-        notionalWeighted.Should().BeApproximately(1.5, 0.01);
+        principalWeighted.Should().BeNull("there is no principal to weight, and 0.0 would "
+            + "read as a real answer — see TrancheWal.Compute's return contract");
+        notionalWeighted.Should().NotBeNull();
+        notionalWeighted!.Value.Should().BeApproximately(1.5, 0.01);
     }
 
     [Fact]
@@ -90,7 +95,7 @@ public class TrancheWalTests
         // A response is built for expense and certificate rows that may carry no cashflows at
         // all; the summary must still render.
         TrancheWal.Compute(new List<TrancheCashflowDto>(), Settle, isIo: false)
-            .Should().Be((0d, 0d));
+            .Should().Be(((double?)null, (double?)null));
     }
 
     [Fact]
@@ -108,8 +113,10 @@ public class TrancheWalTests
             },
         };
         var (wal, balanceWal) = TrancheWal.Compute(oddDates, Settle, isIo: false);
-        wal.Should().BePositive();
-        balanceWal.Should().BePositive();
+        wal.Should().NotBeNull();
+        balanceWal.Should().NotBeNull();
+        wal!.Value.Should().BePositive();
+        balanceWal!.Value.Should().BePositive();
         wal.Should().NotBe(balanceWal);
     }
 }
