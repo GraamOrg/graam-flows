@@ -455,7 +455,8 @@ public class WaterfallController : ControllerBase
                     DealName = dto.DealName,
                     ClassGroupName = exDto.ExchangeTranche,
                     TrancheName = share.TrancheName,
-                    Quantity = share.ShareAmount
+                    Quantity = share.ShareAmount,
+                    ByTranche = share.ByTranche
                 };
                 deal.ExchShares.Add(exchShare);
             }

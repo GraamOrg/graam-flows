@@ -310,6 +310,14 @@ public class ExShareDto
 {
     public string TrancheName { get; set; } = "";
     public double ShareAmount { get; set; }
+
+    /// <summary>
+    ///     Declares <see cref="TrancheName" /> to be a TRANCHE rather than a class group, so the
+    ///     share is settled from that tranche's own cashflow after the class-level exchange has
+    ///     run. Required because a name cannot be resolved on its own — on an agency-CRT deal
+    ///     "M2B" is both a class and a tranche.
+    /// </summary>
+    public bool ByTranche { get; set; }
 }
 
 public class TrancheDto

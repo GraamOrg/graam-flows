@@ -32,8 +32,15 @@ public static class UnifiedWaterfallBuilder
         if (exchangeShares != null)
             foreach (var es in exchangeShares)
                 if (!string.IsNullOrEmpty(es.ExchangeTranche) && es.Shares.Count > 0)
-                    exchangeComponents[es.ExchangeTranche] =
-                        string.Join(",", es.Shares.Select(s => s.TrancheName));
+                {
+                    // Only CLASS-level components belong here. `ClassesByNameOrTag` resolves this
+                    // list as class groups, so listing a tranche-level component makes the
+                    // class-level pass reach for a class that does not exist — or, worse, one
+                    // that does under the same name and drags in its principal.
+                    var classLevel = es.Shares.Where(s => !s.ByTranche).Select(s => s.TrancheName).ToList();
+                    if (classLevel.Count > 0)
+                        exchangeComponents[es.ExchangeTranche] = string.Join(",", classLevel);
+                }
 
         // Create DealStructure for each tranche
         return tranches.Select((t, idx) =>
