@@ -230,6 +230,89 @@ public class TestDealBuilder
     ///     added. Exchanged classes are excluded from the cash-consuming DealClasses,
     ///     so the class mirrors — never double-counts — the primaries.
     /// </summary>
+    /// <summary>
+    ///     An exchange class whose components are named with explicit QUANTITIES — a constant
+    ///     fraction of each component tranche's original face, as an exchange proportion is
+    ///     defined. Anything short of 100% is a recombination drawn from part of a component.
+    /// </summary>
+    /// <summary>
+    ///     An interest-only tranche whose notional tracks another bond and which SHARES that
+    ///     bond's class (`ClassReference`) — the shape a MACR strip has, and the reason an
+    ///     exchange component must resolve to a tranche rather than to its containing class.
+    /// </summary>
+    public TestDealBuilder WithNotionalIoTranche(string name, string tracks, double couponPct)
+    {
+        var parent = _deal.Tranches.First(t => t.TrancheName == tracks);
+        _deal.Tranches.Add(new Tranche
+        {
+            TrancheName = name,
+            DealName = _deal.DealName,
+            OriginalBalance = parent.OriginalBalance,
+            Factor = 1.0,
+            CouponType = "Fixed",
+            FixedCoupon = couponPct,
+            TrancheType = "Exchanged",
+            CashflowType = "IO",
+            ClassReference = tracks,
+            FirstPayDate = _firstPayDate,
+            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            LegalMaturityDate = _firstPayDate.AddYears(10),
+            StatedMaturityDate = _firstPayDate.AddYears(8),
+            PayFrequency = 12,
+            PayDelay = 0,
+            PayDay = _firstPayDate.Day,
+            DayCount = "30/360",
+            BusinessDayConvention = "Following",
+            HolidayCalendar = "Settlement",
+            Deal = _deal
+        });
+
+        // A real strip declares the bond it is cut from, the way a MACR strip does.
+        _deal.DealStructures.Add(new DealStructure
+        {
+            DealName = _deal.DealName,
+            ClassGroupName = name,
+            SubordinationOrder = 90,
+            PayFrom = "Exchange",
+            ExchangableTranche = tracks,
+            GroupNum = "1"
+        });
+        _deal.ExchShares.Add(new ExchShare
+        {
+            DealName = _deal.DealName,
+            ClassGroupName = name,
+            TrancheName = tracks,
+            Quantity = parent.OriginalBalance
+        });
+
+        return this;
+    }
+
+    public TestDealBuilder WithExchangeClassOfQuantities(string name, int subOrder,
+        params (string Tranche, double Quantity)[] components)
+    {
+        WithExchangeClass(name, subOrder, wellFormed: true,
+            components.Select(c => c.Tranche).ToArray());
+
+        // replace the 100% shares the base overload wrote
+        foreach (var stale in _deal.ExchShares
+                     .Where(es => es.ClassGroupName == name).ToList())
+            _deal.ExchShares.Remove(stale);
+
+        foreach (var c in components)
+            _deal.ExchShares.Add(new ExchShare
+            {
+                DealName = _deal.DealName,
+                ClassGroupName = name,
+                TrancheName = c.Tranche,
+                Quantity = c.Quantity
+            });
+
+        return this;
+    }
+
+    private double _forwardExchangeBalance = 100_000_000;
+
     public TestDealBuilder WithExchangeClass(string name, int subOrder,
         params string[] componentTranches)
         => WithExchangeClass(name, subOrder, wellFormed: true, componentTranches);
@@ -260,15 +343,20 @@ public class TestDealBuilder
     public TestDealBuilder WithExchangeClass(string name, int subOrder, bool wellFormed,
         params string[] componentTranches)
     {
+        // Tolerate a FORWARD reference. An exchange of an exchange has to be declarable before
+        // the thing it depends on, or a test cannot put the engine in dependency-violating
+        // order — which is the only way to prove the settlement sort does anything (#73).
         var componentBalances = componentTranches
-            .Select(c => _deal.Tranches.First(t => t.TrancheName == c).OriginalBalance)
+            .Select(c => _deal.Tranches.FirstOrDefault(t => t.TrancheName == c)?.OriginalBalance ?? 0.0)
             .ToList();
 
         _deal.Tranches.Add(new Tranche
         {
             TrancheName = name,
             DealName = _deal.DealName,
-            OriginalBalance = componentBalances.Sum(),
+            OriginalBalance = componentBalances.Sum() > 0
+                ? componentBalances.Sum()
+                : _forwardExchangeBalance,
             Factor = 1.0,
             CouponType = "Formula",
             CouponFormula = "eff_wac",
