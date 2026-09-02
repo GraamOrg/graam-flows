@@ -775,11 +775,12 @@ public class ComposableStructureTests
         var (deal, cf) = new TestDealBuilder()
             .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
             .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
-            // INNER is declared first only because the builder sizes OUTER from it. What
-            // decides the ENGINE's iteration order is the subordination order, and OUTER is
-            // given the lower one — so a single pass reaches OUTER while INNER is still unpaid.
+            // Declared OUTER-FIRST on purpose: the engine iterates classes in declaration
+            // order, so a single pass reaches OUTER while INNER is still unpaid. This is the
+            // only shape that proves the settlement sort does anything — STACR does not
+            // exercise it, because harmony happens to emit classes in dependency order.
+            .WithExchangeClassOfQuantities("OUTER", subOrder: 50, ("INNER", 100_000_000))
             .WithExchangeClass("INNER", subOrder: 51, "A", "B")
-            .WithExchangeClass("OUTER", subOrder: 50, "INNER")
             .WithSequentialWaterfall("A", "B")
             .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 8.0));
 

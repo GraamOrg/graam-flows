@@ -311,6 +311,8 @@ public class TestDealBuilder
         return this;
     }
 
+    private double _forwardExchangeBalance = 100_000_000;
+
     public TestDealBuilder WithExchangeClass(string name, int subOrder,
         params string[] componentTranches)
         => WithExchangeClass(name, subOrder, wellFormed: true, componentTranches);
@@ -341,15 +343,20 @@ public class TestDealBuilder
     public TestDealBuilder WithExchangeClass(string name, int subOrder, bool wellFormed,
         params string[] componentTranches)
     {
+        // Tolerate a FORWARD reference. An exchange of an exchange has to be declarable before
+        // the thing it depends on, or a test cannot put the engine in dependency-violating
+        // order — which is the only way to prove the settlement sort does anything (#73).
         var componentBalances = componentTranches
-            .Select(c => _deal.Tranches.First(t => t.TrancheName == c).OriginalBalance)
+            .Select(c => _deal.Tranches.FirstOrDefault(t => t.TrancheName == c)?.OriginalBalance ?? 0.0)
             .ToList();
 
         _deal.Tranches.Add(new Tranche
         {
             TrancheName = name,
             DealName = _deal.DealName,
-            OriginalBalance = componentBalances.Sum(),
+            OriginalBalance = componentBalances.Sum() > 0
+                ? componentBalances.Sum()
+                : _forwardExchangeBalance,
             Factor = 1.0,
             CouponType = "Formula",
             CouponFormula = "eff_wac",
