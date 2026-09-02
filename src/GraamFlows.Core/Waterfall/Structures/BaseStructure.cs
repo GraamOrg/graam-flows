@@ -272,22 +272,6 @@ public abstract class BaseStructure : IWaterfall
         DynamicTranche ByName(string name) => all.FirstOrDefault(t =>
             string.Equals(t.Tranche.TrancheName, name, StringComparison.OrdinalIgnoreCase));
 
-        // A name that is not a tranche may still be a class or a TAG — `ClassesByNameOrTag`
-        // resolves both, and a deal may declare its components that way. Tranche-first is what
-        // removes the ambiguity this change is about; this keeps a tag-declared component
-        // working rather than silently routing it to the allocator.
-        List<DynamicTranche> Expand(string name)
-        {
-            var tran = ByName(name);
-            if (tran != null)
-                return new List<DynamicTranche> { tran };
-
-            var classes = dynGroup.ClassesByNameOrTag(name);
-            return classes == null || classes.Count == 0
-                ? null
-                : classes.SelectMany(c => c.DynamicTranches).ToList();
-        }
-
         var declared = dynGroup.Deal.ExchShares?
             .Where(es => string.Equals(es.ClassGroupName, exchClass.Tranche.TrancheName,
                 StringComparison.OrdinalIgnoreCase))
@@ -299,18 +283,10 @@ public abstract class BaseStructure : IWaterfall
         {
             foreach (var es in declared)
             {
-                var trans = Expand(es.TrancheName);
-                if (trans == null || trans.Count == 0)
+                var tran = ByName(es.TrancheName);
+                if (tran == null || Math.Abs(tran.Tranche.OriginalBalance) < 0.01)
                     return null;
-
-                // A quantity is stated against the named component. When that name expands to
-                // several tranches the quantity is theirs jointly, so it is apportioned by
-                // original face rather than applied to each — which would multiply it.
-                var basis = trans.Sum(t => t.Tranche.OriginalBalance);
-                if (Math.Abs(basis) < 0.01)
-                    return null;
-                foreach (var t in trans)
-                    outp.Add((t, es.Quantity / basis));
+                outp.Add((tran, es.Quantity / tran.Tranche.OriginalBalance));
             }
 
             return outp;
@@ -322,11 +298,10 @@ public abstract class BaseStructure : IWaterfall
         foreach (var name in exchClass.DealStructure.ExchangableTranche.Split(
                      ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
-            var trans = Expand(name);
-            if (trans == null || trans.Count == 0)
+            var tran = ByName(name);
+            if (tran == null)
                 return null;
-            foreach (var t in trans)
-                outp.Add((t, 1.0));
+            outp.Add((tran, 1.0));
         }
 
         return outp;
