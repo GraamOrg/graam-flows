@@ -144,8 +144,6 @@ public abstract class BaseStructure : IWaterfall
         IEnumerable<PeriodCashflows> periodCfs, out IList<DynamicClass> payFromAllocator,
         IRateProvider rateProvider = null)
     {
-        var nestedExchClasses = new HashSet<DynamicClass>();
-        var payHash = new HashSet<DynamicClass>();
         var payFromAllocatorSet = new HashSet<DynamicClass>();
 
         foreach (var dynGroup in dynGroups)
@@ -157,73 +155,42 @@ public abstract class BaseStructure : IWaterfall
             if (periodCf.BeginBalance < .01)
                 continue;
 
-            // pay exch
-            var exchClasses = dynGroup.DynamicClasses.Where(dc =>
-                    dc.DealStructure?.ExchangableTranche != null &&
-                    dc.DealStructure.PayFromEnum == PayFromEnum.Exchange)
+            // ONE ordered walk (#73). An exchange class is settled from the TRANCHES it names,
+            // after every tranche it depends on already carries this period's cashflow.
+            var exchClasses = dynGroup.DynamicClasses
+                .Where(dc => dc.DealStructure?.PayFromEnum == PayFromEnum.Exchange)
                 .ToList();
-            foreach (var exchClass in exchClasses)
+
+            foreach (var exchClass in OrderExchangeClassesByDependency(dynGroup, exchClasses))
             {
-                var parentClass = dynGroups
-                    .SelectMany(c => c.ClassesByNameOrTag(exchClass.DealStructure.ExchangableTranche)).ToList();
-                var exClasses = exchClass.DealStructure.ExchangableTranche.Split(',').Distinct().ToList();
-                var parClasses = parentClass.Select(c => c.Tranche.TrancheName).Distinct().ToList();
-
-                if (parentClass.Any(pc => pc.DealStructure.PayFromEnum == PayFromEnum.Exchange))
+                var components = ExchangeComponentsOf(dynGroup, exchClass);
+                if (components == null || components.Count == 0)
                 {
-                    nestedExchClasses.Add(exchClass);
-                    continue;
-                }
-
-                if (!exClasses.All(parClasses.Contains) || exClasses.Count != parClasses.Count)
-                {
+                    // Nothing resolvable to settle from — hand it to the allocator rather than
+                    // paying it a fraction of itself.
                     payFromAllocatorSet.Add(exchClass);
                     continue;
                 }
 
-                if (!payHash.Add(exchClass))
-                    continue;
-
-                var usp = parentClass.Sum(pc =>
-                    GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).UnscheduledPrincipal));
-                var sp = parentClass.Sum(pc =>
-                    GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).ScheduledPrincipal));
-                var wd = parentClass.Sum(pc =>
-                    GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).Writedown));
+                double usp = 0, sp = 0, wd = 0;
+                foreach (var (tran, prop) in components)
+                {
+                    var ccf = tran.GetCashflow(cashflowDate);
+                    if (ccf == null)
+                        continue;
+                    usp += ccf.UnscheduledPrincipal * prop;
+                    sp += ccf.ScheduledPrincipal * prop;
+                    wd += ccf.Writedown * prop;
+                }
 
                 if (sp + usp > exchClass.Balance)
                     exchClass.Pay(cashflowDate, exchClass.Balance, 0);
                 else
                     exchClass.Pay(cashflowDate, usp, sp);
 
-                if (wd > exchClass.Balance)
-                    exchClass.Writedown(cashflowDate, exchClass.Balance);
-                else
-                    exchClass.Writedown(cashflowDate, wd);
+                exchClass.Writedown(cashflowDate, Math.Min(wd, exchClass.Balance));
 
-                PayExchangeInterest(dynGroup, exchClass, parentClass, cashflowDate, rateProvider);
-            }
-
-            foreach (var exchClass in nestedExchClasses)
-            {
-                var parentClass = dynGroup.ClassesByNameOrTag(exchClass.DealStructure.ExchangableTranche).ToList();
-                var usp = parentClass.Sum(pc =>
-                    GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).UnscheduledPrincipal));
-                var sp = parentClass.Sum(pc =>
-                    GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).ScheduledPrincipal));
-                var wd = parentClass.Sum(pc =>
-                    GetExchangeShare(dynGroup, exchClass, pc, pc.GetCashflow(cashflowDate).Writedown));
-                if (sp + usp > exchClass.Balance)
-                    exchClass.Pay(cashflowDate, exchClass.Balance, 0);
-                else
-                    exchClass.Pay(cashflowDate, usp, sp);
-
-                if (wd > exchClass.Balance)
-                    exchClass.Writedown(cashflowDate, exchClass.Balance);
-                else
-                    exchClass.Writedown(cashflowDate, wd);
-
-                PayExchangeInterest(dynGroup, exchClass, parentClass, cashflowDate, rateProvider);
+                PayExchangeInterest(dynGroup, exchClass, components, cashflowDate, rateProvider);
             }
 
             // pay exchange off group
@@ -274,6 +241,124 @@ public abstract class BaseStructure : IWaterfall
         }
     }
 
+    /// <summary>
+    ///     The TRANCHES an exchange class is made of, each with its constant proportion of that
+    ///     tranche's original face. Null when a declared component cannot be resolved.
+    /// </summary>
+    /// <remarks>
+    ///     A component names a TRANCHE, not a class group (#73) — the document says so, and
+    ///     resolving to a class made the exchange wrong in two directions: a class holding a
+    ///     strip summed the funded coupon PLUS the strip carved out of it (class M-2A read
+    ///     312,822.64 + 40,906.25, so Class M-2 was handed 707,457.78 where M2A + M2B is
+    ///     625,645.28), and a component naming a strip resolved to the strip's CONTAINING class
+    ///     and dragged in its principal.
+    ///
+    ///     A class holds more than one tranche only because a strip's NOTIONAL tracks its
+    ///     parent — a different relationship, with no business in exchange resolution. A class
+    ///     with several tranches is expressible as several components, so naming tranches is
+    ///     strictly more expressive; and "M2B" names both a class and a tranche here, so a name
+    ///     alone cannot disambiguate.
+    ///
+    ///     Proportions are constant fractions of the ORIGINAL face (the original NOTIONAL for an
+    ///     interest-only tranche), which is the prospectus's own definition. A class declaring
+    ///     components only through `ExchangableTranche` takes 100% of each, which is what the
+    ///     absent-share default has always meant.
+    /// </remarks>
+    private static List<(DynamicTranche Tranche, double Proportion)> ExchangeComponentsOf(
+        DynamicGroup dynGroup, DynamicClass exchClass)
+    {
+        var all = dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches).ToList();
+
+        DynamicTranche ByName(string name) => all.FirstOrDefault(t =>
+            string.Equals(t.Tranche.TrancheName, name, StringComparison.OrdinalIgnoreCase));
+
+        var declared = dynGroup.Deal.ExchShares?
+            .Where(es => string.Equals(es.ClassGroupName, exchClass.Tranche.TrancheName,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var outp = new List<(DynamicTranche, double)>();
+
+        if (declared is { Count: > 0 })
+        {
+            foreach (var es in declared)
+            {
+                var tran = ByName(es.TrancheName);
+                if (tran == null || Math.Abs(tran.Tranche.OriginalBalance) < 0.01)
+                    return null;
+                outp.Add((tran, es.Quantity / tran.Tranche.OriginalBalance));
+            }
+
+            return outp;
+        }
+
+        if (string.IsNullOrWhiteSpace(exchClass.DealStructure?.ExchangableTranche))
+            return null;
+
+        foreach (var name in exchClass.DealStructure.ExchangableTranche.Split(
+                     ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tran = ByName(name);
+            if (tran == null)
+                return null;
+            outp.Add((tran, 1.0));
+        }
+
+        return outp;
+    }
+
+    /// <summary>
+    ///     Exchange classes in settlement order: each comes after the classes its components
+    ///     belong to.
+    /// </summary>
+    /// <remarks>
+    ///     An exchange can be OF an exchange — Class M-2I's component is Class M-2, itself
+    ///     received for M-2A + M-2B — so declaration order settles some classes from components
+    ///     that have not been paid. This was a hand-rolled one-level deferral (a
+    ///     `nestedExchClasses` set and a second loop), which handles one hop and no more. The
+    ///     dependency is a DAG; sorting it is the general form and costs less code.
+    ///
+    ///     A cycle is a modelling error, not something to resolve: the classes in it are emitted
+    ///     last, so they reach the caller's allocator rather than settling from a half-computed
+    ///     component.
+    /// </remarks>
+    private static List<DynamicClass> OrderExchangeClassesByDependency(
+        DynamicGroup dynGroup, List<DynamicClass> exchClasses)
+    {
+        var byTrancheName = new Dictionary<string, DynamicClass>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dc in exchClasses)
+        foreach (var t in dc.DynamicTranches)
+            byTrancheName.TryAdd(t.Tranche.TrancheName, dc);
+
+        var ordered = new List<DynamicClass>();
+        var state = new Dictionary<DynamicClass, int>();
+
+        void Visit(DynamicClass dc)
+        {
+            if (state.ContainsKey(dc))
+                return;
+            state[dc] = 1;
+
+            var components = ExchangeComponentsOf(dynGroup, dc);
+            if (components != null)
+                foreach (var (tran, _) in components)
+                    if (byTrancheName.TryGetValue(tran.Tranche.TrancheName, out var dep) && dep != dc)
+                        Visit(dep);
+
+            state[dc] = 2;
+            ordered.Add(dc);
+        }
+
+        foreach (var dc in exchClasses)
+            Visit(dc);
+
+        foreach (var dc in exchClasses)
+            if (!ordered.Contains(dc))
+                ordered.Add(dc);
+
+        return ordered;
+    }
+
     private double GetExchangeShare(DynamicGroup dynGroup, DynamicClass exchClass, DynamicClass parentClass,
         double prin)
     {
@@ -299,7 +384,8 @@ public abstract class BaseStructure : IWaterfall
     ///     balance) so the output reads it directly.
     /// </summary>
     private void PayExchangeInterest(DynamicGroup dynGroup, DynamicClass exchClass,
-        IEnumerable<DynamicClass> parentClass, DateTime cashflowDate, IRateProvider rateProvider = null)
+        IReadOnlyList<(DynamicTranche Tranche, double Proportion)> components, DateTime cashflowDate,
+        IRateProvider rateProvider = null)
     {
         // A class that states its OWN coupon accrues from it, and does not receive its
         // components' interest passed through (#4572).
@@ -320,15 +406,18 @@ public abstract class BaseStructure : IWaterfall
         // Interest is credited to the component's DynamicTranche cashflows, not the
         // DynamicClass wrapper (which aggregates principal but not interest), so read
         // it from the tranches before applying the exchange share.
-        var interest = parentClass.Sum(pc =>
-            GetExchangeShare(dynGroup, exchClass, pc,
-                pc.DynamicTranches.Sum(t => t.GetCashflow(cashflowDate).Interest)));
+        // What the COMPONENT TRANCHES were actually paid, at their stated proportions (#73).
+        var interest = components.Sum(c =>
+        {
+            var ccf = c.Tranche.GetCashflow(cashflowDate);
+            return ccf == null ? 0 : ccf.Interest * c.Proportion;
+        });
         if (Math.Abs(interest) < 1e-9)
             return;
 
         // Split what the components RECEIVED by this class's stated coupon, when it states one.
         if (rateProvider != null &&
-            SplitExchangeInterestByStatedCoupon(exchClass, parentClass, cashflowDate, rateProvider,
+            SplitExchangeInterestByStatedCoupon(exchClass, components, cashflowDate, rateProvider,
                 interest))
             return;
 
@@ -352,8 +441,8 @@ public abstract class BaseStructure : IWaterfall
     ///     pass-through in place (#4572).
     /// </summary>
     private static bool SplitExchangeInterestByStatedCoupon(DynamicClass exchClass,
-        IEnumerable<DynamicClass> parentClass, DateTime cashflowDate, IRateProvider rateProvider,
-        double receivedInterest)
+        IReadOnlyList<(DynamicTranche Tranche, double Proportion)> components, DateTime cashflowDate,
+        IRateProvider rateProvider, double receivedInterest)
     {
         var tranches = exchClass.DynamicTranches;
         if (tranches == null || tranches.Count == 0)
@@ -384,14 +473,15 @@ public abstract class BaseStructure : IWaterfall
 
         // The components' own coupon-weighted balance. The ratio of the two is the share of the
         // period's interest this class's stated coupon entitles it to.
+        // The COMPONENTS' coupon-weighted balance, on the same basis and at the same
+        // proportions the received interest was summed at. Both sides must use one basis.
         var parentWeight = 0.0;
-        foreach (var pc in parentClass)
-        foreach (var pt in pc.DynamicTranches ?? new List<DynamicTranche>())
+        foreach (var c in components)
         {
-            var pcf = pt.GetCashflow(cashflowDate);
+            var pcf = c.Tranche.GetCashflow(cashflowDate);
             if (pcf == null) continue;
-            parentWeight += pt.TrancheBalance(pcf) *
-                            pt.Coupon(rateProvider, cashflowDate, pc.DynamicTranches);
+            parentWeight += c.Tranche.TrancheBalance(pcf) *
+                            c.Tranche.Coupon(rateProvider, cashflowDate, tranches) * c.Proportion;
         }
 
         if (Math.Abs(parentWeight) < 1e-9 || ownWeight <= 0)

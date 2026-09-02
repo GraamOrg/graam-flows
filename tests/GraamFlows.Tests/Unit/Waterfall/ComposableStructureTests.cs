@@ -736,6 +736,102 @@ public class ComposableStructureTests
     #region Exchangeable / MACR classes
 
     [Fact]
+    public void ExchangeClass_TakesItsStatedFRACTION_OfEachComponent()
+    {
+        // #73. An exchange proportion is a constant fraction of a component's ORIGINAL face, so
+        // a component named at less than its full balance contributes that fraction. This is
+        // what a MACR recombination is: STACR 2025-DNA1 Combination 15 is Class M-2B plus 80%
+        // of Class M-2AI.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithExchangeClassOfQuantities("HALF_A_ALL_B", subOrder: 50,
+                ("A", 40_000_000), ("B", 20_000_000))
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 8.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var x = GetCashflows(cf, "HALF_A_ALL_B");
+        x.Should().NotBeEmpty();
+
+        foreach (var date in a.Keys.Where(d => x.ContainsKey(d)))
+            x[date].Interest.Should().BeApproximately(
+                a[date].Interest * 0.5 + b[date].Interest * 1.0, 0.01,
+                $"40m of A's 80m face is half of A, and all of B, on {date:yyyy-MM-dd}");
+    }
+
+    [Fact]
+    public void ExchangeOfAnExchange_SettlesAfterTheExchangeItDependsOn()
+    {
+        // THE ORDERING, and it is declared here in the WRONG order on purpose. `OUTER` is an
+        // exchange of `INNER`, which is itself an exchange of A + B — Class M-2I's component is
+        // Class M-2, which is received for M-2A + M-2B. Declared outer-first, a single pass in
+        // declaration order settles OUTER from an INNER that has not been paid yet.
+        //
+        // This was previously a hand-rolled one-level deferral (a `nestedExchClasses` set and a
+        // second loop); the dependency is a DAG and is now sorted. Without the sort this test
+        // sees zero.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            // Declared OUTER-FIRST on purpose: the engine iterates classes in declaration
+            // order, so a single pass reaches OUTER while INNER is still unpaid. This is the
+            // only shape that proves the settlement sort does anything — STACR does not
+            // exercise it, because harmony happens to emit classes in dependency order.
+            .WithExchangeClassOfQuantities("OUTER", subOrder: 50, ("INNER", 100_000_000))
+            .WithExchangeClass("INNER", subOrder: 51, "A", "B")
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 8.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var inner = GetCashflows(cf, "INNER");
+        var outer = GetCashflows(cf, "OUTER");
+
+        outer.Should().NotBeEmpty("the outer exchange must produce cashflows");
+        foreach (var date in a.Keys.Where(d => outer.ContainsKey(d)))
+        {
+            inner[date].Interest.Should().BeApproximately(a[date].Interest + b[date].Interest, 0.01);
+            outer[date].Interest.Should().BeApproximately(inner[date].Interest, 0.01,
+                $"OUTER mirrors INNER on {date:yyyy-MM-dd} — it cannot be settled before it");
+        }
+    }
+
+    [Fact]
+    public void ExchangeComponent_ResolvesToTheTRANCHE_NotItsContainingClass()
+    {
+        // A class holds more than one tranche only because a strip's NOTIONAL tracks its parent.
+        // Summing the CLASS counted the funded coupon plus the strip carved out of it: on
+        // STACR 2025-DNA1 class M-2A read 312,822.64 + 40,906.25, so Class M-2 was handed
+        // 707,457.78 where M2A + M2B is 625,645.28.
+        //
+        // Here `IO_ON_A` shares A's class. An exchange naming A must take A alone.
+        var (deal, cf) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithNotionalIoTranche("IO_ON_A", "A", 1.0)
+            .WithExchangeClass("AB", subOrder: 50, "A", "B")
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(CreateCollateral(6, 100_000_000, wacPct: 8.0));
+
+        var a = GetCashflows(cf, "A");
+        var b = GetCashflows(cf, "B");
+        var io = GetCashflows(cf, "IO_ON_A");
+        var ab = GetCashflows(cf, "AB");
+
+        io.Values.Sum(c => c.Interest).Should().BeGreaterThan(0,
+            "the strip must actually accrue, or this proves nothing");
+
+        foreach (var date in a.Keys.Where(d => ab.ContainsKey(d)))
+            ab[date].Interest.Should().BeApproximately(a[date].Interest + b[date].Interest, 0.01,
+                $"AB is A + B, and must NOT also collect the strip sharing A's class " +
+                $"on {date:yyyy-MM-dd}");
+    }
+
+
+
+    [Fact]
     public void ExchangeClass_UnderInterestShortfall_DoesNotOutPayItsComponents()
     {
         // CONSERVATION UNDER SHORTFALL. Accruing an exchangeable from its own STATED coupon
