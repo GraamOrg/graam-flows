@@ -249,6 +249,10 @@ public static class UnifiedWaterfallBuilder
 
                     break;
 
+                case "MODIFICATION_LOSS":
+                    rules.AddRange(BuildModificationLossRules(step, groupName, ref priority));
+                    break;
+
                 case "SUPPLEMENTAL_REDUCTION":
                     if (step.Structure != null)
                     {
@@ -524,6 +528,90 @@ public static class UnifiedWaterfallBuilder
         // Handle FORCE_PAYDOWN forced/support
         if (structure.Forced != null) ExtractTranchesRecursive(structure.Forced, tranches);
         if (structure.Support != null) ExtractTranchesRecursive(structure.Support, tranches);
+    }
+
+    /// <summary>
+    ///     Builds the rules for a MODIFICATION_LOSS step: one rung per stated priority, in
+    ///     document order, plus the optional write-up target.
+    ///
+    ///     REJECTS a malformed rung rather than skipping it. A dropped priority does not fail —
+    ///     it shifts every amount below it up the ladder and quietly changes the answer, which is
+    ///     the failure mode this whole step exists to remove.
+    /// </summary>
+    private static List<PayRuleDto> BuildModificationLossRules(WaterfallStepDto step, string groupName,
+        ref int priority)
+    {
+        var rules = new List<PayRuleDto>();
+        if (step.Rungs == null || step.Rungs.Count == 0)
+            throw new InvalidOperationException(
+                "A MODIFICATION_LOSS step requires a non-empty 'rungs' list — the Modification " +
+                "Loss Priority, in document order.");
+
+        var rungDsl = new List<string>();
+        for (var i = 0; i < step.Rungs.Count; i++)
+        {
+            var rung = step.Rungs[i];
+            var effect = (rung.Effect ?? "").Trim().ToUpperInvariant();
+            if (effect != "NOTIONAL" && effect != "INTEREST")
+                throw new InvalidOperationException(
+                    $"MODIFICATION_LOSS rung {i + 1} has effect '{rung.Effect}'; expected " +
+                    "'NOTIONAL' (reduce the Class Notional Amount) or 'INTEREST' (reduce the " +
+                    "Interest Accrual Amount).");
+
+            var names = !string.IsNullOrWhiteSpace(rung.Tranche)
+                ? new List<string> { rung.Tranche! }
+                : rung.Tranches ?? new List<string>();
+            if (names.Count == 0)
+                throw new InvalidOperationException(
+                    $"MODIFICATION_LOSS rung {i + 1} names no tranche; set 'tranche' for a " +
+                    "single-class priority or 'tranches' for a pro-rata one.");
+
+            var target = names.Count == 1
+                ? $"SINGLE('{names[0]}')"
+                : $"PRORATA('{string.Join("','", names)}')";
+
+            if (effect == "NOTIONAL")
+            {
+                rungDsl.Add($"ML_NOTIONAL({target}, {names.Count})");
+                continue;
+            }
+
+            // A pro-rata interest priority is capped on ONE member's Interest Accrual Amount, so
+            // an ambiguous rung is rejected rather than guessed at: picking the first name would
+            // silently size the rung off the retained H class on a roster ordered the other way.
+            if (names.Count > 1 && string.IsNullOrWhiteSpace(rung.CapTranche))
+                throw new InvalidOperationException(
+                    $"MODIFICATION_LOSS rung {i + 1} is a pro-rata INTEREST priority over " +
+                    $"{string.Join(", ", names)} but states no 'capTranche'. The document caps " +
+                    "such a priority at ONE named class's Interest Accrual Amount.");
+
+            var capClass = string.IsNullOrWhiteSpace(rung.CapTranche) ? names[0] : rung.CapTranche!;
+            if (!names.Contains(capClass, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"MODIFICATION_LOSS rung {i + 1} caps on '{capClass}', which is not one of " +
+                    $"the classes it allocates to ({string.Join(", ", names)}).");
+
+            rungDsl.Add($"ML_INTEREST({target}, '{capClass}', {names.Count})");
+        }
+
+        rules.Add(new PayRuleDto
+        {
+            RuleName = "ModLossStruct",
+            ClassGroupName = groupName,
+            Formula = $"SET_MODLOSS_STRUCT({string.Join(", ", rungDsl)})",
+            Priority = priority++
+        });
+
+        if (!string.IsNullOrWhiteSpace(step.WriteUpTranche))
+            rules.Add(new PayRuleDto
+            {
+                RuleName = "ModLossWriteup",
+                ClassGroupName = groupName,
+                Formula = $"SET_MODLOSS_WRITEUP('{step.WriteUpTranche}')",
+                Priority = priority++
+            });
+
+        return rules;
     }
 
     /// <summary>

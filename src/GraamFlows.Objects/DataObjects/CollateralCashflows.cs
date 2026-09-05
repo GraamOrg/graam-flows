@@ -108,6 +108,7 @@ public class CollateralCashflows
                 existingCf.AccumForbearance += periodCf.AccumForbearance;
                 existingCf.ForbearanceRecovery += periodCf.ForbearanceRecovery;
                 existingCf.ForbearanceLiquidated += periodCf.ForbearanceLiquidated;
+                existingCf.ModificationLoss += periodCf.ModificationLoss;
                 existingCf.WAM = periodCf.WAM;
                 existingCf.WALA = periodCf.WALA;
                 existingCf.WAC = existingCf.Interest * 1200 / existingCf.BeginBalance;

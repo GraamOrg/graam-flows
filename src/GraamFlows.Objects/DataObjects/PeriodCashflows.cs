@@ -91,6 +91,20 @@ public class PeriodCashflows
     public double ForbearanceLiquidated { get; set; }
     public double ForbearanceUnscheduled { get; set; }
 
+    /// <summary>
+    ///     The period's Modification Loss Amount — the net reduction in interest the collateral
+    ///     accrues because Reference Obligations were modified (agency CRT: the aggregate
+    ///     Modification Shortfall over the aggregate Modification Excess for the Payment Date).
+    ///
+    ///     Its own channel, deliberately NOT folded into <see cref="DefaultedPrincipal" />. A
+    ///     modification is not a default: it runs a DIFFERENT allocation ladder from the Tranche
+    ///     Write-down Priority (see MODIFICATION_LOSS in ComposableStructure), and
+    ///     <see cref="CollateralCashflows.ComputeAggregates" /> derives CDR, SEV, CollateralLoss
+    ///     and both cumulative-loss series from DefaultedPrincipal — so a modification routed
+    ///     through that field reports as collateral default experience it is not.
+    /// </summary>
+    public double ModificationLoss { get; set; }
+
     public double TotalCashflow()
     {
         return ScheduledPrincipal + UnscheduledPrincipal + Interest + RecoveryPrincipal + ForbearanceRecovery +
@@ -112,12 +126,18 @@ public class PeriodCashflows
 
     public PeriodCashflows Clone()
     {
-        return new PeriodCashflows(CashflowDate, ScheduledPrincipal, Balance, UnscheduledPrincipal, Interest,
+        var clone = new PeriodCashflows(CashflowDate, ScheduledPrincipal, Balance, UnscheduledPrincipal, Interest,
             NetInterest, ServiceFee, WAC, NetWac, WAM, WALA, EffectiveWac, BeginBalance,
             DefaultedPrincipal, RecoveryPrincipal, VPR, CDR, SEV, DQ, GroupNum, CumDefaultedPrincipal,
             CumDefaultedPrincipalPct, CumCollateralLoss, CumCollateralLossPct, CollateralLoss,
             DelinqBalance, UnAdvancedPrincipal, UnAdvancedInterest, AdvancedPrincipal, AdvancedInterest, Expenses,
             AccumForbearance, ForbearanceRecovery, ForbearanceLiquidated, ForbearanceUnscheduled);
+        // Set outside the positional ctor rather than as a 36th argument: every existing caller
+        // of that ctor is this method, and a clone that silently dropped the field would take
+        // the whole modification axis out of any path that clones a period (the deferred
+        // termination fold does).
+        clone.ModificationLoss = ModificationLoss;
+        return clone;
     }
 
     public void Add(PeriodCashflows periodCf)
@@ -133,5 +153,6 @@ public class PeriodCashflows
         ServiceFee += periodCf.ServiceFee;
         CollateralLoss += periodCf.CollateralLoss;
         Expenses += periodCf.Expenses;
+        ModificationLoss += periodCf.ModificationLoss;
     }
 }

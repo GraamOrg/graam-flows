@@ -5,6 +5,7 @@ using GraamFlows.Util;
 using GraamFlows.Util.Collections;
 using GraamFlows.Util.Functions;
 using GraamFlows.Waterfall.MarketTranche;
+using GraamFlows.Waterfall.Structures;
 
 namespace GraamFlows.Waterfall;
 
@@ -146,6 +147,11 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
 
     // Cap Carryover payable (Private RMBS - WAC-capped interest shortfall payback)
     public IPayable? CapCarryoverPayable { get; set; }
+
+    // Modification Loss Priority — an ORDERED, TYPED ladder rather than a payable, because its
+    // rungs interleave two different effects (see ModificationLossLadder). Null on every deal
+    // that states no such priority, which is every deal but agency CRT.
+    public ModificationLossLadder? ModificationLossLadder { get; set; }
 
     // Supplemental reduction payables
     public IPayable? SupplementalPayable { get; set; }

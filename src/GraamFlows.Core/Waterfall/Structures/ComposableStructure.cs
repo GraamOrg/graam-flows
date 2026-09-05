@@ -170,7 +170,7 @@ public class ComposableStructure : BaseStructure
                 ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf);
 
                 // Validate required payables are set
-                ValidateRequiredPayables(deal, dynGroup);
+                ValidateRequiredPayables(deal, dynGroup, executionOrder);
 
                 // Run composable waterfall period (interest accrues on begin balance even if terminating)
                 RunComposablePeriod(deal, rateProvider, dynGroup, adjPeriodCf, triggerValues, formulaExecutor, payRuleExecutor, executionOrder);
@@ -321,7 +321,7 @@ public class ComposableStructure : BaseStructure
     /// <summary>
     ///     Validates that all required payable structures are set.
     /// </summary>
-    private void ValidateRequiredPayables(IDeal deal, DynamicGroup dynGroup)
+    private void ValidateRequiredPayables(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
     {
         if (dynGroup.InterestPayable == null)
             throw new DealModelingException(deal.DealName,
@@ -334,6 +334,66 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.WritedownPayable == null)
             throw new DealModelingException(deal.DealName,
                 "ComposableStructure requires WRITEDOWN step in waterfall. Add SET_WRITEDOWN_STRUCT rule.");
+
+        // A Modification Loss Priority is only reachable through its own step, and the step only
+        // does anything with a ladder. Either half alone is a SILENT no-model: the amount is
+        // posted, nothing books it, and the run comes back a plausible number short. Both
+        // directions fail loudly instead — this axis moves credit enhancement, so a run that
+        // quietly skipped it is worse than one that did not start.
+        var hasModificationStep = executionOrder.Any(s =>
+            string.Equals(s, "MODIFICATION_LOSS", StringComparison.OrdinalIgnoreCase));
+
+        if (hasModificationStep && (dynGroup.ModificationLossLadder?.Rungs.Count ?? 0) == 0)
+            // Rungs, not just a ladder object: SET_MODLOSS_WRITEUP mints a rung-less ladder on
+            // its own, so a rule set with the write-up verb and a missing or misspelled
+            // SET_MODLOSS_STRUCT used to validate clean, take the posted amount, allocate none
+            // of it and return a plausible grid.
+            throw new DealModelingException(deal.DealName,
+                "The waterfall has a MODIFICATION_LOSS step but no Modification Loss Priority was " +
+                "set for this class group. Add a SET_MODLOSS_STRUCT rule (or 'rungs' on the step).");
+
+        if (!hasModificationStep && dynGroup.ModificationLossLadder != null)
+            throw new DealModelingException(deal.DealName,
+                "A Modification Loss Priority is defined but the execution order has no " +
+                "MODIFICATION_LOSS step, so no Modification Loss Amount would ever be allocated. " +
+                "Add MODIFICATION_LOSS to executionOrder, ahead of INTEREST.");
+
+        // POSITION, not just presence. The error above states the requirement; nothing checked
+        // it, and the ladder is wrong in both directions if the step is misplaced:
+        //
+        //   after INTEREST  — every interest priority is a no-op on cash. PayInterest has
+        //                     already read the coupon with ModificationLoss still zero and paid
+        //                     it, so the rung consumes the amount and reduces nothing. On an
+        //                     agency-CRT ladder that is most of the allocation.
+        //   after WRITEDOWN — the step reserves notional capacity for a write-down that has
+        //                     ALREADY been applied, so every notional rung is docked twice and
+        //                     the amount cascades to classes senior to where the document puts it.
+        //
+        // The ladder, the amount and the order all arrive from the caller, so this is the
+        // likeliest way a correct engine still produces a wrong number.
+        if (hasModificationStep)
+        {
+            var modIndex = executionOrder.FindIndex(s =>
+                string.Equals(s, "MODIFICATION_LOSS", StringComparison.OrdinalIgnoreCase));
+            var interestIndex = executionOrder.FindIndex(s =>
+                string.Equals(s, "INTEREST", StringComparison.OrdinalIgnoreCase));
+            var writedownIndex = executionOrder.FindIndex(s =>
+                string.Equals(s, "WRITEDOWN", StringComparison.OrdinalIgnoreCase));
+
+            if (interestIndex >= 0 && modIndex > interestIndex)
+                throw new DealModelingException(deal.DealName,
+                    "MODIFICATION_LOSS runs after INTEREST in the execution order. Its interest " +
+                    "priorities reduce the SAME Payment Date's Interest Payment Amount, which has " +
+                    "already been paid by then, so they would consume the Modification Loss " +
+                    "Amount and reduce nothing. Move MODIFICATION_LOSS ahead of INTEREST.");
+
+            if (writedownIndex >= 0 && modIndex > writedownIndex)
+                throw new DealModelingException(deal.DealName,
+                    "MODIFICATION_LOSS runs after WRITEDOWN in the execution order. It reserves " +
+                    "each notional priority's capacity for the period's Preliminary Tranche " +
+                    "Write-down Amount, which would already have been applied, so every priority " +
+                    "would be docked twice. Move MODIFICATION_LOSS ahead of WRITEDOWN.");
+        }
 
         // The coverage cascade IS a per-level interleaving of interest and principal
         // (each failing level diverts interest to principal mid-interest-waterfall),
@@ -526,6 +586,11 @@ public class ComposableStructure : BaseStructure
 
                 case "WRITEDOWN":
                     PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown, excessSpreadFirstLoss);
+                    break;
+
+                case "MODIFICATION_LOSS":
+                    PayModificationLossStep(deal, dynGroup, rateProvider, adjPeriodCf, allTranches,
+                        excessSpreadFirstLoss);
                     break;
 
                 case "RESERVE_DEPOSIT":
@@ -1122,6 +1187,310 @@ public class ComposableStructure : BaseStructure
 
         var paidAmount = noteBalanceBefore - noteBalanceAfter;
         return availableRecovPrin - paidAmount;
+    }
+
+    /// <summary>
+    ///     Allocate the period's Modification Loss Amount down the deal's Modification Loss
+    ///     Priority.
+    ///
+    ///     WHY THIS IS NOT THE WRITEDOWN STEP. Agency CRT states a modification ladder that is
+    ///     not the Tranche Write-down Priority. STACR 2025-DNA1 ("Allocation of Modification Loss
+    ///     Amount", printed p.83-84) lists THIRTEEN priorities, and above the first-loss class
+    ///     every level takes an Interest Accrual Amount bite before a Class Notional one:
+    ///
+    ///         first   B-3H  -> Preliminary Class Notional Amount
+    ///         second  B-2H  -> Interest Accrual Amount
+    ///         third   B-2H  -> Preliminary Class Notional Amount
+    ///         fourth  B-1H  -> Interest Accrual Amount
+    ///         fifth   B-1H  -> Preliminary Class Notional Amount
+    ///         sixth   M-2B/M-2BH pro rata -> the M-2B NOTES Interest Accrual Amount
+    ///         ...     through thirteenth
+    ///
+    ///     A single amount walking a single structure, capped at each rung's balance, expresses
+    ///     the first priority and none of the rest — the boundary graam-harmony #4777 shipped at
+    ///     and #4794 removes.
+    ///
+    ///     WHY IT RUNS BEFORE INTEREST. The interest bites reduce the Interest Payment Amount for
+    ///     THIS Payment Date, so they have to be booked before the interest sweep reads what each
+    ///     class is due. That placement is safe for the notional bites too: a class accrues on
+    ///     `TrancheCashflow.BeginBalance`, which is stamped from the balance as it stands the
+    ///     first time the period touches the class — so a notional bite taken here does not
+    ///     shrink the same period's accrual, which is what the document wants ("the Class
+    ///     Notional Amount ... immediately prior to such Payment Date").
+    ///
+    ///     WHY IT ANTICIPATES THE WRITEDOWN. The document computes the Preliminary Tranche
+    ///     Write-down Amount BEFORE allocating the Modification Loss Amount, and the Preliminary
+    ///     Class Notional Amount each notional rung is capped at is net of it. This step runs
+    ///     before the WRITEDOWN step, so it subtracts that period's write-down from the notional
+    ///     rungs' capacity in ladder order rather than observing a reduction that has not
+    ///     happened yet. Credit events get first claim on the junior notional; the modification
+    ///     takes what is left.
+    /// </summary>
+    private void PayModificationLossStep(IDeal deal, DynamicGroup dynGroup, IRateProvider rateProvider,
+        PeriodCashflows periodCf, IEnumerable<DynamicTranche> allTranches, bool excessSpreadFirstLoss)
+    {
+        var ladder = dynGroup.ModificationLossLadder;
+        if (ladder == null || ladder.Rungs.Count == 0)
+            return;
+
+        var amount = ModificationLossAmt(deal, dynGroup, periodCf);
+        if (amount < -0.005)
+            // A negative net is a Modification GAIN Amount, which runs its OWN seven-priority
+            // ladder in the reverse direction (reimbursing unreimbursed interest reductions to
+            // the offered classes first). That is not modelled, and this step must not quietly
+            // discard the caller's number as though it were zero — netting it away turns a
+            // reimbursement into a loss the deal keeps.
+            throw new DealModelingException(deal.DealName,
+                $"A negative Modification Loss Amount ({amount:N2}) was posted for " +
+                $"{periodCf.CashflowDate:yyyy-MM-dd}. A net Modification Excess is a Modification " +
+                "Gain Amount and is allocated down a different priority list, which this engine " +
+                "does not model. Post gains on their own channel when it does, not as a negative " +
+                "loss.");
+
+        if (amount <= 0.005)
+            return;
+
+        var cfDate = periodCf.CashflowDate;
+        var allTranchesList = allTranches?.ToList();
+
+        // What this period's credit events will take off the notional rungs, consumed in ladder
+        // order. The write-down ladder and the modification ladder's notional rungs run the same
+        // classes in the same reverse-seniority order, so walking it here reproduces where the
+        // write-down will land without applying it.
+        // What this period's credit events will take off the notional rungs. GROSS, which is
+        // right only while nothing absorbs a slice of it before the funded classes see it.
+        // `PayWritedownStep` routes the loss through `AbsorbLossFromExcessSpread` first whenever
+        // an ExcessInterest strip exists, and `WritedownCapacity` returns 0 for that strip — so
+        // the reservation walk cannot see it, over-reserves junior notional, and pushes the
+        // modification one or more priorities more senior than the document's Preliminary Class
+        // Notional Amount cap allows. Agency CRT has no such strip; refuse the combination
+        // rather than model it wrong.
+        // Gated on the SAME flag that decides whether the absorption actually runs. Refusing on
+        // the mere presence of the strip rejected deals where `AbsorbLossFromExcessSpread` is
+        // never invoked (one declaring an OC target, or any EXCESS step) and the reservation walk
+        // is exact — a new hard failure on a legitimate path.
+        if (excessSpreadFirstLoss && dynGroup.DynamicClasses.Any(dc => dc.IsExcessInterest))
+            throw new DealModelingException(deal.DealName,
+                "This deal declares both a Modification Loss Priority and an excess-spread " +
+                "(ExcessInterest) class. Excess spread absorbs a credit-event loss before the " +
+                "funded classes see it, and the modification step reserves each notional " +
+                "priority's capacity against the GROSS write-down, so the two together would " +
+                "allocate the Modification Loss Amount too far up the stack. Not modelled.");
+
+        // Reserved PER CLASS by walking the deal's OWN write-down ladder in ITS order, rather
+        // than assuming that order matches the modification ladder's notional rungs. It does on
+        // agency CRT, but nothing enforced it, and a deal whose write-down structure orders
+        // classes differently silently docked the wrong rung and landed the modification on the
+        // wrong class.
+        var reserved = ReserveCreditEventWritedown(dynGroup,
+            Math.Max(WritedownAmt(deal, dynGroup, periodCf), 0), cfDate);
+
+        var remaining = amount;
+        var notionalTaken = 0.0;
+
+        foreach (var rung in ladder.Rungs)
+        {
+            if (remaining <= 0.005)
+                break;
+
+            var capacity = ModificationLossLadder.RungCapacity(rung, cfDate, rateProvider, allTranchesList);
+
+            if (rung.Effect == ModificationLossEffect.Notional)
+                // Only NOTIONAL rungs are docked: an interest bite erodes no notional, so a
+                // write-down cannot compete with it for capacity.
+                foreach (var leaf in rung.Target.Leafs().OfType<DynamicClass>())
+                    if (reserved.TryGetValue(leaf, out var taken))
+                    {
+                        capacity -= taken;
+                        reserved[leaf] = 0;
+                    }
+
+            if (capacity <= 0.005)
+                continue;
+
+            var take = Math.Min(remaining, capacity);
+
+            if (rung.Effect == ModificationLossEffect.Interest)
+            {
+                ApplyModificationInterest(rung, cfDate, take, rateProvider, allTranchesList);
+            }
+            else
+            {
+                // Accumulate what was APPLIED, not what was offered. They diverge whenever a
+                // class absorbs less than the rung's capacity suggested, and the transfer must
+                // mirror the actual reduction or the two halves stop summing to zero.
+                // What was APPLIED, which is what the transfer must mirror. It also equals what
+                // was offered, and provably so rather than by luck: the rung's capacity and the
+                // cascade's own cap are the SAME quantity (`WritedownCapacity`, zero for an
+                // excess-spread strip or a residual), and `SequentialStructure` re-runs its
+                // residual pass with lockout ignored, so a locked-out class still absorbs.
+                // `remaining` is therefore charged `take` below — an extra "charge the applied
+                // amount" line looked like a safeguard and was unreachable, which is the same
+                // dead-code-as-fix shape the reservation walk had.
+                notionalTaken += ApplyModificationNotional(rung, cfDate, take);
+            }
+
+            remaining -= take;
+        }
+
+        // The receiving half of the transfer, booked ONCE against the summed notional bites
+        // rather than per rung — the document adds "the sum of amounts included in the first,
+        // third, fifth, eighth, ninth, eleventh and thirteenth priorities" to the senior
+        // reference tranche's Class Notional Amount.
+        if (notionalTaken > 0.005 && ladder.WriteUpClass != null)
+            ladder.WriteUpClass.IncreaseNotional(cfDate, notionalTaken);
+    }
+
+    /// <summary>
+    ///     How much of this period's credit-event write-down each class will absorb, by walking
+    ///     the deal's own WRITEDOWN structure in its own order and filling each leaf to its
+    ///     capacity. The document computes the Preliminary Tranche Write-down Amount before
+    ///     allocating the Modification Loss Amount, and the Preliminary Class Notional Amount
+    ///     each notional rung caps at is net of it — so the modification has to anticipate a
+    ///     reduction that has not been applied yet. Pure: reads balances, mutates nothing.
+    /// </summary>
+    private static Dictionary<DynamicClass, double> ReserveCreditEventWritedown(DynamicGroup dynGroup,
+        double writedownAmt, DateTime cfDate)
+    {
+        var reserved = new Dictionary<DynamicClass, double>();
+        if (writedownAmt <= 0 || dynGroup.WritedownPayable == null)
+            return reserved;
+
+        var remaining = writedownAmt;
+        var seen = new HashSet<DynamicClass>();
+        foreach (var leaf in OrderedLeaves(dynGroup.WritedownPayable).OfType<DynamicClass>())
+        {
+            if (remaining <= 0)
+                break;
+            // DEDUPED, because `OrderedLeaves` walks the declared tree and a class can appear in
+            // more than one leg (overlapping SEQ/PRORATA legs are expected here — CSCAP subtracts
+            // one set from the other). `IPayable.Leafs()` returns a HashSet and dedupes; this
+            // walk did not, so a repeated class had its capacity counted twice against the
+            // write-down AND had its earlier reservation overwritten by `reserved[leaf] = taken`.
+            if (!seen.Add(leaf))
+                continue;
+            var capacity = Math.Max(leaf.WritedownCapacity(cfDate), 0);
+            if (capacity <= 0)
+                continue;
+            // Assigned, not accumulated: `seen` already guarantees one visit per class, so a
+            // `TryGetValue`-and-add here would be a branch that can never be taken — dead code
+            // that reads as a second safeguard. One or the other, and the dedupe is the correct
+            // half: this walk is PURE, so a repeated leaf re-reads its full WritedownCapacity
+            // and counting it twice consumes write-down that does not exist.
+            reserved[leaf] = Math.Min(remaining, capacity);
+            remaining -= reserved[leaf];
+        }
+
+        return reserved;
+    }
+
+    /// <summary>
+    ///     A payable's leaves in DECLARED order. `IPayable.Leafs()` returns a HashSet, whose
+    ///     iteration order is not the structure's — and the whole point here is the order.
+    /// </summary>
+    private static IEnumerable<IPayable> OrderedLeaves(IPayable payable)
+    {
+        if (payable == null)
+            yield break;
+        if (payable.IsLeaf)
+        {
+            yield return payable;
+            yield break;
+        }
+
+        foreach (var child in payable.GetChildren() ?? new List<IPayable>())
+        foreach (var leaf in OrderedLeaves(child))
+            yield return leaf;
+    }
+
+    /// <summary>
+    ///     Book an interest rung: split across the rung's classes by Class Notional Amount and
+    ///     reduce each one's Interest Accrual Amount. No notional moves, so credit enhancement is
+    ///     untouched — which is the whole economic difference between the two rung kinds.
+    /// </summary>
+    private static void ApplyModificationInterest(ModificationLossRung rung, DateTime cfDate,
+        double amount, IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        var leaves = rung.Target.Leafs().OfType<DynamicClass>().ToList();
+        var total = leaves.Sum(l => l.CurrentBalance(cfDate));
+        if (total <= 0)
+            return;
+
+        // ACROSS classes, pro rata on Class Notional Amount — the document says so ("pro rata
+        // based on their Class Notional Amounts immediately prior to such Payment Date").
+        // WITHIN a class, the split is by Interest Accrual Amount, which is a different basis
+        // and also the document's ("allocated to reduce the Interest Payment Amounts ... pro
+        // rata, based on their Interest Accrual Amounts"). The two coincide only when the
+        // tranches share a coupon, which is exactly what a MACR combination does not do.
+        foreach (var leaf in leaves)
+            leaf.BookModificationInterestLoss(cfDate, amount * leaf.CurrentBalance(cfDate) / total,
+                rateProvider, allTranches);
+    }
+
+    /// <summary>
+    ///     Book a notional rung through the rung's own payable, so a PRORATA pair splits by the
+    ///     engine's own rule rather than a second implementation of it, then stamp the portion
+    ///     each class absorbed as a MODIFICATION writedown so a reader can tell it apart from a
+    ///     credit-event one on the same row.
+    /// </summary>
+    /// <returns>What the rung's classes actually absorbed, which is not always what was offered.</returns>
+    private static double ApplyModificationNotional(ModificationLossRung rung, DateTime cfDate,
+        double amount)
+    {
+        var leaves = rung.Target.Leafs().OfType<DynamicClass>().ToList();
+
+        // Stamp the CLASS and its TRANCHES, which are separate cashflow rows: DynamicClass.Writedown
+        // books the class row and then splits the same amount across the tranche rows, and the
+        // waterfall response serializes the TRANCHE rows. Stamping only the class left every
+        // reported ModificationWritedown at zero while the writedown itself was plainly there.
+        // DynamicTranche derives from DynamicClass, so one list covers both levels.
+        var stampable = leaves
+            .Concat(leaves.SelectMany(l => (IEnumerable<DynamicClass>?)l.DynamicTranches
+                                           ?? Array.Empty<DynamicClass>()))
+            .Distinct()
+            .ToList();
+
+        // Measured by BALANCE, not by CumWritedown. `DynamicClass.Writedown` reduces the balance
+        // unconditionally but only advances CumWritedown `if (RecievesPrincipal())` — so for a
+        // class that does not receive principal the notional fell while the delta read zero,
+        // which reported ModificationWritedown as 0, skipped the pseudo-class propagation and
+        // left an attached IO strip on an un-reduced notional. Balance is what the rung actually
+        // moved, on every class shape.
+        var before = stampable.ToDictionary(c => c, c => c.CurrentBalance(cfDate));
+
+        rung.Target.PayWritedown(null, cfDate, amount, () => { });
+
+        foreach (var node in stampable)
+        {
+            var applied = before[node] - node.CurrentBalance(cfDate);
+            if (applied <= 0)
+                continue;
+            node.GetCashflow(cfDate).ModificationWritedown += applied;
+        }
+
+        // Pseudo-classes (IO strips) hang off the CLASS notional, so they follow the class-level
+        // amount once — not once per tranche.
+        var classTotal = 0.0;
+        foreach (var leaf in leaves)
+        {
+            var applied = before[leaf] - leaf.CurrentBalance(cfDate);
+            if (applied <= 0)
+                continue;
+            classTotal += applied;
+            WritedownPseudoClassStatic(leaf, cfDate, applied);
+        }
+
+        return classTotal;
+    }
+
+    /// <summary>
+    ///     IO strips and other pseudo-classes hang off a class's notional, so they have to follow
+    ///     a modification notional bite exactly as they follow a credit-event writedown.
+    /// </summary>
+    private static void WritedownPseudoClassStatic(DynamicClass dynClass, DateTime cashflowDate, double writedownAmt)
+    {
+        foreach (var pseudoClass in dynClass.DynamicGroup.ApplicablePseudoClasses(dynClass))
+            pseudoClass.Writedown(cashflowDate, writedownAmt);
     }
 
     /// <summary>

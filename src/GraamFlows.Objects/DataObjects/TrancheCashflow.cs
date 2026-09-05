@@ -97,6 +97,25 @@ public class TrancheCashflow
     /// </summary>
     public double ExcessInterest { get; set; }
 
+    /// <summary>
+    ///     Modification Loss Amount allocated against this tranche's Interest Accrual Amount for
+    ///     the period, reducing the interest it is paid.
+    ///
+    ///     NOT an interest shortfall. A shortfall is unpaid interest the deal still owes and
+    ///     later pays back out of <see cref="AccumInterestShortfall" />; a modification loss on an
+    ///     interest rung is a permanent reduction of the amount due, reimbursable only by a
+    ///     Modification Gain Amount. Booking it as a shortfall would have the deal repay it out of
+    ///     ordinary interest and turn a loss into a timing difference.
+    /// </summary>
+    public double ModificationLoss { get; set; }
+
+    /// <summary>
+    ///     Modification Loss Amount allocated against this tranche's Class Notional Amount for the
+    ///     period. Reported separately from <see cref="Writedown" />, which it is added to, so a
+    ///     reader can tell a credit-event write-down from a modification one.
+    /// </summary>
+    public double ModificationWritedown { get; set; }
+
     public TrancheCashflow Copy()
     {
         var tcf = new TrancheCashflow(TrancheName, Tranche, CashflowDate, UnscheduledPrincipal, ScheduledPrincipal,
@@ -104,6 +123,8 @@ public class TrancheCashflow
             CreditSupport, BeginCreditSupport, DetachmentPoint, BeginDetachmentPoint, Thickness, BeginThickness,
             Writedown, CumWritedown, Coupon, EffectiveCoupon, ResetSlope, FloaterIndex, FloaterMargin, IndexValue,
             AccrualDays, IsLockedOut, InterestShortfall, AccumInterestShortfall, InterestShortfallPayback);
+        tcf.ModificationLoss = ModificationLoss;
+        tcf.ModificationWritedown = ModificationWritedown;
         return tcf;
     }
 
