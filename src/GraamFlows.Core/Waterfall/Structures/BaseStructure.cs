@@ -685,6 +685,21 @@ public abstract class BaseStructure : IWaterfall
         return writedownAmt + forbWritedown;
     }
 
+    /// <summary>
+    ///     The period's Modification Loss Amount — the net reduction in collateral interest
+    ///     caused by modified Reference Obligations, taken straight off the row the caller posts.
+    ///
+    ///     Its own channel rather than a term folded into <see cref="WritedownAmt" />, because it
+    ///     runs a DIFFERENT ladder: a Modification Loss Priority interleaves interest bites the
+    ///     Tranche Write-down Priority has no notion of. The engine cannot derive this amount —
+    ///     it is a function of each loan's Original and Current Accrual Rates, which live
+    ///     upstream — so it arrives as an input, exactly as defaulted and recovered principal do.
+    /// </summary>
+    public virtual double ModificationLossAmt(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf)
+    {
+        return periodCf.ModificationLoss;
+    }
+
     public virtual List<TriggerValue> TestTriggers(IList<ITrigger> triggers, DynamicGroup dynGroup,
         DateTime cashflowDate, PeriodCashflows periodCf)
     {
