@@ -42,6 +42,20 @@ public class TestDealBuilder
 
     private string? _firstPeriodCollateralPolicy;
     private DateTime? _collateralAccrualStartDate;
+    private DateTime? _firstSettleDate;
+
+    /// <summary>
+    ///     Override the tranches' FirstSettleDate, which otherwise sits exactly one month
+    ///     before the first pay date. That default is why no fixture could express a deal
+    ///     whose first Payment Date is MONTHS after closing — routine in CLOs, which skip a
+    ///     quarter for the ramp — and the API maps FirstSettleDate from the deal's
+    ///     ClosingDate, so a real deal reaches the engine with exactly that shape (#4848).
+    /// </summary>
+    public TestDealBuilder WithFirstSettleDate(DateTime settleDate)
+    {
+        _firstSettleDate = settleDate;
+        return this;
+    }
 
     public TestDealBuilder WithInterestTreatment(string treatment)
     {
@@ -115,7 +129,7 @@ public class TestDealBuilder
             CashflowType = cashflowType,
             ClassReference = name,
             FirstPayDate = _firstPayDate,
-            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            FirstSettleDate = _firstSettleDate ?? _firstPayDate.AddMonths(-1),
             LegalMaturityDate = _firstPayDate.AddYears(10),
             StatedMaturityDate = _firstPayDate.AddYears(8),
             PayFrequency = 12,
@@ -158,7 +172,7 @@ public class TestDealBuilder
             CashflowType = "IO",
             ClassReference = name,
             FirstPayDate = _firstPayDate,
-            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            FirstSettleDate = _firstSettleDate ?? _firstPayDate.AddMonths(-1),
             LegalMaturityDate = _firstPayDate.AddYears(10),
             StatedMaturityDate = _firstPayDate.AddYears(8),
             PayFrequency = 12,
@@ -206,7 +220,7 @@ public class TestDealBuilder
             CashflowType = cashflowType,
             ClassReference = className,
             FirstPayDate = _firstPayDate,
-            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            FirstSettleDate = _firstSettleDate ?? _firstPayDate.AddMonths(-1),
             LegalMaturityDate = _firstPayDate.AddYears(10),
             StatedMaturityDate = _firstPayDate.AddYears(8),
             PayFrequency = 12,
@@ -255,7 +269,7 @@ public class TestDealBuilder
             CashflowType = "IO",
             ClassReference = tracks,
             FirstPayDate = _firstPayDate,
-            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            FirstSettleDate = _firstSettleDate ?? _firstPayDate.AddMonths(-1),
             LegalMaturityDate = _firstPayDate.AddYears(10),
             StatedMaturityDate = _firstPayDate.AddYears(8),
             PayFrequency = 12,
@@ -364,7 +378,7 @@ public class TestDealBuilder
             CashflowType = "PI",
             ClassReference = name,
             FirstPayDate = _firstPayDate,
-            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            FirstSettleDate = _firstSettleDate ?? _firstPayDate.AddMonths(-1),
             LegalMaturityDate = _firstPayDate.AddYears(10),
             StatedMaturityDate = _firstPayDate.AddYears(8),
             PayFrequency = 12,
@@ -412,7 +426,7 @@ public class TestDealBuilder
             CashflowType = "Expense",
             ClassReference = name,
             FirstPayDate = _firstPayDate,
-            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            FirstSettleDate = _firstSettleDate ?? _firstPayDate.AddMonths(-1),
             LegalMaturityDate = _firstPayDate.AddYears(10),
             StatedMaturityDate = _firstPayDate.AddYears(8),
             PayFrequency = 12,
@@ -449,7 +463,7 @@ public class TestDealBuilder
             CashflowType = "PI",
             ClassReference = name,
             FirstPayDate = _firstPayDate,
-            FirstSettleDate = _firstPayDate.AddMonths(-1),
+            FirstSettleDate = _firstSettleDate ?? _firstPayDate.AddMonths(-1),
             LegalMaturityDate = _firstPayDate.AddYears(10),
             StatedMaturityDate = _firstPayDate.AddYears(8),
             PayFrequency = 12,

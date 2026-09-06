@@ -296,7 +296,50 @@ public class ComposableStructure : BaseStructure
             changed = true;
         }
 
+        if (changed)
+            CapFirstAccrualToOnePeriod(deal, firstPayActual);
+
         return changed ? result : periodCashflows;
+    }
+
+    /// <summary>
+    ///     Make the first period's ACCRUAL agree with the cash the re-dating gave it.
+    ///
+    ///     Align's whole invariant is "each collateral month funds exactly one
+    ///     distribution": it shifts the i-th pre-first-pay collateral period onto the i-th
+    ///     pay date, so the first distribution carries ONE month of collections. The notes,
+    ///     though, still accrued from <see cref="ITranche.FirstSettleDate" /> — the deal's
+    ///     closing date — so a deal that closes months before it first pays booked the whole
+    ///     window as interest due against a single month of cash.
+    ///
+    ///     The gap is not a rounding difference. It is a permanent shortfall on every class
+    ///     at once, and the senior's share of it outranks every junior coupon for the rest of
+    ///     the deal: measured on AMMC CLO 33 (closes 2025-12-23, first pays 2026-07-20), the
+    ///     senior took 95,082,307 of 95,082,307 distributed interest and B through the
+    ///     subordinated notes received zero, forever (#4848).
+    ///
+    ///     Only a stub LONGER than one period moves — the cap is `max(settle, firstPay - 1
+    ///     period)`. A deal whose cut-off sits the usual month before its first payment, and
+    ///     a deliberately SHORT first period (settlement a few days before the first pay
+    ///     date, which <see cref="DynamicTranche.PreviousPayDate" /> preserves on purpose),
+    ///     are both untouched.
+    ///
+    ///     This runs only under Align and only when the re-dating actually fired. Fold keeps
+    ///     the full window of cash, so its long accrual is matched and correct; Drop is
+    ///     documented as not a fail-safe and is left alone.
+    /// </summary>
+    private static void CapFirstAccrualToOnePeriod(IDeal deal, DateTime firstPayActual)
+    {
+        // Through ITranche, NOT a concrete type: there are two Tranche classes
+        // (GraamFlows.Waterfall and GraamFlows.Domain) and this file resolves the name to
+        // the former, so an OfType<Tranche>() here silently matches none of the latter —
+        // which is what the deal actually holds.
+        var onePeriodBefore = firstPayActual.AddMonths(-1);
+        foreach (var tranche in deal.Tranches)
+        {
+            if (tranche.FirstSettleDate < onePeriodBefore)
+                tranche.FirstSettleDate = onePeriodBefore;
+        }
     }
 
     /// <summary>
