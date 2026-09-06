@@ -14,7 +14,12 @@ public interface ITranche
     DateTime StatedMaturityDate { get; }
     DateTime LegalMaturityDate { get; }
     DateTime FirstPayDate { get; }
-    DateTime FirstSettleDate { get; }
+    /// <summary>
+    ///     Start of the first accrual period. Settable because Align re-dates the pool onto
+    ///     the pay schedule and the accrual has to move with the cash (#4848); both
+    ///     implementations already exposed a setter.
+    /// </summary>
+    DateTime FirstSettleDate { get; set; }
     int PayFrequency { get; }
     int PayDelay { get; }
     int PayDay { get; }
