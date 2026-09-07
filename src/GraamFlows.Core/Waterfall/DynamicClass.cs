@@ -180,12 +180,37 @@ public class DynamicClass : IPayable
         DynamicTranches.Count > 0 &&
         DynamicTranches.All(dt => dt.Tranche.CouponTypeEnum == CouponType.Residual);
 
+    /// <summary>
+    /// True when this class's balance is a NOTIONAL that tracks the pool rather than a funded
+    /// face — the condition <see cref="DynamicGroup.InitNotionalBalances"/> /
+    /// <see cref="DynamicGroup.SettleNotionalBalances"/> actually reset against, which is
+    /// <c>CashflowType.InterestOnly</c>. Deliberately the SAME test those use: the reason a
+    /// strip cannot absorb a principal writedown is that its balance is reset each period, so
+    /// the capacity rule must key on the thing that does the resetting.
+    /// </summary>
+    public bool IsNotionalBalance =>
+        DynamicTranches.Count > 0 &&
+        DynamicTranches.All(dt => dt.Tranche.CashflowTypeEnum == CashflowType.InterestOnly);
+
     public double WritedownCapacity(DateTime cfDate)
     {
-        // Neither the excess-spread strip nor the REMIC residual has principal to
-        // write down, so a writedown allocation must cascade past them to the
-        // funded bonds rather than be consumed against their notional balance.
-        return IsExcessInterest || IsResidual ? 0.0 : CurrentBalance(cfDate);
+        // A strip whose balance is a pool NOTIONAL has no principal to write down — its balance
+        // is reset every period by the notional settle, so a writedown against it is a no-op and
+        // the allocation must cascade past it to the funded bonds. That is true of the XS strip
+        // and the REMIC residual as they are normally declared, and it stays true here.
+        //
+        // But the justification is about the BALANCE, not the coupon, and keying it on the coupon
+        // made it fire on a class the reset never touches (graam-harmony#4883). A CLO's
+        // Subordinated Notes are a FUNDED first-loss note — `cashflowType: PI`, a real fixed
+        // `originalBalance`, never reset — that carries a residual/excess coupon because it
+        // sweeps what is left on the INTEREST side. Zeroing its capacity sent the entire pool
+        // loss cascading past $38.42M of equity onto the most junior rated bond: on AMMC CLO 33
+        // at 2 CDR / 20 CPR / 40 severity, Class E (BB-) took a 69.5% writedown while the equity
+        // below it took nothing.
+        //
+        // So require BOTH: a notional-strip coupon AND a balance that is actually a notional.
+        // A conventionally-declared XS strip is `CashflowType.InterestOnly` and is unaffected.
+        return (IsExcessInterest || IsResidual) && IsNotionalBalance ? 0.0 : CurrentBalance(cfDate);
     }
 
     /// <summary>
