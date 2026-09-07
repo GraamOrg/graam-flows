@@ -103,7 +103,24 @@ public class DynamicTranche : DynamicClass
             var expectedInterest = DynamicClass.NetOfModification(balance * coupon * .01 * frac,
                 trancheCashflow);
             trancheCashflow.InterestShortfall = Math.Max(0, expectedInterest - interest);
-            trancheCashflow.AccumInterestShortfall += trancheCashflow.InterestShortfall;
+            // ...and book the REPAYMENT. `DynamicClass.PayInterest` / `InterestDue` size this
+            // class's ask as `this period's accrual + AccumInterestShortfall`, so anything paid
+            // ABOVE the accrual is by construction a repayment of the carried shortfall and has
+            // to reduce it. Booking only the new shortfall left the accumulator monotonically
+            // rising: it was paid out in full every period and never fell, so a shortfall was
+            // repaid again and again out of the cash below it (#4860).
+            //
+            // The sharpest case is a class written down to its FULL face — accrual 0, balance 0,
+            // and a frozen accumulator it keeps drawing forever. Measured on AMMC CLO 33: class
+            // C took 9,445,414 over 51 periods on a zero balance and D1 931,220, together 13% of
+            // the deal's interest going to classes that no longer existed.
+            //
+            // Clamped to the accumulator so it cannot go negative, which would turn an
+            // overpayment into a phantom credit the class draws on later.
+            var shortfallRepaid = Math.Min(
+                Math.Max(0, interest - expectedInterest), trancheCashflow.AccumInterestShortfall);
+            trancheCashflow.AccumInterestShortfall +=
+                trancheCashflow.InterestShortfall - shortfallRepaid;
         }
 
         if (Tranche.CouponTypeEnum == CouponType.Floating)
