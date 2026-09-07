@@ -182,6 +182,14 @@ public class PeriodCashflowDto
     public double AdvancedPrincipal { get; set; }
     public double AdvancedInterest { get; set; }
     public double Expenses { get; set; }
+
+    /// <summary>
+    ///     The period's Modification Loss Amount, for a deal that states a Modification Loss
+    ///     Priority (agency CRT). Optional and zero by default, so every existing caller is
+    ///     unaffected. Posted rather than derived: it is a function of each loan's Original and
+    ///     Current Accrual Rates, which the waterfall never sees.
+    /// </summary>
+    public double ModificationLoss { get; set; }
 }
 
 public class CollateralSummaryDto

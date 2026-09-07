@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using GraamFlows.Api.Models;
 using GraamFlows.Api.Transformers;
 using GraamFlows.Assumptions;
@@ -119,8 +120,23 @@ public class WaterfallController : ControllerBase
         {
             stopwatch.Stop();
             _logger.LogError(ex, "Waterfall failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
-            return BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
+            var reported = Unwrap(ex);
+            return BadRequest(new { error = reported.Message, stackTrace = reported.StackTrace });
         }
+    }
+
+    /// <summary>
+    ///     The exception a caller can act on. Pay rules are invoked by reflection
+    ///     (<c>GenericExecutor.EvaluateUnknown</c>), so anything a rule throws — every
+    ///     deal-authoring guard in RulesHost — arrives wrapped in a TargetInvocationException
+    ///     whose own message is the useless "Exception has been thrown by the target of an
+    ///     invocation." Returning that told the caller nothing about which rule was wrong.
+    /// </summary>
+    public static Exception Unwrap(Exception ex)
+    {
+        while (ex is TargetInvocationException { InnerException: not null } wrapper)
+            ex = wrapper.InnerException;
+        return ex;
     }
 
     private static IDeal BuildDeal(DealDto dto, DateTime factorDate, Dictionary<string, FactorEntry>? factors = null)
@@ -562,7 +578,8 @@ public class WaterfallController : ControllerBase
                 SEV = dto.Sev,
                 DQ = dto.Dq,
                 CumDefaultedPrincipal = dto.CumDefaultedPrincipal,
-                CumCollateralLoss = dto.CumCollateralLoss
+                CumCollateralLoss = dto.CumCollateralLoss,
+                ModificationLoss = dto.ModificationLoss
             };
             periodCashflows.Add(cf);
         }
@@ -661,6 +678,8 @@ public class WaterfallController : ControllerBase
                     ExpenseShortfall = cf.Value.ExpenseShortfall,
                     Writedown = cf.Value.Writedown,
                     CumWritedown = cf.Value.CumWritedown,
+                    ModificationLoss = cf.Value.ModificationLoss,
+                    ModificationWritedown = cf.Value.ModificationWritedown,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
                     BeginCreditSupport = cf.Value.BeginCreditSupport,
@@ -735,6 +754,8 @@ public class WaterfallController : ControllerBase
                     ExpenseShortfall = cf.Value.ExpenseShortfall,
                     Writedown = cf.Value.Writedown,
                     CumWritedown = cf.Value.CumWritedown,
+                    ModificationLoss = cf.Value.ModificationLoss,
+                    ModificationWritedown = cf.Value.ModificationWritedown,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
                     BeginCreditSupport = cf.Value.BeginCreditSupport,

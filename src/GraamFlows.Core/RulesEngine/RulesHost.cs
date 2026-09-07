@@ -687,6 +687,130 @@ namespace GraamFlows.RulesEngine
             DynamicGroup.CapCarryoverPayable = payable;
         }
 
+        // --- Modification Loss Priority -------------------------------------------------
+        // ML_NOTIONAL / ML_INTEREST build one rung each; SET_MODLOSS_STRUCT takes them in
+        // document order. Two verbs rather than one with a flag, so a deal's ladder reads the
+        // way the prospectus prints it and a mistyped effect is a compile error, not a number.
+        private ModificationLossRung ML_NOTIONAL(IPayable target)
+        {
+            return new ModificationLossRung(ModificationLossEffect.Notional,
+                RequireRungTarget(target, "NOTIONAL"));
+        }
+
+        private ModificationLossRung ML_NOTIONAL(IPayable target, int expectedClasses)
+        {
+            return new ModificationLossRung(ModificationLossEffect.Notional,
+                RequireRungTarget(target, "NOTIONAL", expectedClasses));
+        }
+
+        private ModificationLossRung ML_INTEREST(IPayable target)
+        {
+            return new ModificationLossRung(ModificationLossEffect.Interest,
+                RequireRungTarget(target, "INTEREST"));
+        }
+
+        /// <summary>
+        ///     A rung whose classes this deal does not carry is REFUSED, not skipped.
+        ///
+        ///     SINGLE returns null for a name the roster does not have and PRORATA resolves to
+        ///     nothing, so the rung's capacity came out zero and the step moved on. That does not
+        ///     lose one priority quietly — it shifts the whole remaining allocation UP the
+        ///     ladder, and because the priorities alternate, a single mistyped character turns a
+        ///     notional bite (which erodes credit enhancement) into an interest bite (which does
+        ///     not). Measured on the STACR sample: mistyping the first rung's class moved
+        ///     18,634,842 out of B-3H's notional and into B-2H's interest, with no error.
+        /// </summary>
+        private IPayable RequireRungTarget(IPayable target, string effect, int expectedClasses = 0)
+        {
+            var resolved = target?.Leafs().OfType<DynamicClass>().Count() ?? 0;
+
+            // An ARITY check when the caller states one. "Any leaves at all" let a pro-rata rung
+            // half-resolve: PRORATA drops names it cannot find, so `PRORATA('M','MHX')` built a
+            // one-class rung whose interest cap was sized for two — measured, 20,000 migrated
+            // from an interest bite (which leaves credit enhancement alone) to a notional one
+            // (which erodes it), silently. The builder knows how many names it emitted, so it
+            // says so and the engine checks the resolution against it.
+            if (expectedClasses > 0 && resolved != expectedClasses)
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    $"A {effect} priority of the Modification Loss Priority names {expectedClasses} "
+                    + $"class(es) but only {resolved} resolved against group "
+                    + $"'{DynamicGroup.GroupNum}'. A partially-resolved priority is sized for "
+                    + "classes it does not allocate to, which moves the allocation up the ladder.");
+
+            if (resolved > 0)
+                return target;
+
+            throw new DealModelingException(DynamicGroup.Deal.DealName,
+                $"A {effect} priority of the Modification Loss Priority names no class in group "
+                + $"'{DynamicGroup.GroupNum}'. Check the rung's tranche names against the tranche "
+                + "roster — an unresolvable rung would shift every priority below it up the "
+                + "ladder. NOTE: the unified builder names every rule GROUP_1 and the executor "
+                + "runs a GROUP_-prefixed rule for every group, so a MULTI-GROUP deal reaches "
+                + "this for the groups the ladder is not about. A Modification Loss Priority is "
+                + "single-group only today; agency CRT, which is what states one, is single-group.");
+        }
+
+        private ModificationLossRung ML_INTEREST(IPayable target, string capClass)
+        {
+            return ML_INTEREST(target, capClass, 0);
+        }
+
+        private ModificationLossRung ML_INTEREST(IPayable target, string capClass, int expectedClasses)
+        {
+            // This overload is the ONLY one the unified builder emits for an interest rung, and
+            // it used to check nothing: a SINGLE that did not resolve dereferenced null (a raw
+            // NullReferenceException, which the controller now faithfully forwards), and a
+            // PRORATA that resolved only some of its names sailed through.
+            RequireRungTarget(target, "INTEREST", expectedClasses);
+
+            // The cap class must be one of the classes the rung allocates to. A name the target
+            // does not contain used to make the rung take NOTHING and cascade to a more senior
+            // class, with no log and no exception — the comment claiming the step "reports the
+            // skew" was simply false. Refuse instead: a mis-sized rung moves the whole
+            // allocation up the stack.
+            if (!string.IsNullOrEmpty(capClass) &&
+                !target.Leafs().OfType<DynamicClass>().Any(l =>
+                    string.Equals(l.Tranche.TrancheName, capClass, StringComparison.OrdinalIgnoreCase)))
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    $"A Modification Loss Priority caps on the Interest Accrual Amount of "
+                    + $"'{capClass}', which is not one of the classes it allocates to.");
+
+            return new ModificationLossRung(ModificationLossEffect.Interest, target, capClass);
+        }
+
+        private void SET_MODLOSS_STRUCT(params ModificationLossRung[] rungs)
+        {
+            // Order-independent in BOTH directions. Replacing the ladder outright dropped a
+            // WriteUpClass a preceding SET_MODLOSS_WRITEUP had set — the exact loss the comment
+            // on that method claimed to prevent — and the deal then ran with the junior notional
+            // destroyed instead of transferred, which is the credit-enhancement bias this whole
+            // step exists to remove. The builder happens to emit the two rules in the safe
+            // order; a hand-authored or reordered rule set did not.
+            var writeUp = DynamicGroup.ModificationLossLadder?.WriteUpClass;
+            DynamicGroup.ModificationLossLadder = new ModificationLossLadder(rungs?.ToList())
+            {
+                WriteUpClass = writeUp
+            };
+        }
+
+        private void SET_MODLOSS_WRITEUP(string className)
+        {
+            DynamicGroup.ModificationLossLadder ??= new ModificationLossLadder(null);
+
+            // REFUSE an unresolvable name. ClassByName returns null for a class the roster
+            // spells differently ("A-H" vs "AH", and assembly emits both), the transfer is then
+            // skipped by the null guard in the step, and the run looks complete while giving
+            // credit support (S-X)/(T-X) instead of the document's (S-X)/T — the higher ratio,
+            // so a Minimum Credit Enhancement Test trips LATE. Silent, and in the dangerous
+            // direction on a deal whose test opens with 0.63bp of headroom.
+            var writeUpClass = DynamicGroup.ClassByName(className)
+                ?? throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    $"The Modification Loss Priority names '{className}' as the class its notional "
+                    + "priorities are transferred to, but this deal has no such class. Check the "
+                    + "spelling against the tranche roster.");
+            DynamicGroup.ModificationLossLadder.WriteUpClass = writeUpClass;
+        }
+
         private void SET_SUPPL_CONFIG(string capVariable, string subTranches, string seniorTranches)
         {
             DynamicGroup.SupplementalCapVariable = capVariable;

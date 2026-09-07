@@ -93,7 +93,15 @@ public class DynamicTranche : DynamicClass
         }
         else
         {
-            var expectedInterest = balance * coupon * .01 * frac;
+            // Net of any Modification Loss Amount allocated against this period's Interest
+            // Accrual Amount. That allocation permanently reduces what is DUE, so the unpaid
+            // remainder must be measured against the reduced amount — booking it against the
+            // gross coupon would record the modification as a shortfall the deal still owes and
+            // repay it out of ordinary interest on a later Payment Date, turning a loss into a
+            // timing difference. A Modification Loss Amount is reversed only by a Modification
+            // Gain Amount, down its own priority list.
+            var expectedInterest = DynamicClass.NetOfModification(balance * coupon * .01 * frac,
+                trancheCashflow);
             trancheCashflow.InterestShortfall = Math.Max(0, expectedInterest - interest);
             trancheCashflow.AccumInterestShortfall += trancheCashflow.InterestShortfall;
         }
@@ -142,6 +150,9 @@ public class DynamicTranche : DynamicClass
         // IsInterest classes carry a dollar amount out of Coupon(), not a rate —
         // mirror the accrual the paid path uses for each shape.
         var accrual = IsInterest ? coupon : balance * coupon * .01 * frac;
+        // Same netting as the paid path: only the part of the coupon the modification did NOT
+        // extinguish is a shortfall the deal still owes.
+        accrual = NetOfModification(accrual, trancheCashflow);
         if (accrual <= 0)
             return;
 
