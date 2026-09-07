@@ -423,6 +423,127 @@ public class UnifiedWaterfallBuilderTests
         rules.Should().Contain(r => r.Formula.Contains("SET_SUPPL_CONFIG"));
     }
 
+    // ---- MODIFICATION_LOSS ---------------------------------------------------------------
+
+    [Fact]
+    public void BuildPayRules_ModificationLossStep_EmitsTheLadderInDocumentOrder()
+    {
+        var rules = UnifiedWaterfallBuilder.BuildPayRules(WithModificationLoss(ModLossRungs()));
+
+        var ladder = rules.Single(r => r.Formula.StartsWith("SET_MODLOSS_STRUCT"));
+        // Each rung states the ARITY the builder emitted, so the engine can tell a pro-rata
+        // rung that half-resolved from one that resolved: PRORATA drops names it cannot find,
+        // and a one-class rung sized for two moves the allocation up the ladder.
+        ladder.Formula.Should().Be(
+            "SET_MODLOSS_STRUCT(ML_NOTIONAL(SINGLE('B3H'), 1), ML_INTEREST(SINGLE('B2H'), 'B2H', 1), " +
+            "ML_NOTIONAL(SINGLE('B2H'), 1), ML_INTEREST(PRORATA('M2B','M2BH'), 'M2B', 2), " +
+            "ML_NOTIONAL(PRORATA('M2B','M2BH'), 2))");
+    }
+
+    [Fact]
+    public void BuildPayRules_ModificationLossStep_EmitsTheWriteUpTarget()
+    {
+        var step = WithModificationLoss(ModLossRungs());
+        step.Steps.Last().WriteUpTranche = "AH";
+
+        var rules = UnifiedWaterfallBuilder.BuildPayRules(step);
+
+        rules.Should().Contain(r => r.Formula == "SET_MODLOSS_WRITEUP('AH')");
+    }
+
+    [Fact]
+    public void BuildPayRules_ModificationLossStep_WithNoWriteUpTarget_EmitsNone()
+    {
+        var rules = UnifiedWaterfallBuilder.BuildPayRules(WithModificationLoss(ModLossRungs()));
+
+        rules.Should().NotContain(r => r.Formula.Contains("SET_MODLOSS_WRITEUP"));
+    }
+
+    [Fact]
+    public void BuildPayRules_ModificationLossStep_WithNoRungs_Throws()
+    {
+        var act = () => UnifiedWaterfallBuilder.BuildPayRules(
+            WithModificationLoss(new List<ModificationLossRungDto>()));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*non-empty 'rungs'*");
+    }
+
+    [Fact]
+    public void BuildPayRules_ModificationLossRung_WithUnknownEffect_Throws()
+    {
+        // Rejected rather than skipped: a dropped priority does not fail, it shifts every amount
+        // below it up the ladder and quietly changes the answer.
+        var act = () => UnifiedWaterfallBuilder.BuildPayRules(WithModificationLoss(
+            new List<ModificationLossRungDto> { new() { Effect = "WRITEDOWN", Tranche = "B3H" } }));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*expected 'NOTIONAL'*");
+    }
+
+    [Fact]
+    public void BuildPayRules_ModificationLossRung_NamingNoTranche_Throws()
+    {
+        var act = () => UnifiedWaterfallBuilder.BuildPayRules(WithModificationLoss(
+            new List<ModificationLossRungDto> { new() { Effect = "NOTIONAL" } }));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*names no tranche*");
+    }
+
+    [Fact]
+    public void BuildPayRules_ProRataInterestRung_WithNoCapTranche_Throws()
+    {
+        // The cap is stated on ONE member, so guessing the first name would silently size the
+        // rung off whichever class the roster happened to list first.
+        var act = () => UnifiedWaterfallBuilder.BuildPayRules(WithModificationLoss(
+            new List<ModificationLossRungDto>
+            {
+                new() { Effect = "INTEREST", Tranches = new List<string> { "M2B", "M2BH" } }
+            }));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*states no 'capTranche'*");
+    }
+
+    [Fact]
+    public void BuildPayRules_InterestRung_CappingOnAnOutsideClass_Throws()
+    {
+        var act = () => UnifiedWaterfallBuilder.BuildPayRules(WithModificationLoss(
+            new List<ModificationLossRungDto>
+            {
+                new()
+                {
+                    Effect = "INTEREST",
+                    Tranches = new List<string> { "M2B", "M2BH" },
+                    CapTranche = "M1"
+                }
+            }));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*not one of the classes*");
+    }
+
+    private static List<ModificationLossRungDto> ModLossRungs()
+    {
+        // The shape of STACR 2025-DNA1's first five priorities.
+        return new List<ModificationLossRungDto>
+        {
+            new() { Effect = "NOTIONAL", Tranche = "B3H" },
+            new() { Effect = "INTEREST", Tranche = "B2H" },
+            new() { Effect = "NOTIONAL", Tranche = "B2H" },
+            new()
+            {
+                Effect = "INTEREST",
+                Tranches = new List<string> { "M2B", "M2BH" },
+                CapTranche = "M2B"
+            },
+            new() { Effect = "NOTIONAL", Tranches = new List<string> { "M2B", "M2BH" } }
+        };
+    }
+
+    private static UnifiedWaterfallDto WithModificationLoss(List<ModificationLossRungDto> rungs)
+    {
+        var waterfall = CreateMinimalWaterfall();
+        waterfall.Steps.Add(new WaterfallStepDto { Type = "MODIFICATION_LOSS", Rungs = rungs });
+        return waterfall;
+    }
+
     private static UnifiedWaterfallDto CreateMinimalWaterfall()
     {
         return new UnifiedWaterfallDto

@@ -625,6 +625,48 @@ public class WaterfallStepDto
     ///     For SUPPLEMENTAL_REDUCTION: senior-only tranche names (exclusive to primary, e.g. AH, B1H, B2H, B3H).
     /// </summary>
     public List<string>? SeniorTranches { get; set; }
+
+    /// <summary>
+    ///     For MODIFICATION_LOSS: the priorities, in document order.
+    /// </summary>
+    public List<ModificationLossRungDto>? Rungs { get; set; }
+
+    /// <summary>
+    ///     For MODIFICATION_LOSS: the class whose Class Notional Amount is INCREASED by the sum of
+    ///     the notional priorities (agency CRT's senior reference tranche). Absent leaves the
+    ///     notional bites as pure reductions.
+    /// </summary>
+    public string? WriteUpTranche { get; set; }
+}
+
+/// <summary>
+///     One priority of a Modification Loss Priority.
+/// </summary>
+public class ModificationLossRungDto
+{
+    /// <summary>
+    ///     "NOTIONAL" — reduce the Class Notional Amount, capped at the Preliminary Class Notional
+    ///     Amount; or "INTEREST" — reduce the Interest Accrual Amount, capped at it.
+    /// </summary>
+    public string Effect { get; set; } = "";
+
+    /// <summary>
+    ///     The class this rung names, for a single-class priority.
+    /// </summary>
+    public string? Tranche { get; set; }
+
+    /// <summary>
+    ///     The classes this rung names pro rata, for a pro-rata priority. Exclusive with
+    ///     <see cref="Tranche" />.
+    /// </summary>
+    public List<string>? Tranches { get; set; }
+
+    /// <summary>
+    ///     For an INTEREST priority over a pro-rata pair, the ONE class whose Interest Accrual
+    ///     Amount states the cap — the document caps on a member, not on the group. Absent on a
+    ///     single-class priority, where the named class IS the capped one.
+    /// </summary>
+    public string? CapTranche { get; set; }
 }
 
 /// <summary>
@@ -695,6 +737,19 @@ public class TrancheCashflowDto
     public double ExpenseShortfall { get; set; }
     public double Writedown { get; set; }
     public double CumWritedown { get; set; }
+
+    /// <summary>
+    ///     Modification Loss Amount allocated against this class's Interest Accrual Amount for the
+    ///     period — interest it was not paid. Not an interest shortfall: it is never repaid out of
+    ///     ordinary interest.
+    /// </summary>
+    public double ModificationLoss { get; set; }
+
+    /// <summary>
+    ///     The part of <see cref="Writedown" /> that came from a Modification Loss Amount rather
+    ///     than a credit event. NEGATIVE on the class the notional bites are transferred to.
+    /// </summary>
+    public double ModificationWritedown { get; set; }
     public double Factor { get; set; }
     public double CreditSupport { get; set; }
     public double BeginCreditSupport { get; set; }

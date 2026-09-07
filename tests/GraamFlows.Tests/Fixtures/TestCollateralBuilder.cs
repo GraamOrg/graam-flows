@@ -28,10 +28,12 @@ public class TestCollateralBuilder
         double interest,
         double defaultedPrincipal = 0,
         double recoveryPrincipal = 0,
-        double serviceFee = 0)
+        double serviceFee = 0,
+        double modificationLoss = 0)
     {
         var period = new PeriodCashflows
         {
+            ModificationLoss = modificationLoss,
             CashflowDate = date,
             GroupNum = _groupNum,
             BeginBalance = beginBalance,

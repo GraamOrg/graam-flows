@@ -76,9 +76,19 @@ public class DynamicClass : IPayable
             // TrancheAllocator parity (CalculateTrancheInterest: `interest =
             // availableInterest`). Its coupon is 0, so balance × coupon would
             // otherwise pay it nothing.
+            // A Modification Loss Amount allocated against this tranche's Interest Accrual
+            // Amount reduces what it is DUE this period (agency CRT: amounts allocated in the
+            // sixth, seventh, tenth or twelfth priority "will result in a corresponding
+            // reduction of the Interest Payment Amount"). Netted here rather than paid and
+            // clawed back, so the class simply asks for less.
+            // `NetOfModification` is an identity when nothing was booked, so a deal with no
+            // Modification Loss Priority keeps its exact previous arithmetic — including a
+            // negative accrual, which a Formula coupon can produce and which an unconditional
+            // Math.Max would have clamped.
             var interestDue = dynTran.Tranche.CouponTypeEnum == CouponType.ExcessInterest
                 ? availableFunds - interestPaid
-                : dynTran.Interest(cf, rateProvider, allTranchesList) + cf.AccumInterestShortfall;
+                : NetOfModification(dynTran.Interest(cf, rateProvider, allTranchesList), cf)
+                  + cf.AccumInterestShortfall;
             var toPay = Math.Min(interestDue, availableFunds - interestPaid);
 
             if (toPay > 0)
@@ -105,8 +115,22 @@ public class DynamicClass : IPayable
         return DynamicTranches.Sum(dynTran =>
         {
             var cf = dynTran.GetCashflow(cfDate);
-            return dynTran.Interest(cf, rateProvider, allTranchesList) + cf.AccumInterestShortfall;
+            // Netted exactly as PayInterest nets it — this is what sizes a class's ask inside a
+            // SEQ or PRORATA interest cascade, so leaving it gross would hand the class funds
+            // its own PayInterest then refuses, stranding them above the classes below it.
+            return NetOfModification(dynTran.Interest(cf, rateProvider, allTranchesList), cf)
+                   + cf.AccumInterestShortfall;
         });
+    }
+
+    /// <summary>
+    ///     A period's accrual less any Modification Loss Amount booked against it, floored at
+    ///     zero. An IDENTITY when nothing was booked — deliberately, so every deal without a
+    ///     Modification Loss Priority keeps the arithmetic it had, negative accruals included.
+    /// </summary>
+    public static double NetOfModification(double accrual, TrancheCashflow cf)
+    {
+        return cf.ModificationLoss > 0 ? Math.Max(accrual - cf.ModificationLoss, 0) : accrual;
     }
 
     public double PayInterestShortfall(DateTime cfDate, double availableFunds)
@@ -162,6 +186,141 @@ public class DynamicClass : IPayable
         // write down, so a writedown allocation must cascade past them to the
         // funded bonds rather than be consumed against their notional balance.
         return IsExcessInterest || IsResidual ? 0.0 : CurrentBalance(cfDate);
+    }
+
+    /// <summary>
+    ///     This period's Interest Accrual Amount for the class, GROSS of any Modification Loss
+    ///     Amount already allocated against it — the cap an interest rung of a Modification Loss
+    ///     Priority reads (Class Coupon x Class Notional Amount immediately prior to the Payment
+    ///     Date x Day Count Fraction).
+    ///
+    ///     Gross rather than net because it is a CAPACITY, not an amount outstanding: a rung is
+    ///     visited once per period, and netting what this same period's rung has already booked
+    ///     would make the cap depend on the order the step happened to read it in.
+    /// </summary>
+    public double ModificationInterestAccrual(DateTime cfDate, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        if (DynamicTranches == null || DynamicTranches.Count == 0)
+            return 0;
+        var allTranchesList = allTranches?.ToList();
+        return DynamicTranches.Sum(dynTran =>
+            dynTran.Interest(dynTran.GetCashflow(cfDate), rateProvider, allTranchesList));
+    }
+
+    /// <summary>
+    ///     Book a Modification Loss Amount against this class's Interest Accrual Amount, split
+    ///     across its tranches by balance the way a writedown is. Reduces the interest the class
+    ///     is paid; leaves its Class Notional Amount, and therefore credit enhancement, untouched.
+    /// </summary>
+    public void BookModificationInterestLoss(DateTime cfDate, double amount,
+        IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
+    {
+        if (amount <= 0 || DynamicTranches == null || DynamicTranches.Count == 0)
+            return;
+
+        // Split by INTEREST ACCRUAL AMOUNT, not by balance: "any Modification Loss Amount that is
+        // allocable in the sixth or seventh priority ... will be allocated to reduce the Interest
+        // Payment Amounts ... pro rata, based on their Interest Accrual Amounts". The two bases
+        // coincide only when the tranches share a coupon, which is exactly what an exchangeable /
+        // MACR combination does not do — and a class holding several tranches is usually holding
+        // them BECAUSE their coupons differ.
+        // Stamp the CLASS row too. The notional counterpart deliberately stamps both levels, and
+        // the controller serializes both collections through the same DTO — so stamping only the
+        // tranche rows gave a class-row reader the notional bite and never the interest one.
+        GetCashflow(cfDate).ModificationLoss += amount;
+
+        var allTranchesList = allTranches?.ToList();
+        var accruals = DynamicTranches
+            .ToDictionary(dt => dt, dt => Math.Max(dt.Interest(dt.GetCashflow(cfDate), rateProvider,
+                allTranchesList), 0));
+        var total = accruals.Values.Sum();
+
+        foreach (var dynTran in DynamicTranches)
+        {
+            // Nothing accruing anywhere in the class: fall back to balance, then to an even
+            // split, so the amount is booked somewhere rather than silently vanishing.
+            var share = total > 0
+                ? accruals[dynTran] / total
+                : FallbackShare(dynTran);
+            dynTran.GetCashflow(cfDate).ModificationLoss += amount * share;
+        }
+    }
+
+    private double FallbackShare(DynamicTranche dynTran)
+    {
+        var balanceTotal = DynamicTranches.Sum(dt => dt.Balance);
+        return balanceTotal > 0 ? dynTran.Balance / balanceTotal : 1.0 / DynamicTranches.Count;
+    }
+
+    /// <summary>
+    ///     Increase the Class Notional Amount by <paramref name="amount" /> — the receiving half
+    ///     of a modification notional bite, which the document makes a TRANSFER up the stack
+    ///     rather than a destruction ("the Class Notional Amount for the Class A-H Reference
+    ///     Tranche will be increased by the sum of amounts included in the first, third, fifth,
+    ///     eighth, ninth, eleventh and thirteenth priorities above").
+    ///
+    ///     Deliberately NOT <see cref="Writeup" />, which reverses a previous writedown and
+    ///     refuses to go past CumWritedown: this class has typically never been written down, so
+    ///     Writeup would throw on the first bite and take the whole axis out. It is also not a
+    ///     write-up in substance — CumWritedown must not go negative here, because a later
+    ///     genuine Tranche Write-up would then have phantom room.
+    /// </summary>
+    public TrancheCashflow IncreaseNotional(DateTime cashflowDate, double amount)
+    {
+        if (double.IsNaN(amount) || double.IsInfinity(amount))
+            throw new DealModelingException(Tranche.DealName,
+                $"Invalid notional increase '{amount}' requested for class {Tranche.TrancheName} on {cashflowDate:MM/dd/yyyy}");
+
+        var adjDate = AdjustedCashflowDate(cashflowDate);
+        if (!Cashflows.TryGetValue(adjDate, out var cashflow))
+        {
+            cashflow = new TrancheCashflow(adjDate, Tranche);
+            cashflow.BeginBalance = Balance;
+
+            var prevCf = GetPrevCashflow(cashflowDate);
+            if (prevCf != null)
+                cashflow.AccumInterestShortfall = prevCf.AccumInterestShortfall;
+        }
+
+        var beginBal = Balance;
+        SetBalance(Balance + amount);
+        // Reported as a NEGATIVE modification writedown: the field is "what the modification did
+        // to this class's notional", and on this class it added to it. Keeping one signed field
+        // means the ladder's modification writedowns sum to zero across the deal, which is the
+        // invariant a reader can check.
+        cashflow.ModificationWritedown -= amount;
+        cashflow.Factor = Factor();
+        cashflow.Balance = Balance;
+        cashflow.CumWritedown = CumWritedown;
+        cashflow.CreditSupport = CreditSupport(cashflowDate);
+        Cashflows[adjDate] = cashflow;
+
+        AllocateNotionalIncreaseToTranches(cashflowDate, amount, beginBal);
+        return cashflow;
+    }
+
+    private void AllocateNotionalIncreaseToTranches(DateTime cfDate, double amount, double beginBal)
+    {
+        if (DynamicTranches == null || !DynamicTranches.Any())
+            return;
+
+        foreach (var dynTran in DynamicTranches)
+        {
+            double allocPct;
+            if (Math.Abs(beginBal) < 0.01)
+            {
+                if (Math.Abs(Tranche.OriginalBalance) < double.Epsilon)
+                    continue;
+                allocPct = dynTran.Tranche.OriginalBalance / Tranche.OriginalBalance;
+            }
+            else
+            {
+                allocPct = dynTran.Balance / beginBal;
+            }
+
+            dynTran.IncreaseNotional(cfDate, amount * allocPct);
+        }
     }
 
     public bool IsLockedOut(DateTime cashflowDate)
