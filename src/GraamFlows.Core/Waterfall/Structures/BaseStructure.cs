@@ -743,11 +743,25 @@ public abstract class BaseStructure : IWaterfall
     /// <summary>
     /// Executes deal termination: writedown remaining losses, then pay off all tranche balances.
     /// </summary>
-    protected void ExecuteTermination(DynamicGroup dynGroup, PeriodCashflows adjPeriodCf)
+    protected void ExecuteTermination(DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
+        bool applyWritedown = true)
     {
         // At termination, writedown remaining losses then pay off all balances.
         // Unabsorbed writedowns are expected at termination (subordinates may already be zero).
-        var writedown = WritedownAmt(dynGroup.Deal, dynGroup, adjPeriodCf);
+        //
+        // `applyWritedown: false` when the caller has ALREADY allocated this period's write-down
+        // (graam-harmony#4879). `WritedownAmt` is a function of the PERIOD, not of what is left
+        // to absorb, so calling it here after a waterfall pass that already consumed it applies
+        // the same loss twice — and the second pass is capped at the surviving balance, so it
+        // eats exactly the amount the payoff below was going to redeem. A class that should be
+        // paid its remaining balance at the call is written to zero instead.
+        //
+        // Measured on STACR 2025-DNA1 (M2A, CER 2.5%, 5% CPR, to call): the WRITEDOWN step
+        // allocated 5,974,359 leaving 806,563, then this re-applied the period's write-down
+        // capped at that 806,563 and the payoff found nothing. Published yield -37.92, modelled
+        // -41.33. WAL is unaffected either way — a write-down and a redemption retire the
+        // balance on the same date — so this only ever showed on yield.
+        var writedown = applyWritedown ? WritedownAmt(dynGroup.Deal, dynGroup, adjPeriodCf) : 0;
         if (writedown > 0)
         {
             var subClasses = dynGroup.SubordinateClass().Where(dc => dc.Balance > 0).ToList();

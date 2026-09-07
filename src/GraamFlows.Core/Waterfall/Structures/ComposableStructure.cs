@@ -175,10 +175,13 @@ public class ComposableStructure : BaseStructure
                 // Run composable waterfall period (interest accrues on begin balance even if terminating)
                 RunComposablePeriod(deal, rateProvider, dynGroup, adjPeriodCf, triggerValues, formulaExecutor, payRuleExecutor, executionOrder);
 
-                // Apply deferred termination: writedown losses and pay off all remaining balances
+                // Apply deferred termination: pay off all remaining balances. The period's
+                // write-down is NOT re-applied — `RunComposablePeriod` above already ran the
+                // WRITEDOWN step off the same `WritedownAmt`, and applying it twice consumes
+                // the balance the payoff is meant to redeem (graam-harmony#4879).
                 if (terminated)
                 {
-                    ExecuteTermination(dynGroup, adjPeriodCf);
+                    ExecuteTermination(dynGroup, adjPeriodCf, applyWritedown: false);
                     dealTerminated = true;
                 }
 

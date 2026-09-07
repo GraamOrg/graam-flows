@@ -535,6 +535,25 @@ public class TestDealBuilder
     /// <summary>
     /// Adds standard sequential waterfall rules for the given tranche names.
     /// </summary>
+    /// <summary>
+    ///     A dated termination trigger — the deal ends on <paramref name="date" /> and every
+    ///     class still carrying balance is paid off (graam-harmony#4879).
+    /// </summary>
+    public TestDealBuilder WithDateTermination(DateTime date, bool mandatory = true,
+        string name = "Termination")
+    {
+        _deal.DealTriggers.Add(new DealTrigger
+        {
+            DealName = _deal.DealName,
+            TriggerName = name,
+            TriggerType = "DATE_TERMINATION",
+            IsMandatory = mandatory,
+            TriggerParam = date.ToString("yyyy-MM-dd"),
+            GroupNum = "1",
+        });
+        return this;
+    }
+
     public TestDealBuilder WithSequentialWaterfall(params string[] trancheNames)
     {
         var singles = string.Join(", ", trancheNames.Select(t => $"SINGLE('{t}')"));
