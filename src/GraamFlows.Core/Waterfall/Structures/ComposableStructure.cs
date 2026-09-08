@@ -1177,10 +1177,10 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.ScheduledPayable == null || availableSchedPrin < 0.01)
             return availableSchedPrin;
 
-        var noteBalanceBefore = dynGroup.Balance();
+        var noteBalanceBefore = dynGroup.PrincipalPayableBalance();
         dynGroup.ScheduledPayable.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.Balance();
+        var noteBalanceAfter = dynGroup.PrincipalPayableBalance();
 
         // After scheduled principal, check if reserve draw needed for note > pool
         CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
@@ -1200,10 +1200,10 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.PrepayPayable == null || availablePrepayPrin < 0.01)
             return availablePrepayPrin;
 
-        var noteBalanceBefore = dynGroup.Balance();
+        var noteBalanceBefore = dynGroup.PrincipalPayableBalance();
         dynGroup.PrepayPayable.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.Balance();
+        var noteBalanceAfter = dynGroup.PrincipalPayableBalance();
 
         // After unscheduled principal, check if reserve draw needed for note > pool
         CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
@@ -1223,10 +1223,10 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.RecoveryPayable == null || availableRecovPrin < 0.01)
             return availableRecovPrin;
 
-        var noteBalanceBefore = dynGroup.Balance();
+        var noteBalanceBefore = dynGroup.PrincipalPayableBalance();
         dynGroup.RecoveryPayable.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.Balance();
+        var noteBalanceAfter = dynGroup.PrincipalPayableBalance();
 
         // After recovery principal, check if reserve draw needed for note > pool
         CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);

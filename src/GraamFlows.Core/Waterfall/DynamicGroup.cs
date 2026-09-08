@@ -488,6 +488,36 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         var balance = DealClasses.Sum(dc => dc.Balance);
         return balance;
     }
+
+    /// <summary>
+    /// Balance across every class the PRINCIPAL cascade can actually pay down.
+    ///
+    /// <see cref="Balance"/> answers a DIFFERENT question — the NOTE balance that sets OC
+    /// (<c>RulesHost: oc_pct = Balance() / poolBalance</c>) — and deliberately excludes the REMIC
+    /// Residual as non-economic. The principal steps were using it to MEASURE how much they had
+    /// just allocated (<c>before - after</c>), so principal paid to a FUNDED residual registered
+    /// as zero: the remainder stayed inflated by exactly that payment, and <c>CreditResidual</c>
+    /// then credited the same money to the same class a second time.
+    ///
+    /// graam-harmony#4883, AMMC CLO 33 at 2 CDR / 20 CPR / 40 severity: the Subordinated notes
+    /// were paid 55,864,986 against a 27,932,493 entitlement — exactly 2x — and the stack was
+    /// paid 27,932,493 more principal than the collateral ever produced.
+    ///
+    /// This keeps the two questions apart rather than widening <see cref="Balance"/>, which would
+    /// silently move OC and every credit-enhancement/thickness reader off it. Only a FUNDED
+    /// residual is added back: a genuinely notional Class R (<c>CashflowType.InterestOnly</c>,
+    /// balance reset to the pool each period) has no principal to pay down and stays excluded,
+    /// the same discriminator <c>WritedownCapacity</c> uses since #81.
+    /// </summary>
+    public double PrincipalPayableBalance()
+    {
+        var fundedResidual = DynamicClasses
+            .Where(dc => DealClasses?.Contains(dc) != true
+                         && dc.Tranche.CouponTypeEnum == CouponType.Residual
+                         && !dc.IsNotionalBalance)
+            .Sum(dc => dc.Balance);
+        return Balance() + fundedResidual;
+    }
     
     /// <summary>
     /// WARNING This code needs review. Balance updates and cashflow release from certificates should happens as part of the deal model.
