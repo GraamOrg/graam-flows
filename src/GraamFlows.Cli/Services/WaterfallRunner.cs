@@ -33,7 +33,8 @@ public class WaterfallRunner
         double dq,
         Dictionary<string, FactorEntry>? factors = null,
         bool runToCall = false,
-        bool useAbsPrepayment = false)
+        bool useAbsPrepayment = false,
+        IReadOnlyCollection<string>? callTriggerNames = null)
     {
         // Same guard the HTTP boundary applies, reusing the same policy and wording
         // rather than a second copy of the bounds (graam-harmony #4476). Without it
@@ -57,6 +58,10 @@ public class WaterfallRunner
         });
         if (validationError != null)
             throw new ArgumentException(validationError);
+
+        // Resolve the call basis BEFORE anything is built, so a basis that names no trigger on
+        // this deal is rejected rather than quietly running to maturity under a to-call label.
+        var callForecasts = ResolveCallForecasts(dealModel, runToCall, callTriggerNames);
 
         // Propagate closing date from top-level DealModelFile to DealDto
         if (dealModel.ClosingDate.HasValue && !dealModel.Deal.ClosingDate.HasValue)
@@ -82,8 +87,11 @@ public class WaterfallRunner
             ? DealLevelAssumptions.CreateAbsAssumptions(projectionDate, anchorAbsT, cpr, cdr, sev, dq, 0, wam)
             : DealLevelAssumptions.CreateConstAssumptions(projectionDate, anchorAbsT, cpr, cdr, sev, dq);
 
-        // Enable clean-up call trigger if requested
-        if (runToCall)
+        // Engage the call, as resolved before the deal was built.
+        if (callForecasts.Count > 0)
+            foreach (var (triggerName, groupNum) in callForecasts)
+                assumps.AddTriggerForecast(triggerName, groupNum, true);
+        else if (runToCall)
             assumps.RunToCall = true;
 
         // Create rate provider
@@ -96,6 +104,37 @@ public class WaterfallRunner
 
         // Convert to result
         return ConvertToResult(dealCashflows, collateralCashflows, projectionDate);
+    }
+
+    /// <summary>
+    ///     Which trigger forecasts engage the call, as (triggerName, groupNum) pairs.
+    /// </summary>
+    /// <remarks>
+    ///     <see cref="DealLevelAssumptions.RunToCall" /> is the blunt instrument: it forecasts
+    ///     EVERY optional trigger the deal declares as always-triggering, so a deal carrying both
+    ///     a dated optional redemption and a balance clean-up runs to whichever the deal happens
+    ///     to declare — a basis nobody chose (graam-flows#88). When the caller names the triggers
+    ///     it means, forecast exactly those and nothing else.
+    /// </remarks>
+    private static List<(string TriggerName, string GroupNum)> ResolveCallForecasts(
+        DealModelFile dealModel, bool runToCall, IReadOnlyCollection<string>? callTriggerNames)
+    {
+        var forecasts = new List<(string, string)>();
+        if (!runToCall || callTriggerNames is not { Count: > 0 })
+            return forecasts;
+
+        var wanted = new HashSet<string>(callTriggerNames, StringComparer.OrdinalIgnoreCase);
+        foreach (var triggerDto in dealModel.Deal.Triggers ?? [])
+            if (wanted.Contains(triggerDto.TriggerName))
+                forecasts.Add((triggerDto.TriggerName, triggerDto.GroupNum));
+
+        if (forecasts.Count == 0)
+            throw new InvalidOperationException(
+                $"No trigger on deal '{dealModel.Deal.DealName}' matches the requested call basis " +
+                $"[{string.Join(", ", callTriggerNames)}]. Running with no call engaged would report a " +
+                "to-maturity result under a to-call label.");
+
+        return forecasts;
     }
 
     private static IDeal BuildDeal(DealDto dto, DateTime factorDate, Dictionary<string, FactorEntry>? factors = null)

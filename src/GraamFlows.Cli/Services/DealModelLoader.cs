@@ -14,6 +14,14 @@ public class DealModelFile
     public Dictionary<string, FactorEntry>? Factors { get; set; }
     public DateTime? ClosingDate { get; set; }
     public DateTime? CutoffDate { get; set; }
+
+    /// <summary>
+    ///     Deal-level first distribution date. Deals that state the payment date once at deal
+    ///     level (and give the tranches only a <c>payDay</c>) used to be unreachable: the
+    ///     collateral anchor read per-tranche <c>firstPayDate</c> only and otherwise fell back to
+    ///     <c>DateTime.Today</c> (graam-flows#88).
+    /// </summary>
+    public DateTime? FirstPaymentDate { get; set; }
 }
 
 public class PoolStratificationSection
@@ -118,6 +126,30 @@ public class WalAssumptions
     public DateTime? FirstDistributionDate { get; set; }
     public int? PaymentDayOfMonth { get; set; }
     public bool CleanUpCallAssumed { get; set; } = true; // Default to true for prospectus WAL tables
+
+    /// <summary>
+    ///     Prepayment convention the published decrement table is struck in: "CPR" (% of the
+    ///     current balance) or "ABS" (% of the ORIGINAL balance, the auto-ABS convention).
+    ///     Omitted means CPR — the RMBS/prospectus default. The validator used to hard-code ABS,
+    ///     which retired an RMBS pool in ~20 months at speed "5" (graam-flows#88).
+    /// </summary>
+    public string? PrepaymentType { get; set; }
+
+    /// <summary>
+    ///     Names of the deal triggers the published "to redemption date" column is struck to;
+    ///     the run terminates at whichever fires first. Omitted, the basis is resolved from the
+    ///     deal's own triggers — see <see cref="WalValidator.ResolveCallTriggerNames" />. State
+    ///     both a dated redemption and a clean-up here to run to the earlier of the two.
+    /// </summary>
+    public List<string>? CallTriggers { get; set; }
+
+    /// <summary>
+    ///     The deal's pricing speed stated as a CPR. Its presence is itself evidence the grid is
+    ///     struck in CPR, so it selects the CPR convention when <see cref="PrepaymentType" /> is
+    ///     silent.
+    /// </summary>
+    public double? PricingSpeedCpr { get; set; }
+
     public double? ServicingFeeRate { get; set; }
     public double? OtherMonthlyFees { get; set; }
     public double? ReserveAccountTargetPct { get; set; }

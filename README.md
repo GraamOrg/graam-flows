@@ -85,9 +85,24 @@ docker run -p 5200:5200 graam-flows
 
 ### Run the CLI
 
+Both commands take the deal model as a positional argument:
+
 ```sh
-dotnet run --project src/GraamFlows.Cli -- run --deal path/to/deal.json
+# project a deal and export the cashflows to Excel
+dotnet run --project src/GraamFlows.Cli -- run path/to/deal.json
+
+# validate the deal's WAL against its published decrement table
+dotnet run --project src/GraamFlows.Cli -- wal-tests path/to/deal.json --verbose
 ```
+
+`wal-tests` strikes the grid entirely from the deal model — nothing is taken from the clock, so
+two runs of the same file on different days give the same answer. Three fields decide the basis:
+
+| Field | Meaning |
+|---|---|
+| `firstPaymentDate` (deal level) | First distribution date, when the tranches carry only a `payDay`. Per-tranche `firstPayDate` wins; `closingDate` is the last resort. A deal that states none of the three is rejected rather than anchored to today. |
+| `walScenarios.assumptions.prepaymentType` | `CPR` (% of current balance — the default, and what RMBS decrement tables are struck in) or `ABS` (% of original balance, the auto-ABS convention). |
+| `walScenarios.assumptions.callTriggers` | Names of the triggers the "to redemption date" column is struck to; the run stops at whichever fires first. Omitted, a dated `DATE_TERMINATION` redemption is used when the deal declares one, else the `COLLATERAL_VALUE` clean-up. |
 
 ## API usage
 
