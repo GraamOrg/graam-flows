@@ -143,9 +143,9 @@ public static class WalTestsCommand
     private static async Task<int> ExecuteSingleScenarioAsync(WalTestsOptions options, DealModelFile dealModel, Stopwatch stopwatch)
     {
         var absPct = options.AbsPct!.Value;
-        var cpr = absPct; // ABS% = CPR for auto ABS
+        var cpr = absPct; // the grid axis IS the speed, in the deal's own convention
 
-        Console.WriteLine($"Running single scenario: ABS={absPct}%, CPR={cpr}%");
+        Console.WriteLine($"Running single scenario: speed={absPct:F1}%");
 
         // Build collateral using all pools for accurate amortization profile
         var collateralBuilder = new CollateralBuilder();
@@ -161,11 +161,9 @@ public static class WalTestsCommand
                 Console.WriteLine($"Applied servicing fee: {servicingFeeRate}% to {assets.Count} asset(s)");
         }
 
-        // Determine projection date
-        var projectionDate = dealModel.ProjectionDate
-            ?? dealModel.WalScenarios?.Assumptions?.FirstDistributionDate
-            ?? dealModel.Deal.Tranches.FirstOrDefault()?.FirstPayDate
-            ?? DateTime.Today;
+        // Determine projection date. Resolved from the deal only — never from DateTime.Today,
+        // which used to make the answer depend on the day of the run (graam-flows#88).
+        var projectionDate = WalValidator.ResolveProjectionDate(dealModel);
 
         if (options.Verbose)
         {
@@ -173,8 +171,19 @@ public static class WalTestsCommand
             Console.WriteLine($"Built {assets.Count} collateral assets");
         }
 
-        // Check if clean-up call should be assumed (for WAL calculation)
+        // Call basis and prepayment convention come from the deal, exactly as they do for the
+        // full grid — the two paths report the same deal and must not drift on either.
         var cleanUpCallAssumed = dealModel.WalScenarios?.Assumptions?.CleanUpCallAssumed ?? true;
+        var callTriggerNames = WalValidator.ResolveCallTriggerNames(dealModel);
+        var useAbsPrepayment = WalValidator.ResolveUseAbsPrepayment(dealModel.WalScenarios?.Assumptions);
+
+        if (options.Verbose)
+        {
+            Console.WriteLine($"Prepayment convention: {(useAbsPrepayment ? "ABS" : "CPR")}");
+            Console.WriteLine(cleanUpCallAssumed
+                ? $"Call basis: {WalValidator.DescribeCallBasis(callTriggerNames)}"
+                : "Call basis: none (to maturity)");
+        }
 
         // Apply WAL scenario interest rate overrides to match prospectus assumptions
         if (dealModel.WalScenarios?.Assumptions?.InterestRates != null)
@@ -192,19 +201,19 @@ public static class WalTestsCommand
             }
         }
 
-        // Run waterfall with ABS prepayment convention (prepay as % of original balance)
         var runner = new WaterfallRunner();
         var result = runner.Run(
             dealModel,
             assets,
             projectionDate,
-            cpr, // ABS%
+            cpr, // prepayment speed, in the convention the deal declares
             0,   // CDR
             0,   // SEV
             0,   // DQ
             factors: null,
             runToCall: cleanUpCallAssumed,
-            useAbsPrepayment: true);
+            useAbsPrepayment: useAbsPrepayment,
+            callTriggerNames: callTriggerNames);
 
         if (options.Verbose)
         {
@@ -231,7 +240,7 @@ public static class WalTestsCommand
 
         // Print WAL summary
         Console.WriteLine();
-        Console.WriteLine($"WAL Summary at ABS={absPct}%");
+        Console.WriteLine($"WAL Summary at speed={absPct:F1}%");
         Console.WriteLine(new string('-', 70));
         Console.WriteLine($"{"Tranche",-15} {"Orig Balance",15} {"Total Prin",15} {"WAL (yrs)",20}");
         Console.WriteLine(new string('-', 70));

@@ -204,14 +204,36 @@ public class CollateralBuilder
         return [asset];
     }
 
-    private static DateTime GetFirstPayDate(DealModelFile dealModel)
+    /// <summary>
+    ///     Resolve the deal's first payment date: the earliest per-tranche <c>firstPayDate</c>,
+    ///     else the deal-level <c>firstPaymentDate</c>, else the deal's <c>closingDate</c>.
+    /// </summary>
+    /// <remarks>
+    ///     There is deliberately NO <see cref="DateTime.Today" /> fallback (graam-flows#88). A deal
+    ///     that carries its payment date only at deal level used to originate every repline one
+    ///     month from the day the command happened to run, so the same deal tied on one day and
+    ///     missed on the next and no regression could be attributed. A tie-out that invents an
+    ///     anchor is worse than one that refuses to run, so an unresolvable anchor throws.
+    /// </remarks>
+    public static DateTime GetFirstPayDate(DealModelFile dealModel)
     {
-        var firstPayDate = dealModel.Deal.Tranches
+        var trancheFirstPay = dealModel.Deal.Tranches
             .Where(t => t.FirstPayDate.HasValue && t.FirstPayDate != default)
             .Select(t => t.FirstPayDate!.Value)
-            .DefaultIfEmpty(DateTime.Today.AddMonths(1))
-            .Min();
+            .ToList();
+        if (trancheFirstPay.Count > 0)
+            return trancheFirstPay.Min();
 
-        return firstPayDate;
+        if (dealModel.FirstPaymentDate is { } dealFirstPay && dealFirstPay != default)
+            return dealFirstPay;
+
+        var closingDate = dealModel.ClosingDate ?? dealModel.Deal.ClosingDate;
+        if (closingDate is { } closing && closing != default)
+            return closing;
+
+        throw new InvalidOperationException(
+            $"Cannot resolve a first payment date for deal '{dealModel.Deal.DealName}': no tranche carries " +
+            "firstPayDate, and the deal declares neither firstPaymentDate nor closingDate. Add one of them to " +
+            "the deal model — the collateral anchor must come from the deal, not from the day the run happens.");
     }
 }

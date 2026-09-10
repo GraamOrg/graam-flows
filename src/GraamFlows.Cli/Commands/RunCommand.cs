@@ -144,10 +144,11 @@ public static class RunCommand
                     Console.WriteLine($"Loaded {factors.Count} tranche factors");
             }
 
-            // Determine projection date
+            // Determine projection date. Same deal-resolved anchor the collateral build uses;
+            // it never falls back to DateTime.Today, which made a run's answer depend on the day
+            // it was run (graam-flows#88).
             var projectionDate = options.ProjectionDate
-                ?? dealModel.Deal.Tranches.FirstOrDefault()?.FirstPayDate
-                ?? DateTime.Today;
+                ?? CollateralBuilder.GetFirstPayDate(dealModel);
 
             if (options.Verbose)
                 Console.WriteLine($"Projection date: {projectionDate:yyyy-MM-dd}");
