@@ -176,7 +176,9 @@ public class PeriodCashflowDto
     public double Sev { get; set; }
     public double Dq { get; set; }
     public double CumDefaultedPrincipal { get; set; }
+    public double CumDefaultedPrincipalPct { get; set; }
     public double CumCollateralLoss { get; set; }
+    public double CumCollateralLossPct { get; set; }
     public double UnAdvancedPrincipal { get; set; }
     public double UnAdvancedInterest { get; set; }
     public double AdvancedPrincipal { get; set; }
