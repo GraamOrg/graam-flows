@@ -200,11 +200,17 @@ public class WaterfallRunner
                 FirstPayDate = trancheDto.FirstPayDate ?? factorDate,
                 StatedMaturityDate = trancheDto.StatedMaturityDate ?? trancheDto.LegalMaturityDate ?? factorDate.AddYears(10),
                 LegalMaturityDate = trancheDto.LegalMaturityDate ?? trancheDto.StatedMaturityDate?.AddYears(2) ?? factorDate.AddYears(12),
-                FirstSettleDate = dto.ClosingDate.HasValue
+                // A class states its own DATED DATE when the document dates it before closing
+                // (see TrancheDto.FirstSettleDate). Mapped HERE as well as in the API
+                // controller: both readers consume the same DealDto, and a field only one of
+                // them honours is worse than one neither honours, because the request looks
+                // obeyed on whichever path the caller did not take.
+                FirstSettleDate = trancheDto.FirstSettleDate
+                    ?? (dto.ClosingDate.HasValue
                     ? dto.ClosingDate.Value
                     : trancheDto.FirstPayDate.HasValue
                         ? trancheDto.FirstPayDate.Value.AddMonths(-1)
-                        : factorDate,
+                        : factorDate),
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,
                 Deal = deal,

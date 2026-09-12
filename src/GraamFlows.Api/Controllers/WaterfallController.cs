@@ -206,8 +206,13 @@ public class WaterfallController : ControllerBase
                 StatedMaturityDate = trancheDto.StatedMaturityDate ?? trancheDto.LegalMaturityDate ?? factorDate.AddYears(10),
                 LegalMaturityDate = trancheDto.LegalMaturityDate ?? trancheDto.StatedMaturityDate?.AddYears(2) ?? factorDate.AddYears(12),
                 // FirstSettleDate determines first-period accrual start.
-                // Priority: deal ClosingDate > FirstPayDate - 1 month > factorDate
-                FirstSettleDate = dto.ClosingDate
+                // Priority: tranche FirstSettleDate > deal ClosingDate > FirstPayDate - 1 month
+                //           > factorDate
+                // A class states its own DATED DATE when the document dates it before closing —
+                // the first Accrual Period then runs from that date and the buyer settles with
+                // accrued interest. Absent, the derivation is exactly what it always was.
+                FirstSettleDate = trancheDto.FirstSettleDate
+                    ?? dto.ClosingDate
                     ?? (trancheDto.FirstPayDate.HasValue
                         ? trancheDto.FirstPayDate.Value.AddMonths(-1)
                         : factorDate),
