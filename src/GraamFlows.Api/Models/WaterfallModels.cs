@@ -346,6 +346,20 @@ public class TrancheDto
     public string? NotionalReference { get; set; }
 
     public DateTime? FirstPayDate { get; set; }
+
+    /// <summary>
+    ///     The date this class begins accruing — its DATED DATE, which is not always the deal's
+    ///     closing date. A note whose first Accrual Period starts before closing is bought with
+    ///     accrued interest, and the difference is real money: OBX 2025-NQM6 closes 2025-04-14,
+    ///     first pays 2025-04-25, and states a thirty-day first Accrual Period, so its notes are
+    ///     dated 2025-03-25 and the engine's closing-date default books 11 days of interest where
+    ///     the document books 30.
+    ///
+    ///     Optional and null by default: when absent, FirstSettleDate is derived exactly as
+    ///     before (deal ClosingDate, else FirstPayDate - 1 month, else the factor date), so every
+    ///     existing caller is byte-identical.
+    /// </summary>
+    public DateTime? FirstSettleDate { get; set; }
     public DateTime? StatedMaturityDate { get; set; }
     public DateTime? LegalMaturityDate { get; set; }
     public string? CouponFormula { get; set; }
