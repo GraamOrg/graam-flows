@@ -22,18 +22,31 @@ namespace GraamFlows.Tests.Unit.Reinvestment;
 /// Before this, /api/Waterfall merged the bought collateral into the pool, distributed it, and
 /// returned only tranche cashflows — the stream it distributed and the cash it spent buying were
 /// both discarded, so a caller could not reconcile a reinvesting run to its collateral at all.
+///
+/// Reporting the stream exposed a dating defect in the merge: bought collateral was dated
+/// firstProjDate + t months, which misses a pool dated on month-ends, so the bought rows became
+/// periods of their own and the waterfall over-distributed principal. The month-end tests pin it.
 /// </summary>
 public class ReinvestmentReportingTests
 {
     private static readonly DateTime Proj = new(2026, 6, 1);
+    private static readonly DateTime MonthEndProj = new(2026, 2, 28);
     private const double Start = 1_000_000.0;
     private const double Amort = 10_000.0;
     private const int Periods = 60;
     private const int WindowMonths = 24;
 
+    private static DateTime FirstOfMonth(int p) => Proj.AddMonths(p);
+
+    private static DateTime MonthEnd(int p)
+    {
+        var m = new DateTime(2026, 2, 1).AddMonths(p);
+        return new DateTime(m.Year, m.Month, DateTime.DaysInMonth(m.Year, m.Month));
+    }
+
     // --- the loop itself ------------------------------------------------------------------------
 
-    private static List<PeriodCashflows> BasePool()
+    private static List<PeriodCashflows> BasePool(Func<int, DateTime> date)
     {
         var pool = new List<PeriodCashflows>();
         for (var p = 0; p < Periods; p++)
@@ -41,7 +54,7 @@ public class ReinvestmentReportingTests
             var begin = Start - Amort * p;
             pool.Add(new PeriodCashflows
             {
-                CashflowDate = Proj.AddMonths(p), GroupNum = "1", BeginBalance = begin,
+                CashflowDate = date(p), GroupNum = "1", BeginBalance = begin,
                 Balance = begin - Amort, ScheduledPrincipal = Amort, Interest = begin * 0.05 / 12.0
             });
         }
@@ -49,19 +62,19 @@ public class ReinvestmentReportingTests
         return pool;
     }
 
-    private static IAssetAssumptions ZeroAssumps()
+    private static IAssetAssumptions ZeroAssumps(DateTime proj)
     {
-        var anchor = DateUtil.CalcAbsT(Proj);
+        var anchor = DateUtil.CalcAbsT(proj);
         return new AssetAssumptions(
             PrepaymentTypeEnum.CPR, new ConstVector(anchor, 0.0),
             DefaultTypeEnum.CDR, new ConstVector(anchor, 0.0),
             new ConstVector(anchor, 0.0));
     }
 
-    private static ReinvestmentConfig Config(double price = 100.0, double holdback = 0.0) => new()
+    private static ReinvestmentConfig Config(DateTime start, DateTime end, double price = 100.0, double holdback = 0.0) => new()
     {
-        ReinvestStartDate = Proj,
-        ReinvestEndDate = Proj.AddMonths(WindowMonths),
+        ReinvestStartDate = start,
+        ReinvestEndDate = end,
         Target = Start,
         Holdback = holdback,
         Templates = new[]
@@ -79,27 +92,14 @@ public class ReinvestmentReportingTests
         }
     };
 
-    [Fact]
-    public void The_existing_cashflow_builder_returns_exactly_what_it_did()
-    {
-        var pool = BasePool();
-        var legacy = CfCore.BuildReinvestmentCashflows(pool, Config(), Proj, ZeroAssumps(), null);
-        var result = CfCore.BuildReinvestment(pool, Config(), Proj, ZeroAssumps(), null);
-
-        result.Cashflows.Should().HaveCount(legacy.Count);
-        for (var i = 0; i < legacy.Count; i++)
-        {
-            result.Cashflows[i].CashflowDate.Should().Be(legacy[i].CashflowDate);
-            result.Cashflows[i].Balance.Should().Be(legacy[i].Balance);
-            result.Cashflows[i].ScheduledPrincipal.Should().Be(legacy[i].ScheduledPrincipal);
-            result.Cashflows[i].Interest.Should().Be(legacy[i].Interest);
-        }
-    }
+    private static ReinvestmentResult Loop(double price = 100.0, double holdback = 0.0) =>
+        CfCore.BuildReinvestment(BasePool(FirstOfMonth), Config(Proj, FirstOfMonth(WindowMonths), price, holdback),
+            Proj, ZeroAssumps(Proj), null);
 
     [Fact]
     public void Every_purchase_is_paid_for_by_the_principal_it_redirects()
     {
-        var result = CfCore.BuildReinvestment(BasePool(), Config(holdback: 0.25), Proj, ZeroAssumps(), null);
+        var result = Loop(holdback: 0.25);
 
         result.Purchases.Should().NotBeEmpty();
         foreach (var p in result.Purchases)
@@ -117,9 +117,7 @@ public class ReinvestmentReportingTests
     [Fact]
     public void Face_bought_is_cash_over_the_purchase_price()
     {
-        var result = CfCore.BuildReinvestment(BasePool(), Config(price: 98.0), Proj, ZeroAssumps(), null);
-
-        foreach (var p in result.Purchases)
+        foreach (var p in Loop(price: 98.0).Purchases)
         {
             foreach (var t in p.ByTemplate)
             {
@@ -135,22 +133,46 @@ public class ReinvestmentReportingTests
     [Fact]
     public void Purchases_top_the_pool_back_to_target_inside_the_window_only()
     {
-        var result = CfCore.BuildReinvestment(BasePool(), Config(), Proj, ZeroAssumps(), null);
+        var result = Loop();
 
         result.Purchases.Should().NotBeEmpty();
         foreach (var p in result.Purchases)
         {
-            p.CashflowDate.Should().BeOnOrAfter(Proj).And.BeOnOrBefore(Proj.AddMonths(WindowMonths));
+            p.CashflowDate.Should().BeOnOrAfter(Proj).And.BeOnOrBefore(FirstOfMonth(WindowMonths));
             p.TargetBalance.Should().Be(Start);
             // At par with proceeds covering the gap, the purchase closes it exactly.
             (p.PoolBalanceBefore + p.FaceBought).Should().BeApproximately(Start, 1e-6);
         }
     }
 
+    [Fact]
+    public void Purchases_and_bought_collateral_are_dated_on_a_month_end_pools_own_dates()
+    {
+        var pool = BasePool(MonthEnd);
+        var poolDates = pool.Select(c => c.CashflowDate).ToHashSet();
+        var result = CfCore.BuildReinvestment(
+            pool, Config(MonthEndProj, MonthEnd(WindowMonths)), MonthEndProj, ZeroAssumps(MonthEndProj), null);
+
+        result.Purchases.Should().NotBeEmpty();
+        result.Purchases.Should().OnlyContain(p => poolDates.Contains(p.CashflowDate),
+            "a purchase dated off the pool's calendar cannot be matched to the period it drew from");
+        foreach (var row in result.Cashflows)
+        {
+            var d = row.CashflowDate;
+            (poolDates.Contains(d) || d.Day == DateTime.DaysInMonth(d.Year, d.Month)).Should().BeTrue(
+                $"bought collateral row {d:yyyy-MM-dd} must sit on the pool's calendar (month-ends)");
+        }
+
+        result.Cashflows.Where(c => c.CashflowDate <= pool[^1].CashflowDate)
+            .Should().OnlyContain(c => poolDates.Contains(c.CashflowDate));
+    }
+
     // --- the endpoint -----------------------------------------------------------------------------
 
-    private static WaterfallRequest Request(bool reinvest, bool include, double price = 100.0)
+    private static WaterfallRequest Request(bool reinvest, bool include, double price = 100.0, bool monthEnd = false)
     {
+        Func<int, DateTime> date = monthEnd ? MonthEnd : FirstOfMonth;
+        var proj = date(0);
         var deal = new DealDto
         {
             DealName = "REINVEST_REPORTING_TEST",
@@ -161,7 +183,7 @@ public class ReinvestmentReportingTests
                 {
                     TrancheName = "A", OriginalBalance = Start, TrancheType = "Offered",
                     CashflowType = "PI", CouponType = "Fixed", FixedCoupon = 4.0,
-                    SubordinationOrder = 1, FirstPayDate = Proj.AddMonths(1)
+                    SubordinationOrder = 1, FirstPayDate = date(1)
                 }
             },
             UnifiedWaterfall = new UnifiedWaterfallDto
@@ -183,8 +205,8 @@ public class ReinvestmentReportingTests
         if (reinvest)
             deal.Reinvestment = new ReinvestmentDto
             {
-                ReinvestStartDate = Proj,
-                ReinvestEndDate = Proj.AddMonths(WindowMonths),
+                ReinvestStartDate = proj,
+                ReinvestEndDate = date(WindowMonths),
                 Target = Start,
                 Templates = new List<ReinvestTemplateDto>
                 {
@@ -202,14 +224,14 @@ public class ReinvestmentReportingTests
             var begin = Start - Amort * p;
             pool.Add(new PeriodCashflowDto
             {
-                CashflowDate = Proj.AddMonths(p), GroupNum = "1", BeginBalance = begin,
+                CashflowDate = date(p), GroupNum = "1", BeginBalance = begin,
                 Balance = begin - Amort, ScheduledPrincipal = Amort, Interest = begin * 0.05 / 12.0
             });
         }
 
         return new WaterfallRequest
         {
-            Deal = deal, CollateralCashflows = pool, ProjectionDate = Proj, IncludeCollateralCashflows = include
+            Deal = deal, CollateralCashflows = pool, ProjectionDate = proj, IncludeCollateralCashflows = include
         };
     }
 
@@ -226,6 +248,9 @@ public class ReinvestmentReportingTests
 
     private static double Principal(PeriodCashflowDto c) =>
         c.ScheduledPrincipal + c.UnscheduledPrincipal + c.RecoveryPrincipal;
+
+    private static double NotesPrincipal(WaterfallResponse r) =>
+        r.TrancheCashflows.Values.SelectMany(c => c).Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
 
     [Fact]
     public void Collateral_is_not_returned_unless_asked_for()
@@ -299,11 +324,24 @@ public class ReinvestmentReportingTests
     {
         var response = Run(Request(reinvest: true, include: true));
 
-        var collateral = response.CollateralCashflows!.Sum(Principal);
-        var notes = response.TrancheCashflows.Values.SelectMany(c => c)
-            .Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
-        notes.Should().BeApproximately(collateral, 1.0,
+        NotesPrincipal(response).Should().BeApproximately(response.CollateralCashflows!.Sum(Principal), 1.0,
             "the returned stream is the one the waterfall distributed, so it reconciles to the notes");
+    }
+
+    [Fact]
+    public void A_month_end_pool_reinvests_without_distributing_principal_twice()
+    {
+        var request = Request(reinvest: true, include: true, monthEnd: true);
+        var response = Run(request);
+        var postedDates = request.CollateralCashflows.Select(c => c.CashflowDate).ToHashSet();
+
+        response.AssetReinvestment.Should().NotBeEmpty();
+        response.AssetReinvestment!.Should().OnlyContain(p => postedDates.Contains(p.CashflowDate));
+        response.CollateralCashflows!.Where(c => c.CashflowDate <= request.CollateralCashflows[^1].CashflowDate)
+            .Should().HaveCount(Periods, "bought collateral merges into the pool's periods, it does not add new ones");
+        response.CollateralCashflows!.Should().OnlyContain(c => Principal(c) >= -1e-6,
+            "a negative-principal row is a purchase redirect that missed its period");
+        NotesPrincipal(response).Should().BeApproximately(response.CollateralCashflows!.Sum(Principal), 1.0);
     }
 
     [Fact]

@@ -509,6 +509,12 @@ public class CfCore
         var maxTerm = cfg.Templates.Max(t => t.TermMonths);
         var horizon = Math.Min(720, Math.Max(basePeriods, windowEndPeriod + maxTerm + 2));
 
+        // The pool's own date for each projection period. Purchases and bought collateral must be
+        // dated on it: the merge into the pool is keyed on the exact date, and a pool dated on
+        // month-ends does not sit on firstProjDate.AddMonths(t) (Feb 28 + 1 month is Mar 28, not
+        // Mar 31). A bought row that misses its period becomes a period of its own carrying the
+        // negative principal redirect, and the waterfall distributes principal twice.
+        var periodDates = new Dictionary<int, DateTime>();
         var baseBalance = new double[horizon];
         var baseSched = new double[horizon];
         var baseUnsched = new double[horizon];
@@ -517,6 +523,7 @@ public class CfCore
         {
             var p = MonthsBetween(firstProjDate, cf.CashflowDate);
             if (p < 0 || p >= horizon) continue;
+            periodDates.TryAdd(p, cf.CashflowDate);
             baseBalance[p] += cf.Balance;
             baseSched[p] += cf.ScheduledPrincipal;
             baseUnsched[p] += cf.UnscheduledPrincipal;
@@ -530,7 +537,7 @@ public class CfCore
 
         for (var t = 0; t < horizon; t++)
         {
-            var date = firstProjDate.AddMonths(t);
+            var date = PeriodDate(periodDates, firstProjDate, t);
             if (date > cfg.ReinvestEndDate) break;
             if (cfg.ReinvestStartDate.HasValue && date < cfg.ReinvestStartDate.Value) continue;
 
@@ -595,7 +602,7 @@ public class CfCore
 
             purchases.Add(new ReinvestmentPurchase
             {
-                Period = t,
+                ProjectionPeriod = t,
                 CashflowDate = date,
                 CashSpent = cashSpent,
                 FromScheduledPrincipal = eligSched * hb * drawFraction,
@@ -656,7 +663,38 @@ public class CfCore
         if (cohortAccum.NumberOfPeriods == 0)
             return empty;
 
-        return new ReinvestmentResult(cohortAccum.ToPeriodCashflows(firstProjDate, reinvestGroup), purchases);
+        var cohortRows = cohortAccum.ToPeriodCashflows(firstProjDate, reinvestGroup);
+        for (var period = 0; period < cohortRows.Count; period++)
+            cohortRows[period].CashflowDate = PeriodDate(periodDates, firstProjDate, period);
+        return new ReinvestmentResult(cohortRows, purchases);
+    }
+
+    /// <summary>
+    ///     The date of projection period <paramref name="t" /> on the pool's own calendar: the
+    ///     pool's row date where it has one, otherwise whole months on from the latest earlier pool
+    ///     date (snapped to month-end when that date is a month-end), otherwise
+    ///     <paramref name="firstProjDate" /> plus <paramref name="t" /> months.
+    /// </summary>
+    private static DateTime PeriodDate(IReadOnlyDictionary<int, DateTime> poolDates, DateTime firstProjDate, int t)
+    {
+        if (poolDates.TryGetValue(t, out var exact))
+            return exact;
+
+        var anchorIndex = 0;
+        var anchor = firstProjDate;
+        var found = false;
+        foreach (var (index, date) in poolDates)
+        {
+            if (index > t || (found && index <= anchorIndex)) continue;
+            anchorIndex = index;
+            anchor = date;
+            found = true;
+        }
+
+        var shifted = anchor.AddMonths(t - anchorIndex);
+        return anchor.Day == DateTime.DaysInMonth(anchor.Year, anchor.Month)
+            ? new DateTime(shifted.Year, shifted.Month, DateTime.DaysInMonth(shifted.Year, shifted.Month))
+            : shifted;
     }
 
     private static int MonthsBetween(DateTime from, DateTime to)

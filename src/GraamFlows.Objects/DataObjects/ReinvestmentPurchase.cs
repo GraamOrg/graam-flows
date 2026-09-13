@@ -13,8 +13,11 @@ namespace GraamFlows.Objects.DataObjects;
 /// </summary>
 public record ReinvestmentPurchase
 {
-    /// <summary>Zero-based projection period of the purchase.</summary>
-    public int Period { get; init; }
+    /// <summary>
+    ///     Zero-based projection period of the purchase. Not a row number: join to collateral
+    ///     cashflows on <see cref="CashflowDate" />.
+    /// </summary>
+    public int ProjectionPeriod { get; init; }
 
     /// <summary>Date of the collateral period the purchase is drawn from.</summary>
     public DateTime CashflowDate { get; init; }
