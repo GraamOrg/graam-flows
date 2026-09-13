@@ -13,7 +13,7 @@ namespace GraamFlows.Tests.Unit.Api;
 ///
 ///     `FirstSettleDate` decides the first period's accrual, and until now the only way to
 ///     state it was the deal's `ClosingDate`. A note whose first Accrual Period begins BEFORE
-///     closing is bought with accrued interest, and the gap is real money: OBX 2025-NQM6
+///     closing is bought with accrued interest, and the gap is real money: an NQM deal
 ///     closes 2025-04-14, first pays 2025-04-25, and states a thirty-day first Accrual
 ///     Period, so its notes are dated 2025-03-25. The closing-date derivation books eleven
 ///     days of interest where the document books thirty — measured, 730,090 against

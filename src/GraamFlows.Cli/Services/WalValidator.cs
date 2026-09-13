@@ -216,7 +216,7 @@ public class WalValidator
     ///     The run terminates at whichever of them fires first.
     /// </summary>
     /// <remarks>
-    ///     A deal can declare more than one redemption: OBX 2025-NQM6 carries both a dated
+    ///     A deal can declare more than one redemption: an NQM deal can carry both a dated
     ///     step-up redemption (DATE_TERMINATION, 2029-04) and a balance clean-up
     ///     (COLLATERAL_VALUE, 30%). Its published table is struck to the DATED one — the
     ///     subordinate classes sit at 3.95y at every speed from 0% to 40% CPR, which only a dated
