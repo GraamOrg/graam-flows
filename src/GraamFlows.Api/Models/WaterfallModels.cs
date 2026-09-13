@@ -63,6 +63,12 @@ public class WaterfallRequest
     /// Example: { "A-1": 0.0, "C": 0.028, "CERTIFICATES": { "balance": 45000000 } }
     /// </summary>
     public Dictionary<string, FactorEntry>? Factors { get; set; }
+
+    /// <summary>
+    ///     Return the collateral cashflows the waterfall distributed, and the asset-reinvestment
+    ///     purchases, on the response. Off by default so existing responses are unchanged.
+    /// </summary>
+    public bool IncludeCollateralCashflows { get; set; }
 }
 
 /// <summary>
@@ -734,6 +740,104 @@ public class WaterfallResponse
     public List<TriggerResultDto>? TriggerResults { get; set; }
     public DateTime? TerminationDate { get; set; }
     public WaterfallSummaryDto Summary { get; set; } = new();
+
+    /// <summary>
+    ///     The collateral cashflows the waterfall distributed, returned only when the request sets
+    ///     <see cref="WaterfallRequest.IncludeCollateralCashflows" />.
+    ///
+    ///     Without reinvestment this is the posted pool. With reinvestment it is the posted pool
+    ///     merged with the collateral the loop bought: principal is reported AFTER purchases, and
+    ///     the bought assets' later interest, principal, defaults and recoveries are included.
+    ///     There is no separate reinvested-collateral stream. Rows are per (date, group), ordered by
+    ///     date.
+    ///
+    ///     These are the rows HANDED to the waterfall, before the deal's first-period collateral
+    ///     policy: under Align they carry their projected dates rather than the re-dated ones,
+    ///     under Fold the pre-first-pay rows are shown separately from the distribution they fold
+    ///     into, and under Drop rows the waterfall excluded still appear.
+    ///
+    ///     Bought collateral joins the pool's primary group, and the principal that paid for it is
+    ///     drawn from the whole pool, so on a multi-group deal a group's row can show negative
+    ///     principal while the deal-level totals reconcile. On merged rows WAM/WALA are the bought
+    ///     collateral's, and the cumulative loss / rate fields are recomputed over the merged pool.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<PeriodCashflowDto>? CollateralCashflows { get; set; }
+
+    /// <summary>
+    ///     Asset reinvestment — collateral bought with principal proceeds — one row per period that
+    ///     bought anything. Returned only with <see cref="CollateralCashflows" />; empty when the
+    ///     deal does not reinvest. Cash reinvestment (interest earned on idle cash) is a distinct
+    ///     mechanism, not modelled, and never reported here.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ReinvestmentPurchaseDto>? AssetReinvestment { get; set; }
+}
+
+/// <summary>One period's collateral purchase: cash leaving principal, and the face it bought.</summary>
+public class ReinvestmentPurchaseDto
+{
+    /// <summary>
+    ///     Zero-based projection period of the purchase. NOT the collateral rows' 1-based
+    ///     <c>period</c> (a row number, repeated per group): join the two on <see cref="CashflowDate" />.
+    /// </summary>
+    public int ProjectionPeriod { get; set; }
+
+    /// <summary>Date of the collateral period the purchase is drawn from.</summary>
+    public DateTime CashflowDate { get; set; }
+
+    /// <summary>Cash spent buying collateral. Equals the three From* amounts summed.</summary>
+    public double CashSpent { get; set; }
+
+    public double FromScheduledPrincipal { get; set; }
+    public double FromUnscheduledPrincipal { get; set; }
+    public double FromRecoveryPrincipal { get; set; }
+
+    /// <summary>Face bought; exceeds <see cref="CashSpent" /> by the discount when bought below par.</summary>
+    public double FaceBought { get; set; }
+
+    /// <summary>Eligible principal proceeds available to reinvest this period, after holdback.</summary>
+    public double ProceedsAvailable { get; set; }
+
+    /// <summary>Collateral balance at period end before this purchase.</summary>
+    public double PoolBalanceBefore { get; set; }
+
+    /// <summary>Balance target in force this period.</summary>
+    public double TargetBalance { get; set; }
+
+    /// <summary>The purchase split by reinvestment template, in template order.</summary>
+    public List<ReinvestmentTemplatePurchaseDto> ByTemplate { get; set; } = new();
+
+    public static ReinvestmentPurchaseDto From(GraamFlows.Objects.DataObjects.ReinvestmentPurchase p) => new()
+    {
+        ProjectionPeriod = p.ProjectionPeriod,
+        CashflowDate = p.CashflowDate,
+        CashSpent = p.CashSpent,
+        FromScheduledPrincipal = p.FromScheduledPrincipal,
+        FromUnscheduledPrincipal = p.FromUnscheduledPrincipal,
+        FromRecoveryPrincipal = p.FromRecoveryPrincipal,
+        FaceBought = p.FaceBought,
+        ProceedsAvailable = p.ProceedsAvailable,
+        PoolBalanceBefore = p.PoolBalanceBefore,
+        TargetBalance = p.TargetBalance,
+        ByTemplate = p.ByTemplate.Select(t => new ReinvestmentTemplatePurchaseDto
+        {
+            TemplateIndex = t.TemplateIndex, CashSpent = t.CashSpent, FaceBought = t.FaceBought, Price = t.Price
+        }).ToList()
+    };
+}
+
+/// <summary>One template's share of a period's purchase.</summary>
+public class ReinvestmentTemplatePurchaseDto
+{
+    /// <summary>Zero-based index into the request's reinvestment templates.</summary>
+    public int TemplateIndex { get; set; }
+
+    public double CashSpent { get; set; }
+    public double FaceBought { get; set; }
+
+    /// <summary>Effective purchase price, percent of par (par for a synthetic template).</summary>
+    public double Price { get; set; }
 }
 
 public class TrancheCashflowDto
