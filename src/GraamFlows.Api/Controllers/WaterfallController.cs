@@ -78,11 +78,14 @@ public class WaterfallController : ControllerBase
             // byte-identical waterfalls. Compose exactly as CfCore.GenerateAssetCashflows
             // does: cohort cashflows from the posted base pool, appended before the
             // waterfall distributes. Additive — no config, no change.
+            IList<ReinvestmentPurchase> purchases = new List<ReinvestmentPurchase>();
             if (deal.ReinvestmentConfig is { } reinvestCfg && reinvestCfg.Templates.Count > 0)
             {
                 var basePool = collateralCashflows.PeriodCashflows.ToList();
-                var cohorts = CfCore.BuildReinvestmentCashflows(
+                var reinvestment = CfCore.BuildReinvestment(
                     basePool, reinvestCfg, firstProjDate, assumps, rateProvider);
+                var cohorts = reinvestment.Cashflows;
+                purchases = reinvestment.Purchases;
                 if (cohorts.Count > 0)
                 {
                     // The list-ctor CollateralCashflows has no aggregation dict, so
@@ -100,6 +103,19 @@ public class WaterfallController : ControllerBase
 
             // Convert to response
             var response = ConvertToResponse(dealCashflows, settleDate);
+
+            // Opt-in: the collateral the waterfall actually distributed. With reinvestment this
+            // is the posted pool merged with the bought collateral — principal NET of purchases,
+            // later interest/principal/losses including the bought assets — plus the purchase
+            // record, which is the only place the act of buying is visible.
+            if (request.IncludeCollateralCashflows)
+            {
+                response.CollateralCashflows = CollateralCashflowMapper.ToDtos(
+                    collateralCashflows.PeriodCashflows
+                        .OrderBy(c => c.CashflowDate)
+                        .ThenBy(c => c.GroupNum, StringComparer.Ordinal));
+                response.AssetReinvestment = purchases.Select(ReinvestmentPurchaseDto.From).ToList();
+            }
 
             stopwatch.Stop();
             var totalTrancheCashflows = response.TrancheCashflows.Values.Sum(cfs => cfs.Count);

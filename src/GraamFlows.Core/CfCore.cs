@@ -443,19 +443,43 @@ public class CfCore
         IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
         IAssumptionMill assumps, IRateProvider rateProvider)
     {
+        return BuildReinvestment(basePool, cfg, firstProjDate, assumps, rateProvider).Cashflows;
+    }
+
+    /// <summary>
+    ///     As <see cref="BuildReinvestmentCashflows(IList{PeriodCashflows}, ReinvestmentConfig, DateTime, IAssumptionMill, IRateProvider)" />,
+    ///     and also returns the purchases the loop made.
+    /// </summary>
+    public static ReinvestmentResult BuildReinvestment(
+        IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
+        IAssumptionMill assumps, IRateProvider rateProvider)
+    {
         if (cfg.Templates.Count == 0 || basePool == null || basePool.Count == 0)
-            return new List<PeriodCashflows>();
+            return ReinvestmentResult.Empty;
         var sampleAsset = BuildReinvestAsset(cfg.Templates[0], 1.0, firstProjDate, rateProvider, 0);
         var reinvestAssumps = assumps.GetAssumptionsForAsset(sampleAsset);
-        return BuildReinvestmentCashflows(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider);
+        return BuildReinvestment(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider);
     }
 
     public static IList<PeriodCashflows> BuildReinvestmentCashflows(
         IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
         IAssetAssumptions reinvestAssumps, IRateProvider rateProvider)
     {
+        return BuildReinvestment(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider).Cashflows;
+    }
+
+    /// <summary>
+    ///     The reinvestment loop. Returns the bought collateral's cashflows — which carry the
+    ///     redirect of the principal that paid for them, so merging them into the base pool
+    ///     leaves collateral principal NET of purchases — and one <see cref="ReinvestmentPurchase" />
+    ///     per period that bought anything.
+    /// </summary>
+    public static ReinvestmentResult BuildReinvestment(
+        IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
+        IAssetAssumptions reinvestAssumps, IRateProvider rateProvider)
+    {
         cfg.Validate("");
-        var empty = new List<PeriodCashflows>();
+        var empty = ReinvestmentResult.Empty;
         if (cfg.Templates.Count == 0 || basePool == null || basePool.Count == 0)
             return empty;
 
@@ -502,6 +526,7 @@ public class CfCore
         var cohortAccum = new CashflowResultArrays(horizon);
         var eligible = cfg.EligibleProceeds;
         var seq = 0;
+        var purchases = new List<ReinvestmentPurchase>();
 
         for (var t = 0; t < horizon; t++)
         {
@@ -534,10 +559,12 @@ public class CfCore
             if (cohortStart >= horizon) continue;
 
             var cohortAssets = new List<IAsset>();
+            var byTemplate = new List<ReinvestmentTemplatePurchase>();
             var totalFace = 0.0;
             var cashSpent = 0.0;
-            foreach (var template in cfg.Templates)
+            for (var ti = 0; ti < cfg.Templates.Count; ti++)
             {
+                var template = cfg.Templates[ti];
                 var cash = reinvestCash * template.AllocationPct / 100.0;
                 if (cash < 0.005) continue;
                 // Cash buys face at the (par-for-synthetic) purchase price.
@@ -545,6 +572,10 @@ public class CfCore
                 totalFace += face;
                 cashSpent += cash;
                 cohortAssets.Add(BuildReinvestAsset(template, face, date, rateProvider, seq++));
+                byTemplate.Add(new ReinvestmentTemplatePurchase
+                {
+                    TemplateIndex = ti, CashSpent = cash, FaceBought = face, Price = template.EffectivePrice
+                });
             }
 
             if (cohortAssets.Count == 0) continue;
@@ -561,6 +592,21 @@ public class CfCore
             cohortAccum.ScheduledPrincipal[t] -= eligSched * hb * drawFraction;
             cohortAccum.UnscheduledPrincipal[t] -= eligUnsched * hb * drawFraction;
             cohortAccum.RecoveryPrincipal[t] -= eligRecov * hb * drawFraction;
+
+            purchases.Add(new ReinvestmentPurchase
+            {
+                Period = t,
+                CashflowDate = date,
+                CashSpent = cashSpent,
+                FromScheduledPrincipal = eligSched * hb * drawFraction,
+                FromUnscheduledPrincipal = eligUnsched * hb * drawFraction,
+                FromRecoveryPrincipal = eligRecov * hb * drawFraction,
+                FaceBought = totalFace,
+                ProceedsAvailable = available,
+                PoolBalanceBefore = totalBalance,
+                TargetBalance = cfg.TargetAt(t),
+                ByTemplate = byTemplate
+            });
 
             // The purchased collateral appears at the end of period t: this
             // replaces the redirected principal in the pool balance (exactly, at
@@ -610,7 +656,7 @@ public class CfCore
         if (cohortAccum.NumberOfPeriods == 0)
             return empty;
 
-        return cohortAccum.ToPeriodCashflows(firstProjDate, reinvestGroup);
+        return new ReinvestmentResult(cohortAccum.ToPeriodCashflows(firstProjDate, reinvestGroup), purchases);
     }
 
     private static int MonthsBetween(DateTime from, DateTime to)
