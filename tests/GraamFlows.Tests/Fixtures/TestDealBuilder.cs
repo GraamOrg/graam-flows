@@ -554,6 +554,23 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>
+    ///     A pseudo class — a named aggregate over existing classes (<c>DealStructurePseudo</c>),
+    ///     which the engine materializes as a <c>DynamicPseudoClass</c> with its own credit
+    ///     support. The API does not map pseudo structures, so a builder deal is the only way a
+    ///     test can reach that class's <c>CreditSupport(DateTime)</c> (#92).
+    /// </summary>
+    public TestDealBuilder WithPseudoClass(string name, params string[] memberClasses)
+    {
+        _deal.DealStructurePseudo.Add(new DealStructurePseudo
+        {
+            DealName = _deal.DealName,
+            ClassGroupName = name,
+            ExchangableClassList = string.Join(",", memberClasses)
+        });
+        return this;
+    }
+
     public TestDealBuilder WithSequentialWaterfall(params string[] trancheNames)
     {
         var singles = string.Join(", ", trancheNames.Select(t => $"SINGLE('{t}')"));

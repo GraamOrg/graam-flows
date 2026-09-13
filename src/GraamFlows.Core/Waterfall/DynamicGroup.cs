@@ -307,7 +307,14 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
                 return _subordinateClassesCache[tranche];
             }
 
+            // An interest-only strip's balance is a NOTIONAL: #22 sets pool-referenced strips
+            // to the pool balance every period so their interest and WAL compute. A notional
+            // absorbs no loss, so it is not subordination. #22 excluded IO from `DealClasses`
+            // for the same reason; this set was never brought along, and one pool-sized
+            // notional inflated every senior class's subordinate balance and credit support
+            // (#92).
             subClassList = DynamicClasses.Where(d => !d.Tranche.IsPseudo &&
+                                                     d.Tranche.CashflowTypeEnum != CashflowType.InterestOnly &&
                                                      d.DealStructure != null &&
                                                      d.DealStructure.SubordinationOrder >
                                                      dealStructure.SubordinationOrder &&
@@ -324,8 +331,11 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
 
     public IList<DynamicClass> SubordinateClasses(int subOrder)
     {
+        // Same exclusion as the tranche overload above (#92). This overload has no PayFrom
+        // filter, so without it EVERY pool-notional strip counted, not just one.
         return DynamicClasses.Where(d =>
             !d.Tranche.IsPseudo &&
+            d.Tranche.CashflowTypeEnum != CashflowType.InterestOnly &&
             d.DealStructure != null &&
             !d.IsExchangable() &&
             d.DealStructure.SubordinationOrder > subOrder &&
