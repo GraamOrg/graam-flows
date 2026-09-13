@@ -20,7 +20,7 @@ public static class TrancheWal
     /// <param name="cashflows">the tranche's cashflow rows, in period order.</param>
     /// <param name="settleDate">
     ///     the date the holder's clock starts. <c>WeightedAverageLife()</c> drops cashflows
-    ///     before it, so this is not cosmetic: on OBX 2025-NQM6 harmony projects from
+    ///     before it, so this is not cosmetic: on an NQM deal harmony projects from
     ///     2025-03-02 and settles on 2025-04-14, and the two answers differ.
     /// </param>
     /// <param name="isIo">

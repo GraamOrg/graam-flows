@@ -176,7 +176,7 @@ public class WalTieOutBasisTests
         WalValidator.ResolveUseAbsPrepayment(null).Should().BeFalse();
         WalValidator.ResolveUseAbsPrepayment(new WalAssumptions()).Should().BeFalse();
 
-        // OBX 2025-NQM6's own assumptions block: a CPR pricing speed and nothing else. Under the
+        // An NQM term sheet's own assumptions block: a CPR pricing speed and nothing else. Under the
         // hard-coded ABS convention, speed "5" retired the pool in ~20 months and every non-zero
         // column computed ~0.00.
         WalValidator.ResolveUseAbsPrepayment(new WalAssumptions { PricingSpeedCpr = 25.0 })
@@ -208,7 +208,7 @@ public class WalTieOutBasisTests
     [Fact]
     public void ADatedRedemptionOutranksTheBalanceCleanUp()
     {
-        // OBX 2025-NQM6 carries both. Its published table holds the subordinate classes at 3.95y
+        // That NQM deal carries both. Its published table holds the subordinate classes at 3.95y
         // at every speed from 0% to 40% CPR — the signature of a dated call; the balance call
         // walks them down to ~2.4y at 40%. Measured: dated-only ties all 63 points (RMSE 0.043y),
         // engaging both misses 56 of 63 (RMSE 2.70y), the clean-up alone misses all 63 (RMSE 3.02y).

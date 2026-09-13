@@ -21,7 +21,7 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 ///
 /// This is a CASH path, not disclosure: `EffectiveWac` is exposed to the rules
 /// engine as `eff_wac` (RulesHost.cs) and is the net-WAC cap on tranche coupons —
-/// `"MIN(4.006, eff_wac)"` in the COLT sample. An inflated cap silently un-caps
+/// `"MIN(4.006, eff_wac)"` in the NQM sample. An inflated cap silently un-caps
 /// every tranche whose fixed rate sits inside the inflated band.
 ///
 /// The collateral here is synthetic (built directly, not amortized), so

@@ -360,7 +360,7 @@ tests/
 The engine has been used to model:
 
 - **Auto ABS** - sequential/turbo structures with OC targets (e.g., Exeter, Ford, Ally)
-- **Private-label RMBS** - shifting interest with WAC caps and trigger-dependent structures (e.g., COLT, Angel Oak)
+- **Private-label RMBS** - shifting interest with WAC caps and trigger-dependent structures (e.g., NQM, Angel Oak)
 - **Credit risk transfer (CRT)** - guaranteed interest, supplemental reduction, computed variables (e.g., STACR)
 
 ## License

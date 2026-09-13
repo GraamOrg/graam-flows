@@ -1,8 +1,8 @@
 {
   "$schema": "../Schemas/deal.schema.json",
-  "dealName": "COLT1804",
+  "dealName": "NQM1804",
   "dealType": "Sequential",
-  "issuer": "Caliber Home Loans",
+  "issuer": "NQM Issuer",
   "trustee": "US Bank",
   "interestTreatment": "Collateral",
   "balanceAtIssuance": 354493121.00,
