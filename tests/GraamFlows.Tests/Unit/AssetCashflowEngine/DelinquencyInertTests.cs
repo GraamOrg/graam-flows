@@ -162,7 +162,7 @@ public class DelinquencyInertTests
         periods.Sum(p => p.DefaultedPrincipal).Should().Be(0.0,
             "CDR is zero, so nothing defaulted. The engine used to carry the un-collected " +
             "dq slice as a residual balance and book it as a default in the loan's final " +
-            "period — 92.04 on this loan, and ~2.9MM on obx2025nqm6-fb6e5a");
+            "period — 92.04 on this loan, and ~2.9MM on an NQM deal");
     }
 
     [Theory]
@@ -182,7 +182,7 @@ public class DelinquencyInertTests
     [Fact]
     public void APoolOfStaggeredMaturities_BooksNoDefaultAtAnyCohortMaturity()
     {
-        // Three cohorts, three maturity dates — the shape of obx2025nqm6-fb6e5a,
+        // Three cohorts, three maturity dates — the shape of an NQM pool,
         // whose defaults appeared at exactly three periods (161 / 341 / 462),
         // each one a maturity cohort.
         var pool = new List<IAsset>
