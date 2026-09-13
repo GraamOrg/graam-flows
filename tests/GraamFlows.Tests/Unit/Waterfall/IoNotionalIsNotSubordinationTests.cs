@@ -10,19 +10,16 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 /// <summary>
 /// #92: an interest-only strip's NOTIONAL is not subordination.
 ///
-/// <c>SubordinateClasses</c> / <c>SubordinateBalance</c> date from the initial commit and were
-/// correct for the deals they were written against, where an IO class carried no balance. #22
-/// then made pool-referenced IO strips carry the POOL balance as their balance
-/// (<c>InitNotionalBalances</c> / <c>SettleNotionalBalances</c>) so their interest and WAL
-/// compute — and added <c>CashflowType != InterestOnly</c> exclusions to the funded-class sets
-/// (<c>DealClasses</c>, and later principal allocation) so that notional would not leak into
-/// them. <c>SubordinateClasses</c> was never brought along.
+/// <c>SubordinateClasses</c> / <c>SubordinateBalance</c> date from the initial commit, and so does
+/// the <c>CashflowType != InterestOnly</c> exclusion on <c>DealClasses</c> — the funded set that
+/// <c>DynamicGroup.Balance()</c> sums. <c>SubordinateClasses</c> never had that exclusion, but while
+/// an IO class carried no balance it did not matter. #22 made pool-referenced IO strips carry the
+/// POOL balance as their balance (<c>InitNotionalBalances</c> / <c>SettleNotionalBalances</c>) so
+/// their interest and WAL compute, and from then on the missing exclusion counted.
 ///
 /// So a pool-sized notional was counted as loss-absorbing subordination beneath every senior
-/// class. Measured on a non-QM deal: a 6% delinquent pool was reported by
-/// <c>DelinquencySubordinateTrigger</c> as 4.95%, because the divisor was the funded
-/// subordinate balance PLUS one strip's pool-sized notional — exactly, to the dollar. Only one
-/// strip counted because the <c>ITranche</c> overload also filters on PayFrom: the
+/// class, and <c>DelinquencySubordinateTrigger</c> divided by the funded subordinate balance PLUS
+/// one strip's pool-sized notional. Only one strip counted because the <c>ITranche</c> overload also filters on PayFrom: the
 /// excess-servicing strip pays from <c>ExcessServicing</c> and was excluded, the excess-spread
 /// strip pays <c>Sequential</c> and was not.
 ///
@@ -82,10 +79,14 @@ public class IoNotionalIsNotSubordinationTests
             "6% of a 100M pool over the 40M funded beneath A1 — with the notional in the divisor " +
             "this reads about a third of that");
 
+        // Exact, not a bound. A `< 1.0` check here let a CreditSupport() hard-wired to return 0
+        // pass the whole suite — and with it the credit-enhancement trigger and every rule that
+        // reads credit support. Credit support is sampled before any principal is paid in the
+        // trigger, so period 1 is 40M funded beneath A1 over 100M funded: 0.40.
         var ce = TriggerValues(response, "CeTest")[0];
-        ce.Should().BeLessThan(1.0,
-            "credit support beneath A1 is a fraction of the funded notes; a pool-sized notional " +
-            "in the numerator pushes it past 1");
+        ce.Should().BeApproximately((M1Balance + B1Balance) / PoolBalance, 1e-9,
+            "credit support beneath A1 is the funded subordinate over the funded notes; a " +
+            "pool-sized notional in the numerator reads 1.40");
     }
 
     [Fact]
