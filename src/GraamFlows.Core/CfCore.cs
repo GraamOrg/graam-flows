@@ -443,19 +443,43 @@ public class CfCore
         IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
         IAssumptionMill assumps, IRateProvider rateProvider)
     {
+        return BuildReinvestment(basePool, cfg, firstProjDate, assumps, rateProvider).Cashflows;
+    }
+
+    /// <summary>
+    ///     As <see cref="BuildReinvestmentCashflows(IList{PeriodCashflows}, ReinvestmentConfig, DateTime, IAssumptionMill, IRateProvider)" />,
+    ///     and also returns the purchases the loop made.
+    /// </summary>
+    public static ReinvestmentResult BuildReinvestment(
+        IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
+        IAssumptionMill assumps, IRateProvider rateProvider)
+    {
         if (cfg.Templates.Count == 0 || basePool == null || basePool.Count == 0)
-            return new List<PeriodCashflows>();
+            return ReinvestmentResult.Empty;
         var sampleAsset = BuildReinvestAsset(cfg.Templates[0], 1.0, firstProjDate, rateProvider, 0);
         var reinvestAssumps = assumps.GetAssumptionsForAsset(sampleAsset);
-        return BuildReinvestmentCashflows(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider);
+        return BuildReinvestment(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider);
     }
 
     public static IList<PeriodCashflows> BuildReinvestmentCashflows(
         IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
         IAssetAssumptions reinvestAssumps, IRateProvider rateProvider)
     {
+        return BuildReinvestment(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider).Cashflows;
+    }
+
+    /// <summary>
+    ///     The reinvestment loop. Returns the bought collateral's cashflows — which carry the
+    ///     redirect of the principal that paid for them, so merging them into the base pool
+    ///     leaves collateral principal NET of purchases — and one <see cref="ReinvestmentPurchase" />
+    ///     per period that bought anything.
+    /// </summary>
+    public static ReinvestmentResult BuildReinvestment(
+        IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
+        IAssetAssumptions reinvestAssumps, IRateProvider rateProvider)
+    {
         cfg.Validate("");
-        var empty = new List<PeriodCashflows>();
+        var empty = ReinvestmentResult.Empty;
         if (cfg.Templates.Count == 0 || basePool == null || basePool.Count == 0)
             return empty;
 
@@ -485,6 +509,12 @@ public class CfCore
         var maxTerm = cfg.Templates.Max(t => t.TermMonths);
         var horizon = Math.Min(720, Math.Max(basePeriods, windowEndPeriod + maxTerm + 2));
 
+        // The pool's own date for each projection period. Purchases and bought collateral must be
+        // dated on it: the merge into the pool is keyed on the exact date, and a pool dated on
+        // month-ends does not sit on firstProjDate.AddMonths(t) (Feb 28 + 1 month is Mar 28, not
+        // Mar 31). A bought row that misses its period becomes a period of its own carrying the
+        // negative principal redirect, and the waterfall distributes principal twice.
+        var periodDates = new Dictionary<int, DateTime>();
         var baseBalance = new double[horizon];
         var baseSched = new double[horizon];
         var baseUnsched = new double[horizon];
@@ -493,6 +523,7 @@ public class CfCore
         {
             var p = MonthsBetween(firstProjDate, cf.CashflowDate);
             if (p < 0 || p >= horizon) continue;
+            periodDates.TryAdd(p, cf.CashflowDate);
             baseBalance[p] += cf.Balance;
             baseSched[p] += cf.ScheduledPrincipal;
             baseUnsched[p] += cf.UnscheduledPrincipal;
@@ -502,10 +533,11 @@ public class CfCore
         var cohortAccum = new CashflowResultArrays(horizon);
         var eligible = cfg.EligibleProceeds;
         var seq = 0;
+        var purchases = new List<ReinvestmentPurchase>();
 
         for (var t = 0; t < horizon; t++)
         {
-            var date = firstProjDate.AddMonths(t);
+            var date = PeriodDate(periodDates, firstProjDate, t);
             if (date > cfg.ReinvestEndDate) break;
             if (cfg.ReinvestStartDate.HasValue && date < cfg.ReinvestStartDate.Value) continue;
 
@@ -534,10 +566,12 @@ public class CfCore
             if (cohortStart >= horizon) continue;
 
             var cohortAssets = new List<IAsset>();
+            var byTemplate = new List<ReinvestmentTemplatePurchase>();
             var totalFace = 0.0;
             var cashSpent = 0.0;
-            foreach (var template in cfg.Templates)
+            for (var ti = 0; ti < cfg.Templates.Count; ti++)
             {
+                var template = cfg.Templates[ti];
                 var cash = reinvestCash * template.AllocationPct / 100.0;
                 if (cash < 0.005) continue;
                 // Cash buys face at the (par-for-synthetic) purchase price.
@@ -545,6 +579,10 @@ public class CfCore
                 totalFace += face;
                 cashSpent += cash;
                 cohortAssets.Add(BuildReinvestAsset(template, face, date, rateProvider, seq++));
+                byTemplate.Add(new ReinvestmentTemplatePurchase
+                {
+                    TemplateIndex = ti, CashSpent = cash, FaceBought = face, Price = template.EffectivePrice
+                });
             }
 
             if (cohortAssets.Count == 0) continue;
@@ -561,6 +599,21 @@ public class CfCore
             cohortAccum.ScheduledPrincipal[t] -= eligSched * hb * drawFraction;
             cohortAccum.UnscheduledPrincipal[t] -= eligUnsched * hb * drawFraction;
             cohortAccum.RecoveryPrincipal[t] -= eligRecov * hb * drawFraction;
+
+            purchases.Add(new ReinvestmentPurchase
+            {
+                ProjectionPeriod = t,
+                CashflowDate = date,
+                CashSpent = cashSpent,
+                FromScheduledPrincipal = eligSched * hb * drawFraction,
+                FromUnscheduledPrincipal = eligUnsched * hb * drawFraction,
+                FromRecoveryPrincipal = eligRecov * hb * drawFraction,
+                FaceBought = totalFace,
+                ProceedsAvailable = available,
+                PoolBalanceBefore = totalBalance,
+                TargetBalance = cfg.TargetAt(t),
+                ByTemplate = byTemplate
+            });
 
             // The purchased collateral appears at the end of period t: this
             // replaces the redirected principal in the pool balance (exactly, at
@@ -610,7 +663,38 @@ public class CfCore
         if (cohortAccum.NumberOfPeriods == 0)
             return empty;
 
-        return cohortAccum.ToPeriodCashflows(firstProjDate, reinvestGroup);
+        var cohortRows = cohortAccum.ToPeriodCashflows(firstProjDate, reinvestGroup);
+        for (var period = 0; period < cohortRows.Count; period++)
+            cohortRows[period].CashflowDate = PeriodDate(periodDates, firstProjDate, period);
+        return new ReinvestmentResult(cohortRows, purchases);
+    }
+
+    /// <summary>
+    ///     The date of projection period <paramref name="t" /> on the pool's own calendar: the
+    ///     pool's row date where it has one, otherwise whole months on from the latest earlier pool
+    ///     date (snapped to month-end when that date is a month-end), otherwise
+    ///     <paramref name="firstProjDate" /> plus <paramref name="t" /> months.
+    /// </summary>
+    private static DateTime PeriodDate(IReadOnlyDictionary<int, DateTime> poolDates, DateTime firstProjDate, int t)
+    {
+        if (poolDates.TryGetValue(t, out var exact))
+            return exact;
+
+        var anchorIndex = 0;
+        var anchor = firstProjDate;
+        var found = false;
+        foreach (var (index, date) in poolDates)
+        {
+            if (index > t || (found && index <= anchorIndex)) continue;
+            anchorIndex = index;
+            anchor = date;
+            found = true;
+        }
+
+        var shifted = anchor.AddMonths(t - anchorIndex);
+        return anchor.Day == DateTime.DaysInMonth(anchor.Year, anchor.Month)
+            ? new DateTime(shifted.Year, shifted.Month, DateTime.DaysInMonth(shifted.Year, shifted.Month))
+            : shifted;
     }
 
     private static int MonthsBetween(DateTime from, DateTime to)
