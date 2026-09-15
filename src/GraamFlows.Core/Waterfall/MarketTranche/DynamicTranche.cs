@@ -196,6 +196,10 @@ public class DynamicTranche : DynamicClass
         trancheCashflow.InterestShortfallPayback += interestShortfallPayback;
         trancheCashflow.AccumInterestShortfall -= interestShortfallPayback;
         var effCoupon = trancheCashflow.Interest / (balance * .01 * frac);
+        // A class written down to zero can still be owed a shortfall (termination pays it) —
+        // interest / 0 is Infinity, which does not serialize.
+        if (double.IsNaN(effCoupon) || double.IsInfinity(effCoupon))
+            effCoupon = 0;
         trancheCashflow.EffectiveCoupon = effCoupon;
     }
 
