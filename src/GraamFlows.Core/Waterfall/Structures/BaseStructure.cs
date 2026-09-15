@@ -772,10 +772,73 @@ public abstract class BaseStructure : IWaterfall
             }
         }
 
+        PayTerminationInterestShortfall(dynGroup, adjPeriodCf);
+
         foreach (var dynClass in dynGroup.DynamicClasses)
             if (dynClass.DealStructure == null ||
                 dynClass.DealStructure.PayFromEnum != PayFromEnum.Exchange)
                 dynClass.Pay(adjPeriodCf.CashflowDate, dynClass.Balance, 0);
+    }
+
+    /// <summary>
+    ///     Pays each class's accumulated interest shortfall out of the termination proceeds,
+    ///     before the balances are retired.
+    ///
+    ///     A redemption price is par PLUS accrued and unpaid interest. Retiring balances alone
+    ///     dropped whatever a class was owed and never paid, so a class carrying a shortfall at
+    ///     the call forfeited it and its to-call yield understated what the redemption pays. On a
+    ///     CLO called two years in at 2% CDR / 20% CPR / 30% severity, the three most junior
+    ///     rated classes forfeited roughly 1.8M, 0.6M and 3.0M.
+    ///
+    ///     The proceeds are the collateral balance outstanding at the end of the terminating
+    ///     period — the pool sold at par. They are applied in seniority order
+    ///     (<c>SubordinationOrder</c> ascending), and within each level a class's unpaid interest
+    ///     comes before its principal: level by level, the shortfall is paid first and then the
+    ///     level's balance is charged against what remains. Classes sharing a level are paid pro
+    ///     rata to what each is owed.
+    ///
+    ///     When the proceeds run out, the shortfall of every class they do not reach stays unpaid
+    ///     on <c>AccumInterestShortfall</c> in the terminating row — a real loss to that class,
+    ///     left visible rather than zeroed. Balance retirement is deliberately NOT gated on the
+    ///     proceeds: termination has always retired every balance and deals whose liabilities are
+    ///     not funded by the collateral balance depend on that, so a class's principal still
+    ///     reduces the proceeds available below it but is paid regardless.
+    ///
+    ///     Exchangeable views are skipped (they mirror their components), as are pool-notional
+    ///     strips' balances (a notional is not principal the proceeds must fund).
+    /// </summary>
+    protected void PayTerminationInterestShortfall(DynamicGroup dynGroup, PeriodCashflows adjPeriodCf)
+    {
+        var cfDate = adjPeriodCf.CashflowDate;
+        var proceeds = Math.Max(0, adjPeriodCf.Balance);
+
+        var levels = dynGroup.DynamicClasses
+            .Where(dc => !dc.Tranche.IsPseudo &&
+                         dc.DealStructure != null &&
+                         dc.DealStructure.PayFromEnum != PayFromEnum.Exchange &&
+                         !dc.IsExchangable())
+            .GroupBy(dc => dc.DealStructure.SubordinationOrder)
+            .OrderBy(level => level.Key);
+
+        foreach (var level in levels)
+        {
+            var classes = level.ToList();
+            var owed = classes.ToDictionary(dc => dc,
+                dc => dc.DynamicTranches.Sum(dt => Math.Max(0, dt.GetCashflow(cfDate).AccumInterestShortfall)));
+            var totalOwed = owed.Values.Sum();
+
+            if (totalOwed > 0 && proceeds > 0)
+            {
+                var paid = Math.Min(totalOwed, proceeds);
+                foreach (var dc in classes.Where(dc => owed[dc] > 0))
+                    dc.PayInterestShortfall(cfDate, paid * owed[dc] / totalOwed);
+                proceeds -= paid;
+            }
+
+            proceeds -= classes
+                .Where(dc => dc.RecievesPrincipal() && !dc.IsNotionalBalance)
+                .Sum(dc => Math.Max(0, dc.Balance));
+        }
     }
 
     protected virtual PeriodCashflows AdjustPeriodCashflows(DynamicGroup dynGroup, PeriodCashflows periodCf)
