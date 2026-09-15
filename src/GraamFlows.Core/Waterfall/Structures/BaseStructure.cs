@@ -829,10 +829,11 @@ public abstract class BaseStructure : IWaterfall
 
             if (totalOwed > 0 && proceeds > 0)
             {
-                var paid = Math.Min(totalOwed, proceeds);
-                foreach (var dc in classes.Where(dc => owed[dc] > 0))
-                    dc.PayInterestShortfall(cfDate, paid * owed[dc] / totalOwed);
-                proceeds -= paid;
+                var available = Math.Min(totalOwed, proceeds);
+                // Charge what was actually paid, not what was offered: PayInterestShortfall
+                // skips a sub-cent share.
+                proceeds -= classes.Where(dc => owed[dc] > 0)
+                    .Sum(dc => dc.PayInterestShortfall(cfDate, available * owed[dc] / totalOwed));
             }
 
             proceeds -= classes
