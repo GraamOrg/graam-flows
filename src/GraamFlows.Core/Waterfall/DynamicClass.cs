@@ -411,11 +411,6 @@ public class DynamicClass : IPayable
         tcf = new TrancheCashflow(adjDate, Tranche);
         tcf.BeginBalance = Balance;
         tcf.Balance = Balance;
-        // CumWritedown is class STATE, not a per-period amount, so every row this class mints
-        // has to carry it. Pay/Writedown/Writeup/IncreaseNotional each stamp it on their way
-        // out; a row minted only here (a period in which none of them runs) was left reading 0
-        // after the class had already been written down, which breaks the column's monotonicity.
-        tcf.CumWritedown = CumWritedown;
 
         var prevCf = GetPrevCashflow(cashflowDate);
         if (prevCf != null)
@@ -563,18 +558,34 @@ public class DynamicClass : IPayable
     ///
     ///     An XS strip has no principal to write down — its balance is the pool notional, reset
     ///     every period — so <see cref="Writedown" /> is never the path that books its loss and
-    ///     <see cref="CumWritedown" /> never advanced. The absorption is nevertheless REPORTED as
+    ///     <see cref="CumWritedown" /> never advanced. The absorption is nevertheless reported as
     ///     a writedown on the period row, which left the one class whose writedown column is the
-    ///     whole loss story showing a cumulative of zero in every period. The two fields have to
-    ///     move together here exactly as they do in <see cref="Writedown" />.
+    ///     whole loss story showing a cumulative of zero in every period.
     ///
-    ///     Deliberately confined to the TRANCHE rows the caller walks (those are the rows the
-    ///     waterfall response serializes). The CLASS counter is what
-    ///     <c>BaseStructure</c>'s reserve-funded write-up sizes its withdrawal against, and an
-    ///     excess-spread absorption is not a principal writedown a write-up may reverse.
+    ///     This makes the two columns consistent; it does not settle whether an excess-spread
+    ///     absorption belongs in a column called "writedown" at all. It is arguably already
+    ///     reflected once, in the reduced <c>cf.Interest</c> the strip releases, and reporting it
+    ///     again as a writedown makes <c>TrancheSummaryDto.WritedownPct</c> divide it by a
+    ///     pool-sized notional. That predates this method and is worth its own decision. What is
+    ///     not arguable is that a cumulative column pinned at zero beside a non-zero period
+    ///     column cannot be added up by a reader, so the two move together here exactly as they
+    ///     do in <see cref="Writedown" />.
+    ///
+    ///     Confined to the TRANCHE rows — those are the rows the waterfall response serializes,
+    ///     and the CLASS counter is what <c>BaseStructure</c>'s reserve-funded write-up sizes
+    ///     its withdrawal against (<c>DealClasses.Where(dc =&gt; dc.CumWritedown &gt; 0)</c>, then
+    ///     <c>fundsAccount.Debit(wd.CumWritedown)</c>). An excess-spread absorption is not a
+    ///     principal writedown a write-up may reverse, so letting it reach a class counter would
+    ///     withdraw reserve against a loss that was never written down. The type check ENFORCES
+    ///     that rather than leaving it to the call site: a doc comment is not a constraint.
     /// </summary>
-    public void AbsorbWritedownFromExcessSpread(TrancheCashflow cashflow, double absorbed)
+    internal void AbsorbWritedownFromExcessSpread(TrancheCashflow cashflow, double absorbed)
     {
+        if (this is not DynamicTranche)
+            throw new InvalidOperationException(
+                $"Excess-spread absorption must be recorded on a tranche row, not on class "
+                + $"{Tranche.TrancheName}: a class counter feeds the reserve-funded write-up.");
+
         cashflow.Writedown += absorbed;
         CumWritedown += absorbed;
         cashflow.CumWritedown = CumWritedown;
