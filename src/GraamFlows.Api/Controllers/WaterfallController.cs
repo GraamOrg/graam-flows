@@ -592,6 +592,23 @@ public class WaterfallController : ControllerBase
                 ForbearanceLiquidated = dto.ForbearanceLiquidated,
                 ForbearanceUnscheduled = dto.ForbearanceUnscheduled,
                 WAC = dto.Wac,
+                // Carried, not recomputed: `NetWac` is stated by the collateral the caller
+                // posts. The `CollateralCashflows(IList<PeriodCashflows>)` ctor only stores the
+                // list — the `NetInterest * 1200 / BeginBalance` recompute lives in
+                // AddAssetCashflow/AddPeriodCashflow, neither of which runs on this path — so a
+                // field dropped here is a field no later step puts back, and the collateral the
+                // waterfall returns reported a Net WAC of 0 on every period.
+                //
+                // A caller whose stream predates the field still gets the right number rather
+                // than a silent zero: derived with the engine's OWN rule, from the two values it
+                // derives it from everywhere else, and only when it was not stated.
+                NetWac = dto.NetWac != 0 || dto.BeginBalance == 0
+                    ? dto.NetWac
+                    : dto.NetInterest * 1200 / dto.BeginBalance,
+                // Stamped by the structure during the run, so an inbound value is the caller's
+                // and a run overwrites it. Carried so a CalcCollateral -> Waterfall round-trip
+                // does not silently discard a field the caller was just handed.
+                EffectiveWac = dto.EffectiveWac,
                 WAM = dto.Wam,
                 WALA = dto.Wala,
                 VPR = dto.Vpr,
