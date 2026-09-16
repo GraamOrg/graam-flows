@@ -1624,7 +1624,11 @@ public class ComposableStructure : BaseStructure
 
                 var absorbed = Math.Min(excessSpread, loss);
                 cf.Interest = excessSpread - absorbed; // XS releases less; it funded the loss
-                cf.Writedown += absorbed;              // report the loss XS absorbed via excess spread
+                // Report the loss XS absorbed via excess spread — period AND cumulative. Writing
+                // `cf.Writedown` on its own bypassed the only place CumWritedown advances
+                // (`DynamicClass.Writedown`, which XS never reaches because it has no principal),
+                // so the strip reported a per-period writedown against a cumulative stuck at 0.
+                dynTran.AbsorbWritedownFromExcessSpread(cf, absorbed);
                 loss -= absorbed;
                 if (loss <= 0.005)
                     break;
