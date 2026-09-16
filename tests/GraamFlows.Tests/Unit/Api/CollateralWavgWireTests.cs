@@ -76,51 +76,88 @@ public class CollateralWavgWireTests
         var response = Run(collateral);
 
         var rows = response.CollateralCashflows!;
-        rows.Should().NotBeEmpty("the run must return the collateral it distributed");
+        rows.Should().HaveCount(collateral.Count,
+            "OnlyContain below would pass on a one-row stream; pin the length first");
         rows[0].NetWac.Should().BeApproximately(collateral[0].NetWac, 1e-9);
         rows.Should().OnlyContain(r => r.NetWac > 0, "no period may report a net WAC of zero here");
     }
 
     [Fact]
-    public void An_unstated_net_wac_is_derived_rather_than_reported_as_zero()
+    public void An_unstated_net_wac_is_reported_unstated_not_invented()
     {
-        // A caller whose collateral predates the field gets the engine's own rule applied to
-        // the two values it derives net WAC from everywhere else — not a silent zero that a
-        // reader cannot tell apart from a real 0% net WAC.
+        // The counterpart pin. Deriving `NetWac` here from NetInterest/BeginBalance was tried
+        // and rejected: it would hand a caller who sets `NetInterest = Interest` a net WAC that
+        // is net of nothing, reported as confidently as a real one. A blank column a reader can
+        // investigate beats a plausible number they cannot. The fixture makes the difference
+        // observable — the derivation would have produced 8.75 here.
         var collateral = Collateral(statedNetWac: false);
+        collateral[0].NetInterest.Should().BeGreaterThan(0,
+            "the inputs a derivation would use must be present, or this pins nothing");
+
         var rows = Run(collateral).CollateralCashflows!;
 
-        var expected = collateral[0].NetInterest * 1200 / collateral[0].BeginBalance;
-        expected.Should().BeGreaterThan(0, "the fixture has to make the derivation observable");
-        rows[0].NetWac.Should().BeApproximately(expected, 1e-9);
+        rows[0].NetWac.Should().Be(0, "an unstated net WAC is unstated, not computed here");
+        rows[0].Wac.Should().BeApproximately(collateral[0].Wac, 1e-9,
+            "the field that WAS stated still arrives, so this is not a mapper that dropped both");
+    }
+
+    [Fact]
+    public void An_inbound_effective_wac_never_masquerades_as_the_runs_own()
+    {
+        // EffectiveWac is defined as what the structure stamped during the run. The write-back
+        // does not reach every period the mapper serializes, so carrying an inbound value made
+        // the untouched periods report the CALLER's number under that label. Post a value no
+        // run would produce and require that none of it survives.
+        var collateral = Collateral(statedNetWac: true);
+        foreach (var period in collateral)
+            period.EffectiveWac = 99.0;
+
+        // The notes first pay TWO periods after the collateral starts, which is the whole point:
+        // `ComposableStructure.cs:189` writes the run's EffectiveWac back only on the periods it
+        // reaches, and with the deal's first pay aligned to the first collateral row — as every
+        // other test here has it — it reaches all of them and overwrites the carry whether or not
+        // the carry exists. The leak lives exactly on the pre-first-pay rows, so a fixture with
+        // none of them cannot see it. Measured: this test passes with the defect restored when
+        // the offset is 0, and fails with it when the offset is 2.
+        var rows = Run(collateral, firstPayOffsetMonths: 2).CollateralCashflows!;
+
+        rows.Should().NotContain(r => r.EffectiveWac == 99.0,
+            "an inbound effective WAC is the caller's assertion, not the run's finding");
     }
 
     [Fact]
     public void The_effective_wac_the_run_struck_reaches_the_wire()
     {
-        // EffectiveWac is stamped during the run (net of the servicing fee and expenses), so
-        // unlike NetWac it is produced here rather than carried. It must be BELOW the gross WAC
-        // — equality would mean the expense step never ran and the assertion pins nothing.
-        var rows = Run(Collateral(statedNetWac: true)).CollateralCashflows!;
+        // EffectiveWac is stamped during the run, net of the servicing fee and expenses, so
+        // unlike NetWac it is PRODUCED here rather than carried. Pinned to the value the run
+        // struck, not merely "below the gross WAC": this deal states no expense tranche, so
+        // `expenses` is 0 and a below-gross check only re-tests the servicing-fee netting the
+        // NetWac case already covers. (A missing expense step would leave this 0, not equal to
+        // the gross WAC — so `< Wac` was not the guard it looked like either.)
+        var collateral = Collateral(statedNetWac: true);
+        var rows = Run(collateral).CollateralCashflows!;
 
-        rows[0].EffectiveWac.Should().BeGreaterThan(0);
-        rows[0].EffectiveWac.Should().BeLessThan(rows[0].Wac,
-            "the effective WAC is struck net of the servicing fee the expense step paid");
+        var struck = 1200 * (collateral[0].Interest - collateral[0].ServiceFee)
+                     / collateral[0].BeginBalance;
+        rows[0].EffectiveWac.Should().BeApproximately(struck, 1e-9);
+        rows[0].EffectiveWac.Should().BeGreaterThan(0).And.BeLessThan(rows[0].Wac);
     }
 
     // ------------------------------------------------------------------------------------------
 
-    private static WaterfallResponse Run(List<PeriodCashflowDto> collateral)
+    private static WaterfallResponse Run(List<PeriodCashflowDto> collateral,
+        int firstPayOffsetMonths = 0)
     {
         var controller = new WaterfallController(NullLogger<WaterfallController>.Instance);
-        var raw = controller.Execute(BuildRequest(collateral)).Result;
+        var raw = controller.Execute(BuildRequest(collateral, firstPayOffsetMonths)).Result;
         var ok = raw as OkObjectResult;
         ok.Should().NotBeNull($"the waterfall request should succeed, got {raw?.GetType().Name}: "
             + $"{(raw as ObjectResult)?.Value}");
         return (ok!.Value as WaterfallResponse)!;
     }
 
-    private static WaterfallRequest BuildRequest(List<PeriodCashflowDto> collateral) => new()
+    private static WaterfallRequest BuildRequest(List<PeriodCashflowDto> collateral,
+        int firstPayOffsetMonths) => new()
     {
         ProjectionDate = FirstPayDate.AddMonths(-1),
         CollateralCashflows = collateral,
@@ -132,8 +169,8 @@ public class CollateralWavgWireTests
             ClosingDate = FirstPayDate.AddMonths(-1),
             Tranches = new List<TrancheDto>
             {
-                Note("A1", 70_000_000, 0),
-                Note("B1", 30_000_000, 1)
+                Note("A1", 70_000_000, 0, firstPayOffsetMonths),
+                Note("B1", 30_000_000, 1, firstPayOffsetMonths)
             },
             UnifiedWaterfall = new UnifiedWaterfallDto
             {
@@ -157,7 +194,8 @@ public class CollateralWavgWireTests
         }
     };
 
-    private static TrancheDto Note(string name, double balance, int subOrder) => new()
+    private static TrancheDto Note(string name, double balance, int subOrder,
+        int firstPayOffsetMonths) => new()
     {
         TrancheName = name,
         OriginalBalance = balance,
@@ -166,7 +204,7 @@ public class CollateralWavgWireTests
         CouponType = "Fixed",
         FixedCoupon = 5.0,
         SubordinationOrder = subOrder,
-        FirstPayDate = FirstPayDate,
+        FirstPayDate = FirstPayDate.AddMonths(firstPayOffsetMonths),
         PayFrequency = 12,
         PayDay = FirstPayDate.Day
     };
