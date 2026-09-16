@@ -169,6 +169,21 @@ public class PeriodCashflowDto
     public double ForbearanceUnscheduled { get; set; }
     public double AccumForbearance { get; set; }
     public double Wac { get; set; }
+
+    /// <summary>
+    ///     WAC net of the servicing fee — <c>NetInterest * 1200 / BeginBalance</c>, computed on
+    ///     every period alongside <see cref="Wac" />. It was the one wavg the mapper never
+    ///     carried, so a consumer rendering a Net WAC column had nothing to render.
+    /// </summary>
+    public double NetWac { get; set; }
+
+    /// <summary>
+    ///     The WAC the WATERFALL actually distributed on, stamped by the structure during the
+    ///     run. Zero on <c>/api/CalcCollateral</c>, which returns collateral before any waterfall
+    ///     has touched it; real on the collateral the waterfall returns.
+    /// </summary>
+    public double EffectiveWac { get; set; }
+
     public double Wam { get; set; }
     public double Wala { get; set; }
     public double Vpr { get; set; }

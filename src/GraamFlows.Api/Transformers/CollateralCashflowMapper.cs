@@ -38,6 +38,8 @@ public static class CollateralCashflowMapper
                 ForbearanceUnscheduled = cf.ForbearanceUnscheduled,
                 AccumForbearance = cf.AccumForbearance,
                 Wac = cf.WAC,
+                NetWac = cf.NetWac,
+                EffectiveWac = cf.EffectiveWac,
                 Wam = cf.WAM,
                 Wala = cf.WALA,
                 Vpr = cf.VPR,
