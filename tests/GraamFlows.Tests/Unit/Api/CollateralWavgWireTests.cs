@@ -112,7 +112,14 @@ public class CollateralWavgWireTests
         foreach (var period in collateral)
             period.EffectiveWac = 99.0;
 
-        var rows = Run(collateral).CollateralCashflows!;
+        // The notes first pay TWO periods after the collateral starts, which is the whole point:
+        // `ComposableStructure.cs:189` writes the run's EffectiveWac back only on the periods it
+        // reaches, and with the deal's first pay aligned to the first collateral row — as every
+        // other test here has it — it reaches all of them and overwrites the carry whether or not
+        // the carry exists. The leak lives exactly on the pre-first-pay rows, so a fixture with
+        // none of them cannot see it. Measured: this test passes with the defect restored when
+        // the offset is 0, and fails with it when the offset is 2.
+        var rows = Run(collateral, firstPayOffsetMonths: 2).CollateralCashflows!;
 
         rows.Should().NotContain(r => r.EffectiveWac == 99.0,
             "an inbound effective WAC is the caller's assertion, not the run's finding");
@@ -138,17 +145,19 @@ public class CollateralWavgWireTests
 
     // ------------------------------------------------------------------------------------------
 
-    private static WaterfallResponse Run(List<PeriodCashflowDto> collateral)
+    private static WaterfallResponse Run(List<PeriodCashflowDto> collateral,
+        int firstPayOffsetMonths = 0)
     {
         var controller = new WaterfallController(NullLogger<WaterfallController>.Instance);
-        var raw = controller.Execute(BuildRequest(collateral)).Result;
+        var raw = controller.Execute(BuildRequest(collateral, firstPayOffsetMonths)).Result;
         var ok = raw as OkObjectResult;
         ok.Should().NotBeNull($"the waterfall request should succeed, got {raw?.GetType().Name}: "
             + $"{(raw as ObjectResult)?.Value}");
         return (ok!.Value as WaterfallResponse)!;
     }
 
-    private static WaterfallRequest BuildRequest(List<PeriodCashflowDto> collateral) => new()
+    private static WaterfallRequest BuildRequest(List<PeriodCashflowDto> collateral,
+        int firstPayOffsetMonths) => new()
     {
         ProjectionDate = FirstPayDate.AddMonths(-1),
         CollateralCashflows = collateral,
@@ -160,8 +169,8 @@ public class CollateralWavgWireTests
             ClosingDate = FirstPayDate.AddMonths(-1),
             Tranches = new List<TrancheDto>
             {
-                Note("A1", 70_000_000, 0),
-                Note("B1", 30_000_000, 1)
+                Note("A1", 70_000_000, 0, firstPayOffsetMonths),
+                Note("B1", 30_000_000, 1, firstPayOffsetMonths)
             },
             UnifiedWaterfall = new UnifiedWaterfallDto
             {
@@ -185,7 +194,8 @@ public class CollateralWavgWireTests
         }
     };
 
-    private static TrancheDto Note(string name, double balance, int subOrder) => new()
+    private static TrancheDto Note(string name, double balance, int subOrder,
+        int firstPayOffsetMonths) => new()
     {
         TrancheName = name,
         OriginalBalance = balance,
@@ -194,7 +204,7 @@ public class CollateralWavgWireTests
         CouponType = "Fixed",
         FixedCoupon = 5.0,
         SubordinationOrder = subOrder,
-        FirstPayDate = FirstPayDate,
+        FirstPayDate = FirstPayDate.AddMonths(firstPayOffsetMonths),
         PayFrequency = 12,
         PayDay = FirstPayDate.Day
     };
