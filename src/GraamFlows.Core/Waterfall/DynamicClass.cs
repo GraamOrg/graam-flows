@@ -566,10 +566,10 @@ public class DynamicClass : IPayable
     ///     absorption belongs in a column called "writedown" at all. It is arguably already
     ///     reflected once, in the reduced <c>cf.Interest</c> the strip releases, and reporting it
     ///     again as a writedown makes <c>TrancheSummaryDto.WritedownPct</c> divide it by a
-    ///     pool-sized notional. That predates this method and is worth its own decision. What is
-    ///     not arguable is that a cumulative column pinned at zero beside a non-zero period
-    ///     column cannot be added up by a reader, so the two move together here exactly as they
-    ///     do in <see cref="Writedown" />.
+    ///     pool-sized notional. That predates this method and is tracked as #99. What is not
+    ///     arguable is that a cumulative column pinned at zero beside a non-zero period column
+    ///     cannot be added up by a reader, so the two move together here exactly as they do in
+    ///     <see cref="Writedown" />.
     ///
     ///     Confined to the TRANCHE rows — those are the rows the waterfall response serializes,
     ///     and the CLASS counter is what <c>BaseStructure</c>'s reserve-funded write-up sizes
