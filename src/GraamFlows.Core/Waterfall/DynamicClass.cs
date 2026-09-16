@@ -411,6 +411,11 @@ public class DynamicClass : IPayable
         tcf = new TrancheCashflow(adjDate, Tranche);
         tcf.BeginBalance = Balance;
         tcf.Balance = Balance;
+        // CumWritedown is class STATE, not a per-period amount, so every row this class mints
+        // has to carry it. Pay/Writedown/Writeup/IncreaseNotional each stamp it on their way
+        // out; a row minted only here (a period in which none of them runs) was left reading 0
+        // after the class had already been written down, which breaks the column's monotonicity.
+        tcf.CumWritedown = CumWritedown;
 
         var prevCf = GetPrevCashflow(cashflowDate);
         if (prevCf != null)
@@ -551,6 +556,28 @@ public class DynamicClass : IPayable
         cashflow.CumWritedown = CumWritedown;
         Cashflows[adjDate] = cashflow;
         return cashflow;
+    }
+
+    /// <summary>
+    ///     Record a loss this class absorbed OUT OF EXCESS SPREAD rather than out of principal.
+    ///
+    ///     An XS strip has no principal to write down — its balance is the pool notional, reset
+    ///     every period — so <see cref="Writedown" /> is never the path that books its loss and
+    ///     <see cref="CumWritedown" /> never advanced. The absorption is nevertheless REPORTED as
+    ///     a writedown on the period row, which left the one class whose writedown column is the
+    ///     whole loss story showing a cumulative of zero in every period. The two fields have to
+    ///     move together here exactly as they do in <see cref="Writedown" />.
+    ///
+    ///     Deliberately confined to the TRANCHE rows the caller walks (those are the rows the
+    ///     waterfall response serializes). The CLASS counter is what
+    ///     <c>BaseStructure</c>'s reserve-funded write-up sizes its withdrawal against, and an
+    ///     excess-spread absorption is not a principal writedown a write-up may reverse.
+    /// </summary>
+    public void AbsorbWritedownFromExcessSpread(TrancheCashflow cashflow, double absorbed)
+    {
+        cashflow.Writedown += absorbed;
+        CumWritedown += absorbed;
+        cashflow.CumWritedown = CumWritedown;
     }
 
     public TrancheCashflow Writedown(DateTime cashflowDate, double writedownAmt)
