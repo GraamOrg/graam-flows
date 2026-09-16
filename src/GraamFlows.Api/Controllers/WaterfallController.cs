@@ -592,23 +592,29 @@ public class WaterfallController : ControllerBase
                 ForbearanceLiquidated = dto.ForbearanceLiquidated,
                 ForbearanceUnscheduled = dto.ForbearanceUnscheduled,
                 WAC = dto.Wac,
-                // Carried, not recomputed: `NetWac` is stated by the collateral the caller
-                // posts. The `CollateralCashflows(IList<PeriodCashflows>)` ctor only stores the
-                // list — the `NetInterest * 1200 / BeginBalance` recompute lives in
-                // AddAssetCashflow/AddPeriodCashflow, neither of which runs on this path — so a
-                // field dropped here is a field no later step puts back, and the collateral the
+                // Carried, never derived. Net WAC is a property of the collateral the CALLER
+                // states, and dropping it here dropped it for good: the
+                // `CollateralCashflows(IList<PeriodCashflows>)` ctor only stores the list — the
+                // `NetInterest * 1200 / BeginBalance` recompute lives in AddAssetCashflow /
+                // AddPeriodCashflow, neither of which runs on this path — so the collateral the
                 // waterfall returns reported a Net WAC of 0 on every period.
                 //
-                // A caller whose stream predates the field still gets the right number rather
-                // than a silent zero: derived with the engine's OWN rule, from the two values it
-                // derives it from everywhere else, and only when it was not stated.
-                NetWac = dto.NetWac != 0 || dto.BeginBalance == 0
-                    ? dto.NetWac
-                    : dto.NetInterest * 1200 / dto.BeginBalance,
-                // Stamped by the structure during the run, so an inbound value is the caller's
-                // and a run overwrites it. Carried so a CalcCollateral -> Waterfall round-trip
-                // does not silently discard a field the caller was just handed.
-                EffectiveWac = dto.EffectiveWac,
+                // Deriving it here instead was tried and rejected. It does not rescue the caller
+                // it would be for (a stream predating `netWac` usually predates `netInterest`
+                // too, and degrades to the same zero); it manufactures a confident wrong number
+                // for a caller who sets `NetInterest = Interest`, reporting a net WAC that is net
+                // of nothing where the column used to be honestly blank; and deriving one of the
+                // pair while carrying the other yields rows with net WAC above gross WAC. Every
+                // other site derives the two together (CollateralCashflows.cs:73-74, :114-115,
+                // CashflowResultArrays.cs:97-98) — a fourth, half-copy of that formula does not
+                // belong in a controller.
+                NetWac = dto.NetWac,
+                // EffectiveWac is deliberately NOT carried. It is defined as what the structure
+                // stamped during the run, and the write-back (ComposableStructure.cs:189) does
+                // not reach every period the mapper serializes — so carrying an inbound value
+                // makes the untouched periods report the CALLER's number under a label that says
+                // the run produced it, with no way to tell them apart. It is 0 on
+                // /api/CalcCollateral anyway, so carrying buys nothing and costs that.
                 WAM = dto.Wam,
                 WALA = dto.Wala,
                 VPR = dto.Vpr,
