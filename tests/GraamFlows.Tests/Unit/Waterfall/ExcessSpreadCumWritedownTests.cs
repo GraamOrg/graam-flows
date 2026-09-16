@@ -8,7 +8,7 @@ using Xunit;
 namespace GraamFlows.Tests.Unit.Waterfall;
 
 /// <summary>
-/// graam-harmony#5218 — the Cum WD column was blank on the excess-spread strip.
+/// graam-harmony#5221 — the Cum WD column was blank on the excess-spread strip.
 ///
 /// <c>CumWritedown</c> advances in exactly one place, <c>DynamicClass.Writedown</c>, and only
 /// <c>if (RecievesPrincipal())</c>. An XS strip receives no principal — its balance is the pool
