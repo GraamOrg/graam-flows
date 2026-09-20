@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using GraamFlows.Api.Models;
 using GraamFlows.Api.Transformers;
 using GraamFlows.Api.Validation;
@@ -43,6 +43,17 @@ public class CalcCollateralController : ControllerBase
         {
             _logger.LogWarning("CalcCollateral rejected: {ValidationError}", validationError);
             return BadRequest(new { error = validationError });
+        }
+
+        // Resolve the caller's market-rate curves HERE, where the request is still a request
+        // (graam-flows#102). A `marketRates` that resolved to nothing used to fall through to the
+        // same flat 5% as a request that sent no curves at all, and answered 200 — so a run
+        // priced on an index the caller never gave was indistinguishable from a correct one.
+        var marketRates = MarketRateResolver.Resolve(request.MarketRates);
+        if (marketRates.Error != null)
+        {
+            _logger.LogWarning("CalcCollateral rejected: {ValidationError}", marketRates.Error);
+            return BadRequest(new { error = marketRates.Error });
         }
 
         try
@@ -92,7 +103,7 @@ public class CalcCollateralController : ControllerBase
             // ARM/hybrid resets project off a forward curve when the request
             // supplies one (graam-flows#37); otherwise fall back to the legacy
             // flat rate. Fixed-rate loans ignore the provider entirely.
-            var rateProvider = BuildRateProvider(request.MarketRates, request.ProjectionDate);
+            var rateProvider = BuildRateProvider(marketRates, request.ProjectionDate);
 
             // Generate cashflows
             var collateralCashflows = CfCore.GenerateAssetCashflows(
@@ -105,6 +116,11 @@ public class CalcCollateralController : ControllerBase
 
             // Convert to response
             var response = ConvertToResponse(collateralCashflows, assets);
+
+            // Say what the run priced its floating indices on. Present on every successful
+            // response, not only the degraded ones: "the index was assumed" has to be readable
+            // from the answer, and a consumer cannot read a field that is only sometimes there.
+            response.MarketRateResolution = marketRates.Describe();
 
             stopwatch.Stop();
             _logger.LogInformation("CalcCollateral completed: {CashflowCount} cashflows, {TotalPeriods} periods, elapsed {ElapsedMs}ms",
@@ -213,29 +229,24 @@ public class CalcCollateralController : ControllerBase
 
     /// <summary>
     /// Build the ARM/hybrid reset rate provider (graam-flows#37). When the request
-    /// supplies <paramref name="marketRates"/>, resets project off a forward curve
-    /// per index (month-offset keyed, interpolated); otherwise fall back to the
+    /// supplies curves, resets project off a forward curve per index (month-offset
+    /// keyed, interpolated); a request that supplies NO curves falls back to the
     /// legacy flat 5% so fixed-rate and curve-less requests are unchanged.
+    ///
+    /// A request that supplied curves and landed none never reaches here — it is
+    /// rejected in <see cref="Calculate"/> (graam-flows#102), because answering it
+    /// with the flat rate means answering with a number the caller never gave.
     /// </summary>
     private static IRateProvider BuildRateProvider(
-        Dictionary<string, List<double[]>>? marketRates, DateTime projectionDate)
+        MarketRateResolution marketRates, DateTime projectionDate)
     {
-        if (marketRates == null || marketRates.Count == 0)
-            return new ConstantRateProvider(5.0);
+        if (marketRates.Error != null)
+            throw new InvalidOperationException(marketRates.Error);
 
-        var curves = new Dictionary<MarketDataInstEnum, List<double[]>>();
-        foreach (var (instName, points) in marketRates)
-        {
-            if (points == null || points.Count == 0)
-                continue;
-            if (Enum.TryParse<MarketDataInstEnum>(instName, ignoreCase: true, out var inst))
-                curves[inst] = points;
-        }
+        if (marketRates.UsesAssumedRate)
+            return new ConstantRateProvider(MarketRateResolver.AssumedFlatRate);
 
-        if (curves.Count == 0)
-            return new ConstantRateProvider(5.0);
-
-        return new CurveRateProvider(projectionDate, curves);
+        return new CurveRateProvider(projectionDate, marketRates.Curves);
     }
 
     // The Trim() here is paired with the one in AssumptionValidation: the validator
