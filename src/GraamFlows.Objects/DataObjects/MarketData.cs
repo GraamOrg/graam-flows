@@ -71,6 +71,8 @@ public class MarketData
                 return Swap12Y;
             case MarketDataInstEnum.Swap15Y:
                 return Swap15Y;
+            case MarketDataInstEnum.Swap20Y:
+                return Swap20Y;
             case MarketDataInstEnum.Swap25Y:
                 return Swap25Y;
             case MarketDataInstEnum.Swap30Y:
@@ -83,6 +85,96 @@ public class MarketData
                 return Sofr180Avg;
             case MarketDataInstEnum.SofrIndex:
                 return SofrIndex;
+            default:
+                throw new ArgumentException($"{mdInst} is not known!");
+        }
+    }
+
+    /// <summary>
+    ///     The mirror of <see cref="ValueForIndex" />: store the spot rate for one index.
+    ///
+    ///     It exists so that the set side and the read side are one switch apart in one file
+    ///     (graam-flows#102). The API's waterfall path carried its own copy of this mapping,
+    ///     and that copy had no case for nine of the nineteen swap tenors and no
+    ///     <c>default</c>: an index the caller spelled exactly right parsed, hit no
+    ///     unknown-name path, and was then dropped on the floor. Every field here is a bare
+    ///     <c>double</c>, so a dropped index is 0.0 and a floating instrument prices at its
+    ///     margin alone — a wrong number that looks like an ordinary one.
+    ///
+    ///     The <c>default</c> throws rather than ignoring: a member added to
+    ///     <see cref="MarketDataInstEnum" /> without a case here must fail loudly, not
+    ///     silently resolve to zero.
+    /// </summary>
+    public void SetValueForIndex(MarketDataInstEnum mdInst, double value)
+    {
+        switch (mdInst)
+        {
+            case MarketDataInstEnum.Libor1M:
+                Libor1M = value;
+                break;
+            case MarketDataInstEnum.Libor3M:
+                Libor3M = value;
+                break;
+            case MarketDataInstEnum.Libor6M:
+                Libor6M = value;
+                break;
+            case MarketDataInstEnum.Libor12M:
+                Libor12M = value;
+                break;
+            case MarketDataInstEnum.Swap2Y:
+                Swap2Y = value;
+                break;
+            case MarketDataInstEnum.Swap3Y:
+                Swap3Y = value;
+                break;
+            case MarketDataInstEnum.Swap4Y:
+                Swap4Y = value;
+                break;
+            case MarketDataInstEnum.Swap5Y:
+                Swap5Y = value;
+                break;
+            case MarketDataInstEnum.Swap6Y:
+                Swap6Y = value;
+                break;
+            case MarketDataInstEnum.Swap7Y:
+                Swap7Y = value;
+                break;
+            case MarketDataInstEnum.Swap8Y:
+                Swap8Y = value;
+                break;
+            case MarketDataInstEnum.Swap9Y:
+                Swap9Y = value;
+                break;
+            case MarketDataInstEnum.Swap10Y:
+                Swap10Y = value;
+                break;
+            case MarketDataInstEnum.Swap12Y:
+                Swap12Y = value;
+                break;
+            case MarketDataInstEnum.Swap15Y:
+                Swap15Y = value;
+                break;
+            case MarketDataInstEnum.Swap20Y:
+                Swap20Y = value;
+                break;
+            case MarketDataInstEnum.Swap25Y:
+                Swap25Y = value;
+                break;
+            case MarketDataInstEnum.Swap30Y:
+                Swap30Y = value;
+                break;
+            case MarketDataInstEnum.Sofr30Avg:
+                Sofr30Avg = value;
+                break;
+            case MarketDataInstEnum.Sofr90Avg:
+                Sofr90Avg = value;
+                break;
+            case MarketDataInstEnum.Sofr180Avg:
+                Sofr180Avg = value;
+                break;
+            case MarketDataInstEnum.SofrIndex:
+                SofrIndex = value;
+                break;
             default:
                 throw new ArgumentException($"{mdInst} is not known!");
         }
