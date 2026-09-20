@@ -202,6 +202,22 @@ public class ReinvestmentDto
     /// <summary>Reinvest recoveries (default false).</summary>
     public bool? ReinvestRecoveries { get; set; }
 
+    /// <summary>
+    ///     Optional end of a second, narrower reinvestment window running on from
+    ///     <see cref="ReinvestEndDate" />. Omit for the pre-existing behaviour (reinvestment
+    ///     stops at the reinvestment end date).
+    /// </summary>
+    public DateTime? PostReinvestmentEndDate { get; set; }
+
+    /// <summary>Reinvest scheduled principal in the post-reinvestment window (default false).</summary>
+    public bool? PostReinvestScheduledPrincipal { get; set; }
+
+    /// <summary>Reinvest prepayments in the post-reinvestment window (default true).</summary>
+    public bool? PostReinvestPrepayments { get; set; }
+
+    /// <summary>Reinvest recoveries in the post-reinvestment window (default true).</summary>
+    public bool? PostReinvestRecoveries { get; set; }
+
     /// <summary>Reinvestment asset templates; allocations sum to 100.</summary>
     public List<ReinvestTemplateDto> Templates { get; set; } = new();
 }
