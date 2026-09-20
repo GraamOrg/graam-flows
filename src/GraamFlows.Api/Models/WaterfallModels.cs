@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using GraamFlows.Objects.TypeEnum;
 
@@ -756,6 +756,13 @@ public class WaterfallResponse
     public List<TriggerResultDto>? TriggerResults { get; set; }
     public DateTime? TerminationDate { get; set; }
     public WaterfallSummaryDto Summary { get; set; } = new();
+
+    /// <summary>
+    ///     What the run priced its floating indices on (graam-flows#102). Present on every
+    ///     successful response: a consumer that needs to know whether a number rests on a supplied
+    ///     index or an assumed one reads <see cref="MarketRateResolutionDto.IndexSource" />.
+    /// </summary>
+    public MarketRateResolutionDto? MarketRateResolution { get; set; }
 
     /// <summary>
     ///     The collateral cashflows the waterfall distributed, returned only when the request sets
