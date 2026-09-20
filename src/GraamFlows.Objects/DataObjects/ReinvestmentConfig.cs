@@ -52,10 +52,44 @@ public record ReinvestmentConfig
         = EligibleProceeds.ScheduledPrincipal | EligibleProceeds.Prepayments;
 
     /// <summary>
+    ///     Optional end of a SECOND, narrower reinvestment window that runs on from
+    ///     <see cref="ReinvestEndDate" />. Null (the default) means reinvestment stops at the
+    ///     reinvestment end date, which is the pre-existing behaviour.
+    ///
+    ///     A CLO indenture commonly keeps reinvesting after the Reinvestment Period ends, but
+    ///     only out of UNSCHEDULED proceeds — typically defined as some percentage of principal
+    ///     from prepayments and credit-risk sales, with scheduled amortisation excluded and
+    ///     passed through as paydown instead. Modelling that as a longer single window
+    ///     overstates the pool, because it also reinvests scheduled principal; modelling it as
+    ///     no window at all understates liability interest and WAL. Both errors are silent.
+    /// </summary>
+    public DateTime? PostReinvestmentEndDate { get; init; }
+
+    /// <summary>
+    ///     Which proceeds are eligible in the post-reinvestment window. Defaults to unscheduled
+    ///     principal and recoveries — scheduled amortisation is deliberately NOT included,
+    ///     because that is the distinction the second window exists to draw.
+    /// </summary>
+    public EligibleProceeds PostReinvestmentEligibleProceeds { get; init; }
+        = EligibleProceeds.Prepayments | EligibleProceeds.Recoveries;
+
+    /// <summary>
     ///     Reinvestment asset templates. Eligible proceeds are split across them
     ///     by <see cref="ReinvestTemplate.AllocationPct" />.
     /// </summary>
     public IReadOnlyList<ReinvestTemplate> Templates { get; init; } = Array.Empty<ReinvestTemplate>();
+
+    /// <summary>
+    ///     Last date on which any reinvestment can occur — the post-reinvestment end when one is
+    ///     configured, else the reinvestment end. Single source of truth for the loop bound and
+    ///     the projection horizon, so the two cannot disagree.
+    /// </summary>
+    public DateTime EffectiveEndDate =>
+        PostReinvestmentEndDate is { } d && d > ReinvestEndDate ? d : ReinvestEndDate;
+
+    /// <summary>Proceeds eligible on <paramref name="date" />, by which window it falls in.</summary>
+    public EligibleProceeds EligibleOn(DateTime date) =>
+        date <= ReinvestEndDate ? EligibleProceeds : PostReinvestmentEligibleProceeds;
 
     /// <summary>Balance target for a given zero-based projection period.</summary>
     public double TargetAt(int period)
@@ -92,6 +126,9 @@ public record ReinvestmentConfig
             throw new InvalidOperationException($"{ctx} requires a reinvestEndDate");
         if (ReinvestStartDate.HasValue && ReinvestStartDate.Value > ReinvestEndDate)
             throw new InvalidOperationException($"{ctx} reinvestStartDate must be on or before reinvestEndDate");
+        if (PostReinvestmentEndDate.HasValue && PostReinvestmentEndDate.Value < ReinvestEndDate)
+            throw new InvalidOperationException(
+                $"{ctx} postReinvestmentEndDate must be on or after reinvestEndDate");
         if (Holdback < 0 || Holdback > 1)
             throw new InvalidOperationException($"{ctx} holdback must be in [0, 1] (got {Holdback})");
         if (Templates.Count == 0)

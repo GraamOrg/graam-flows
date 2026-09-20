@@ -22,6 +22,14 @@ public static class ReinvestmentConfigMapper
         if (dto.ReinvestPrepayments ?? true) eligible |= EligibleProceeds.Prepayments;
         if (dto.ReinvestRecoveries ?? false) eligible |= EligibleProceeds.Recoveries;
 
+        // Defaults differ from the main window ON PURPOSE: the post-reinvestment window exists
+        // to reinvest UNSCHEDULED proceeds only, so scheduled principal is opt-in here and
+        // recoveries are opt-out, the mirror of the main window's defaults.
+        var postEligible = EligibleProceeds.None;
+        if (dto.PostReinvestScheduledPrincipal ?? false) postEligible |= EligibleProceeds.ScheduledPrincipal;
+        if (dto.PostReinvestPrepayments ?? true) postEligible |= EligibleProceeds.Prepayments;
+        if (dto.PostReinvestRecoveries ?? true) postEligible |= EligibleProceeds.Recoveries;
+
         var templates = (dto.Templates ?? new List<ReinvestTemplateDto>())
             .Select(t => new ReinvestTemplate
             {
@@ -46,6 +54,8 @@ public static class ReinvestmentConfigMapper
             TargetSchedule = dto.TargetSchedule,
             Holdback = dto.Holdback,
             EligibleProceeds = eligible,
+            PostReinvestmentEndDate = dto.PostReinvestmentEndDate,
+            PostReinvestmentEligibleProceeds = postEligible,
             Templates = templates
         };
 
