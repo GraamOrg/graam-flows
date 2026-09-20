@@ -1,4 +1,4 @@
-namespace GraamFlows.Api.Models;
+﻿namespace GraamFlows.Api.Models;
 // ============== Request Models ==============
 
 public class CalcCollateralRequest
@@ -146,6 +146,13 @@ public class CalcCollateralResponse
 {
     public List<PeriodCashflowDto> Cashflows { get; set; } = new();
     public CollateralSummaryDto Summary { get; set; } = new();
+
+    /// <summary>
+    ///     What the run priced its floating indices on (graam-flows#102). Present on every
+    ///     successful response: a consumer that needs to know whether a number rests on a supplied
+    ///     index or an assumed one reads <see cref="MarketRateResolutionDto.IndexSource" />.
+    /// </summary>
+    public MarketRateResolutionDto? MarketRateResolution { get; set; }
 }
 
 public class PeriodCashflowDto

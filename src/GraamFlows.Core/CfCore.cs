@@ -1,4 +1,4 @@
-using GraamFlows.AssetCashflowEngine;
+﻿using GraamFlows.AssetCashflowEngine;
 using GraamFlows.Domain;
 using GraamFlows.Factories;
 using GraamFlows.Objects.DataObjects;
@@ -383,9 +383,10 @@ public class CfCore
         // Sweep ONLY the instruments the cohort's assets actually reference.
         // A full-enum sweep is unsafe: MarketDataInstEnum.None means "no index"
         // (fixed-rate), and a MarketData-backed provider (the HTTP path, #62/#64)
-        // throws on None AND on instruments its switch does not carry (e.g.
-        // Swap20Y) — the CLI's flat ConstantRateProvider(5.0) merely masked that
-        // by answering everything. Unreferenced rows stay zero and are never
+        // throws on None — the CLI's flat ConstantRateProvider(5.0) merely masked
+        // that by answering everything. The other half of this hazard, an index
+        // MarketData's switch did not carry, is gone as of #102: every defined
+        // member now round-trips, and only an undefined one throws. Unreferenced rows stay zero and are never
         // read: the amortizer indexes allRates by each asset's own IndexName.
         foreach (var inst in usedInsts.Where(i => i != MarketDataInstEnum.None).Distinct())
         {

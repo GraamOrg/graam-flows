@@ -1,7 +1,8 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Reflection;
 using GraamFlows.Api.Models;
 using GraamFlows.Api.Transformers;
+using GraamFlows.Api.Validation;
 using GraamFlows.Assumptions;
 using GraamFlows.Domain;
 using GraamFlows.Factories;
@@ -39,6 +40,18 @@ public class WaterfallController : ControllerBase
             return BadRequest(new { error = validationError });
         }
 
+        // Resolve the caller's market-rate curves HERE, where the request is still a request
+        // (graam-flows#102). This path did not even have the collateral path's flat-5% floor: a
+        // `marketRates` that resolved to nothing produced a MarketData whose fields were never
+        // assigned, and those are bare doubles — so the index was 0.0 and a floating note priced
+        // at its margin alone, under a 200.
+        var marketRates = MarketRateResolver.Resolve(request.MarketRates);
+        if (marketRates.Error != null)
+        {
+            _logger.LogWarning("Waterfall rejected: {ValidationError}", marketRates.Error);
+            return BadRequest(new { error = marketRates.Error });
+        }
+
         try
         {
             // Build deal from DTO, applying factors if provided
@@ -48,7 +61,7 @@ public class WaterfallController : ControllerBase
             var collateralCashflows = ConvertCollateralCashflows(request.CollateralCashflows);
 
             // Create rate provider
-            var rateProvider = BuildRateProvider(request.MarketRates);
+            var rateProvider = BuildRateProvider(marketRates);
 
             // Create assumptions. The first parameter of CreateConstAssumptions is the SETTLE
             // date, and this passed ProjectionDate for it unconditionally — the two are
@@ -103,6 +116,10 @@ public class WaterfallController : ControllerBase
 
             // Convert to response
             var response = ConvertToResponse(dealCashflows, settleDate);
+
+            // Say what the run priced its floating indices on — see CalcCollateralController for
+            // why this is on every successful response rather than only the degraded ones.
+            response.MarketRateResolution = marketRates.Describe();
 
             // Opt-in: the collateral the waterfall actually distributed. With reinvestment this
             // is the posted pool merged with the bought collateral — principal NET of purchases,
@@ -631,49 +648,34 @@ public class WaterfallController : ControllerBase
         return new CollateralCashflows(periodCashflows);
     }
 
-    private static IRateProvider BuildRateProvider(Dictionary<string, List<double[]>>? marketRates)
+    /// <summary>
+    ///     Build the rate provider from the already-resolved curves. A request that supplied no
+    ///     curves at all prices on the legacy flat rate, unchanged; a request that supplied curves
+    ///     and landed none never reaches here — <see cref="Execute"/> rejects it (graam-flows#102).
+    ///
+    ///     The index-to-field mapping lives on <see cref="MarketData"/> itself. The copy that used
+    ///     to live here had no case for nine of the nineteen swap tenors and no <c>default</c>, so
+    ///     a correctly-spelled Swap7Y parsed, hit no unknown-name path, and was dropped to 0.0.
+    /// </summary>
+    private static IRateProvider BuildRateProvider(MarketRateResolution marketRates)
     {
-        if (marketRates == null || !marketRates.Any())
-            return new ConstantRateProvider(5.0);
+        if (marketRates.Error != null)
+            throw new InvalidOperationException(marketRates.Error);
 
-        // Build a MarketData object mapping each instrument to its spot rate.
-        // Input format: {"Sofr30Avg": [[term, rate], ...], "Libor3M": [[term, rate], ...]}
-        // We use the shortest-term rate for each instrument as the current spot rate.
+        if (marketRates.UsesAssumedRate)
+            return new ConstantRateProvider(MarketRateResolver.AssumedFlatRate);
+
+        // This provider is flat in time, so each curve contributes one number: the
+        // shortest-offset point, as its spot rate. Every curve here is guaranteed to have at
+        // least one point of at least [offset, rate].
         var marketData = new MarketData();
-        foreach (var (instName, points) in marketRates)
+        foreach (var (inst, points) in marketRates.Curves)
         {
-            if (points == null || points.Count == 0) continue;
-
-            // Use the shortest-term point as the spot rate
             var spotPoint = points.OrderBy(p => p[0]).First();
-            if (spotPoint.Length < 2) continue;
-            var rate = spotPoint[1];
-
-            if (Enum.TryParse<MarketDataInstEnum>(instName, ignoreCase: true, out var inst))
-                SetMarketDataRate(marketData, inst, rate);
+            marketData.SetValueForIndex(inst, spotPoint[1]);
         }
 
         return new ConstantRateProvider(marketData);
-    }
-
-    private static void SetMarketDataRate(MarketData md, MarketDataInstEnum inst, double rate)
-    {
-        switch (inst)
-        {
-            case MarketDataInstEnum.Libor1M: md.Libor1M = rate; break;
-            case MarketDataInstEnum.Libor3M: md.Libor3M = rate; break;
-            case MarketDataInstEnum.Libor6M: md.Libor6M = rate; break;
-            case MarketDataInstEnum.Libor12M: md.Libor12M = rate; break;
-            case MarketDataInstEnum.Sofr30Avg: md.Sofr30Avg = rate; break;
-            case MarketDataInstEnum.Sofr90Avg: md.Sofr90Avg = rate; break;
-            case MarketDataInstEnum.Sofr180Avg: md.Sofr180Avg = rate; break;
-            case MarketDataInstEnum.SofrIndex: md.SofrIndex = rate; break;
-            case MarketDataInstEnum.Swap2Y: md.Swap2Y = rate; break;
-            case MarketDataInstEnum.Swap3Y: md.Swap3Y = rate; break;
-            case MarketDataInstEnum.Swap5Y: md.Swap5Y = rate; break;
-            case MarketDataInstEnum.Swap10Y: md.Swap10Y = rate; break;
-            case MarketDataInstEnum.Swap30Y: md.Swap30Y = rate; break;
-        }
     }
 
     /// <param name="settleDate">
