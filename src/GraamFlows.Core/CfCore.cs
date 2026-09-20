@@ -502,7 +502,10 @@ public class CfCore
         if (basePeriods <= 0)
             return empty;
 
-        var windowEndPeriod = MonthsBetween(firstProjDate, cfg.ReinvestEndDate);
+        // The horizon must cover the LAST date reinvestment can occur, not just the reinvestment
+        // period end — a post-reinvestment window buys collateral after that date, and collateral
+        // bought outside the horizon is silently dropped.
+        var windowEndPeriod = MonthsBetween(firstProjDate, cfg.EffectiveEndDate);
         if (windowEndPeriod < 0)
             return empty;
 
@@ -531,15 +534,20 @@ public class CfCore
         }
 
         var cohortAccum = new CashflowResultArrays(horizon);
-        var eligible = cfg.EligibleProceeds;
         var seq = 0;
         var purchases = new List<ReinvestmentPurchase>();
 
         for (var t = 0; t < horizon; t++)
         {
             var date = PeriodDate(periodDates, firstProjDate, t);
-            if (date > cfg.ReinvestEndDate) break;
+            if (date > cfg.EffectiveEndDate) break;
             if (cfg.ReinvestStartDate.HasValue && date < cfg.ReinvestStartDate.Value) continue;
+
+            // Eligibility is per WINDOW, not per deal: past the reinvestment period end the
+            // narrower post-reinvestment set applies, so scheduled amortisation stops being
+            // reinvested and pays down instead. Read inside the loop for that reason — hoisting
+            // it out is what makes the second window collapse into the first.
+            var eligible = cfg.EligibleOn(date);
 
             // Eligible principal proceeds and pool balance at end of period t,
             // across the original pool plus every cohort bought so far.
