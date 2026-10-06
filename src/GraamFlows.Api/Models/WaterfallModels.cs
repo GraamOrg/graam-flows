@@ -53,6 +53,24 @@ public class WaterfallRequest
     ///     a wrong number.
     /// </summary>
     public DateTime? SettleDate { get; set; }
+
+    /// <summary>
+    ///     The collateral assumptions the posted cashflows were projected under
+    ///     (graam-harmony#5577). Used ONLY to project collateral the reinvestment loop BUYS.
+    ///
+    ///     This endpoint takes collateral cashflows that are already projected, so it never
+    ///     needed prepayment or default assumptions for the posted pool — and did not have
+    ///     them. When graam-flows#62 added reinvestment over HTTP, the cohorts it buys were
+    ///     projected with the zeroed placeholder this controller builds for trigger forecasts,
+    ///     so every reinvested asset ran at CPR 0 / CDR 0 / severity 0: a pool that never
+    ///     prepays and never defaults, silently, inside an otherwise correct run.
+    ///
+    ///     Optional, and omitting it keeps the previous behaviour exactly — but the response's
+    ///     <see cref="WaterfallResponse.ReinvestmentAssumptionResolution" /> then says the
+    ///     cohorts ran on zeros, so a consumer is never left to assume otherwise.
+    /// </summary>
+    public AssumptionsDto? Assumptions { get; set; }
+
     public List<TriggerForecastDto>? TriggerForecasts { get; set; }
 
     /// <summary>
@@ -750,6 +768,19 @@ public class VarConditionDto
 
 // ============== Response Models ==============
 
+/// <summary>
+///     Whether the reinvestment loop had the run's collateral assumptions to project bought
+///     cohorts with (graam-harmony#5577).
+/// </summary>
+public class ReinvestmentAssumptionResolutionDto
+{
+    /// <summary>"supplied" when the request carried assumptions; "zeroed" when it did not.</summary>
+    public string Source { get; set; } = "";
+
+    /// <summary>Human-readable, for a run that has to disclose what it rests on.</summary>
+    public string Detail { get; set; } = "";
+}
+
 public class WaterfallResponse
 {
     public Dictionary<string, List<TrancheCashflowDto>> TrancheCashflows { get; set; } = new();
@@ -763,6 +794,14 @@ public class WaterfallResponse
     ///     index or an assumed one reads <see cref="MarketRateResolutionDto.IndexSource" />.
     /// </summary>
     public MarketRateResolutionDto? MarketRateResolution { get; set; }
+
+    /// <summary>
+    ///     What the reinvestment loop projected the collateral it BOUGHT on
+    ///     (graam-harmony#5577). Present only on a run that actually reinvests. Same contract
+    ///     as <see cref="MarketRateResolution" />: a consumer that needs to know whether a
+    ///     number rests on supplied assumptions or on zeros reads it rather than assuming.
+    /// </summary>
+    public ReinvestmentAssumptionResolutionDto? ReinvestmentAssumptionResolution { get; set; }
 
     /// <summary>
     ///     The collateral cashflows the waterfall distributed, returned only when the request sets
