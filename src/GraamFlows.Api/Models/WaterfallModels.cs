@@ -209,8 +209,9 @@ public class ReinvestmentDto
     public double[]? TargetSchedule { get; set; }
 
     /// <summary>
-    ///     Reinvest every eligible proceed with no balance target (default false). Mutually
-    ///     exclusive with Target / TargetSchedule: a target caps purchases, this removes the cap.
+    ///     Reinvest every eligible proceed with no balance target (default false). Wins over
+    ///     Target / TargetSchedule, which a caller may still send as the fallback an engine
+    ///     predating this field applies; purchases then report targetBalance null.
     /// </summary>
     public bool? ReinvestAllEligibleProceeds { get; set; }
 

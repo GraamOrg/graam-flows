@@ -48,8 +48,12 @@ public record ReinvestmentConfig
     ///     par" pays the purchase discount to the notes every period. A transaction whose
     ///     documents set a par level only as a FLOOR on trading (the pool after a purchase must
     ///     be at or above it) reinvests everything, and its pool accretes above that level.
-    ///     This expresses that; a cap expresses the other. Mutually exclusive with
-    ///     <see cref="Target" /> / <see cref="TargetSchedule" />.
+    ///     This expresses that; a cap expresses the other.
+    ///
+    ///     When set it WINS over <see cref="Target" /> / <see cref="TargetSchedule" />, which are
+    ///     then not used. Deliberately not refused: a caller can send a target alongside it as the
+    ///     fallback an engine predating this flag will apply (it ignores the unknown field), and
+    ///     read which one ran off <see cref="ReinvestmentPurchase.TargetBalance" /> — null here.
     /// </summary>
     public bool ReinvestAllEligibleProceeds { get; init; }
 
@@ -150,10 +154,6 @@ public record ReinvestmentConfig
         if (PostReinvestmentEndDate.HasValue && PostReinvestmentEndDate.Value < ReinvestEndDate)
             throw new InvalidOperationException(
                 $"{ctx} postReinvestmentEndDate must be on or after reinvestEndDate");
-        if (ReinvestAllEligibleProceeds && (Target != 0 || TargetSchedule is { Count: > 0 }))
-            throw new InvalidOperationException(
-                $"{ctx} sets both a target and reinvestAllEligibleProceeds — a target caps " +
-                "purchases and the flag removes the cap; send one");
         if (Holdback < 0 || Holdback > 1)
             throw new InvalidOperationException($"{ctx} holdback must be in [0, 1] (got {Holdback})");
         if (Templates.Count == 0)
