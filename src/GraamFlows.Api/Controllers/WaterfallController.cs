@@ -92,11 +92,38 @@ public class WaterfallController : ControllerBase
             // does: cohort cashflows from the posted base pool, appended before the
             // waterfall distributes. Additive — no config, no change.
             IList<ReinvestmentPurchase> purchases = new List<ReinvestmentPurchase>();
+            ReinvestmentAssumptionResolutionDto? reinvestResolution = null;
             if (deal.ReinvestmentConfig is { } reinvestCfg && reinvestCfg.Templates.Count > 0)
             {
                 var basePool = collateralCashflows.PeriodCashflows.ToList();
+
+                // graam-harmony#5577. `assumps` above is a ZEROED placeholder: this endpoint
+                // receives already-projected collateral, so it never needed prepay/default
+                // assumptions and CreateConstAssumptions(..., 0, 0, 0) was enough for trigger
+                // forecasts and the settle date. Reinvestment then reused it, and every bought
+                // cohort ran at CPR 0 / CDR 0 / severity 0 — measured on a live CLO: 71
+                // consecutive post-window periods with zero prepayments on a 20-CPR pool.
+                //
+                // Project cohorts on the assumptions the caller actually ran, when it says so.
+                // A caller that sends none keeps the old behaviour, and the response says which
+                // of the two happened rather than leaving it to be assumed.
+                var reinvestAssumps = request.Assumptions is { } adto
+                    ? AssumptionsFactory.CreateAssumptions(request.ProjectionDate, anchorAbsT, adto)
+                    : assumps;
+                reinvestResolution = new ReinvestmentAssumptionResolutionDto
+                {
+                    Source = request.Assumptions is null ? "zeroed" : "supplied",
+                    Detail = request.Assumptions is null
+                        ? "The request carried no `assumptions`, so collateral bought by the "
+                          + "reinvestment loop was projected at CPR 0 / CDR 0 / severity 0 — it "
+                          + "never prepays and never defaults. Send `assumptions` to project "
+                          + "bought cohorts on the same basis as the posted pool."
+                        : "Collateral bought by the reinvestment loop was projected on the "
+                          + "request's own `assumptions`, the same basis as the posted pool."
+                };
+
                 var reinvestment = CfCore.BuildReinvestment(
-                    basePool, reinvestCfg, firstProjDate, assumps, rateProvider);
+                    basePool, reinvestCfg, firstProjDate, reinvestAssumps, rateProvider);
                 var cohorts = reinvestment.Cashflows;
                 purchases = reinvestment.Purchases;
                 if (cohorts.Count > 0)
@@ -120,6 +147,10 @@ public class WaterfallController : ControllerBase
             // Say what the run priced its floating indices on — see CalcCollateralController for
             // why this is on every successful response rather than only the degraded ones.
             response.MarketRateResolution = marketRates.Describe();
+
+            // Say what the reinvestment loop projected BOUGHT collateral on (graam-harmony#5577).
+            // Null on a run that does not reinvest — there is nothing to disclose.
+            response.ReinvestmentAssumptionResolution = reinvestResolution;
 
             // Opt-in: the collateral the waterfall actually distributed. With reinvestment this
             // is the posted pool merged with the bought collateral — principal NET of purchases,
