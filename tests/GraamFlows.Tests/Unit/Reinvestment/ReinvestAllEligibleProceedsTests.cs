@@ -123,18 +123,22 @@ public class ReinvestAllEligibleProceedsTests
     }
 
     [Fact]
-    public void A_target_and_the_flag_together_are_refused()
+    public void The_flag_wins_over_a_target_sent_alongside_it()
     {
-        var both = Config(uncapped: true) with { Target = Start };
-        var act = () => both.Validate("D");
-        act.Should().Throw<InvalidOperationException>().WithMessage("*reinvestAllEligibleProceeds*");
+        // A caller sends a target as the fallback an older engine (which ignores the flag) will
+        // apply. This engine must not apply it: the run is byte-identical to the flag alone, and
+        // the purchases say so with a null target.
+        var alone = Loop(uncapped: true).Purchases;
+        var withFallback = CfCore.BuildReinvestment(
+            BasePool(), Config(uncapped: true) with { Target = Start }, Proj, ZeroAssumps(), null).Purchases;
+        var scheduled = CfCore.BuildReinvestment(
+            BasePool(), Config(uncapped: true) with { TargetSchedule = new[] { Start } }, Proj, ZeroAssumps(), null).Purchases;
 
-        var schedule = Config(uncapped: true) with { TargetSchedule = new[] { Start } };
-        var act2 = () => schedule.Validate("D");
-        act2.Should().Throw<InvalidOperationException>().WithMessage("*reinvestAllEligibleProceeds*");
-
-        var flagOnly = () => Config(uncapped: true).Validate("D");
-        flagOnly.Should().NotThrow();
+        alone.Should().NotBeEmpty();
+        withFallback.Select(p => p.CashSpent).Should().Equal(alone.Select(p => p.CashSpent));
+        scheduled.Select(p => p.CashSpent).Should().Equal(alone.Select(p => p.CashSpent));
+        withFallback.Should().OnlyContain(p => p.TargetBalance == null);
+        (Config(uncapped: true) with { Target = Start }).Invoking(c => c.Validate("D")).Should().NotThrow();
     }
 
     [Fact]
