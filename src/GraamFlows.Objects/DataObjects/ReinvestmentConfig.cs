@@ -39,6 +39,21 @@ public record ReinvestmentConfig
     public IReadOnlyList<double>? TargetSchedule { get; init; }
 
     /// <summary>
+    ///     Reinvest every eligible proceed (less <see cref="Holdback" />) with no balance target.
+    ///     Default false: purchases are sized by the target gap, as before.
+    ///
+    ///     A target sizes purchases as MAX(0, target − poolBalance) of CASH. Bought below par,
+    ///     that cash buys more face than the gap, the pool overshoots, and the next period's
+    ///     proceeds beyond the (now smaller) gap pass through as paydown — so a pool held "at
+    ///     par" pays the purchase discount to the notes every period. A transaction whose
+    ///     documents set a par level only as a FLOOR on trading (the pool after a purchase must
+    ///     be at or above it) reinvests everything, and its pool accretes above that level.
+    ///     This expresses that; a cap expresses the other. Mutually exclusive with
+    ///     <see cref="Target" /> / <see cref="TargetSchedule" />.
+    /// </summary>
+    public bool ReinvestAllEligibleProceeds { get; init; }
+
+    /// <summary>
     ///     Fraction of eligible proceeds released instead of reinvested (0 =
     ///     reinvest everything, 1 = release everything). Default 0.
     /// </summary>
@@ -105,6 +120,12 @@ public record ReinvestmentConfig
         return Target;
     }
 
+    /// <summary>
+    ///     The balance cap on purchases for a zero-based projection period, or null when
+    ///     <see cref="ReinvestAllEligibleProceeds" /> leaves purchases uncapped.
+    /// </summary>
+    public double? CapAt(int period) => ReinvestAllEligibleProceeds ? null : TargetAt(period);
+
     /// <summary>True when the given date is inside the reinvestment window.</summary>
     public bool IsInWindow(DateTime date)
     {
@@ -129,6 +150,10 @@ public record ReinvestmentConfig
         if (PostReinvestmentEndDate.HasValue && PostReinvestmentEndDate.Value < ReinvestEndDate)
             throw new InvalidOperationException(
                 $"{ctx} postReinvestmentEndDate must be on or after reinvestEndDate");
+        if (ReinvestAllEligibleProceeds && (Target != 0 || TargetSchedule is { Count: > 0 }))
+            throw new InvalidOperationException(
+                $"{ctx} sets both a target and reinvestAllEligibleProceeds — a target caps " +
+                "purchases and the flag removes the cap; send one");
         if (Holdback < 0 || Holdback > 1)
             throw new InvalidOperationException($"{ctx} holdback must be in [0, 1] (got {Holdback})");
         if (Templates.Count == 0)
