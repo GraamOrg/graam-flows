@@ -208,6 +208,12 @@ public class ReinvestmentDto
     /// <summary>Optional per-period balance target (index 0 = first projection period); clamps at the end.</summary>
     public double[]? TargetSchedule { get; set; }
 
+    /// <summary>
+    ///     Reinvest every eligible proceed with no balance target (default false). Mutually
+    ///     exclusive with Target / TargetSchedule: a target caps purchases, this removes the cap.
+    /// </summary>
+    public bool? ReinvestAllEligibleProceeds { get; set; }
+
     /// <summary>Fraction of eligible proceeds released instead of reinvested (default 0).</summary>
     public double Holdback { get; set; }
 
@@ -864,8 +870,8 @@ public class ReinvestmentPurchaseDto
     /// <summary>Collateral balance at period end before this purchase.</summary>
     public double PoolBalanceBefore { get; set; }
 
-    /// <summary>Balance target in force this period.</summary>
-    public double TargetBalance { get; set; }
+    /// <summary>Balance target in force this period; null when purchases are uncapped.</summary>
+    public double? TargetBalance { get; set; }
 
     /// <summary>The purchase split by reinvestment template, in template order.</summary>
     public List<ReinvestmentTemplatePurchaseDto> ByTemplate { get; set; } = new();

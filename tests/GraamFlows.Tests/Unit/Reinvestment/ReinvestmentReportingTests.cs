@@ -315,7 +315,7 @@ public class ReinvestmentReportingTests
         {
             var balance = response.CollateralCashflows!.Where(c => c.CashflowDate == purchase.CashflowDate)
                 .Sum(c => c.Balance);
-            balance.Should().BeApproximately(purchase.TargetBalance, 1e-6);
+            balance.Should().BeApproximately(purchase.TargetBalance!.Value, 1e-6);
         }
     }
 
