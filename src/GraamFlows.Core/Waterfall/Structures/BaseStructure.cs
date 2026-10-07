@@ -679,7 +679,11 @@ public abstract class BaseStructure : IWaterfall
 
     public virtual double WritedownAmt(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf)
     {
-        var writedownAmt = periodCf.DefaultedPrincipal - periodCf.RecoveryPrincipal;
+        // Recovery the reinvestment loop spent bought collateral that kept the pool at par — it
+        // is not a loss (graam-harmony#5596). Reading RecoveryPrincipal alone, which the loop has
+        // already reduced by that spend, wrote reinvesting CLOs down by ~2.7x their real loss.
+        var writedownAmt = periodCf.DefaultedPrincipal
+                           - (periodCf.RecoveryPrincipal + periodCf.ReinvestedRecoveryPrincipal);
         var forbWritedown = periodCf.ForbearanceLiquidated - periodCf.ForbearanceRecovery -
                             periodCf.ForbearanceUnscheduled;
         return writedownAmt + forbWritedown;

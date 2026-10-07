@@ -169,6 +169,14 @@ public class PeriodCashflowDto
     public double ServiceFee { get; set; }
     public double DefaultedPrincipal { get; set; }
     public double RecoveryPrincipal { get; set; }
+
+    /// <summary>
+    ///     Recovery spent on reinvestment purchases (graam-harmony#5596). Returned so the identity
+    ///     <c>defaulted = collateralLoss + recoveryPrincipal + reinvestedRecoveryPrincipal</c> is
+    ///     checkable on a reinvesting run. Zero otherwise.
+    /// </summary>
+    public double ReinvestedRecoveryPrincipal { get; set; }
+
     public double CollateralLoss { get; set; }
     public double DelinqBalance { get; set; }
     public double ForbearanceRecovery { get; set; }

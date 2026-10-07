@@ -608,6 +608,8 @@ public class CfCore
             cohortAccum.ScheduledPrincipal[t] -= eligSched * hb * drawFraction;
             cohortAccum.UnscheduledPrincipal[t] -= eligUnsched * hb * drawFraction;
             cohortAccum.RecoveryPrincipal[t] -= eligRecov * hb * drawFraction;
+            // Spent, not lost (graam-harmony#5596): carried so both loss formulas add it back.
+            cohortAccum.ReinvestedRecoveryPrincipal[t] += eligRecov * hb * drawFraction;
 
             purchases.Add(new ReinvestmentPurchase
             {

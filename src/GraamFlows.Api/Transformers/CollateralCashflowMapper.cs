@@ -1,4 +1,4 @@
-using GraamFlows.Api.Models;
+﻿using GraamFlows.Api.Models;
 using GraamFlows.Objects.DataObjects;
 
 namespace GraamFlows.Api.Transformers;
@@ -31,6 +31,7 @@ public static class CollateralCashflowMapper
                 ServiceFee = cf.ServiceFee,
                 DefaultedPrincipal = cf.DefaultedPrincipal,
                 RecoveryPrincipal = cf.RecoveryPrincipal,
+                ReinvestedRecoveryPrincipal = cf.ReinvestedRecoveryPrincipal,
                 CollateralLoss = cf.CollateralLoss,
                 DelinqBalance = cf.DelinqBalance,
                 ForbearanceRecovery = cf.ForbearanceRecovery,

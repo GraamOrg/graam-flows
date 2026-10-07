@@ -109,6 +109,11 @@ public class CollateralCashflows
                 existingCf.ForbearanceRecovery += periodCf.ForbearanceRecovery;
                 existingCf.ForbearanceLiquidated += periodCf.ForbearanceLiquidated;
                 existingCf.ModificationLoss += periodCf.ModificationLoss;
+                // graam-harmony#5596. This merge re-lists fields by hand rather than calling
+                // PeriodCashflows.Add, so a field added there is silently dropped here — the
+                // first cut of #5596 did exactly that, and the loss fix never reached the
+                // waterfall because the merged rows carried a zero.
+                existingCf.ReinvestedRecoveryPrincipal += periodCf.ReinvestedRecoveryPrincipal;
                 existingCf.WAM = periodCf.WAM;
                 existingCf.WALA = periodCf.WALA;
                 existingCf.WAC = existingCf.Interest * 1200 / existingCf.BeginBalance;
@@ -176,7 +181,10 @@ public class CollateralCashflows
                 periodCf.CumDefaultedPrincipalPct = cumDefault / firstCashflow.BeginBalance;
 
                 // total collat loss
-                periodCf.CollateralLoss = periodCf.DefaultedPrincipal - periodCf.RecoveryPrincipal;
+                // Same definition as BaseStructure.WritedownAmt: reinvested recovery is not a loss
+                // (graam-harmony#5596).
+                periodCf.CollateralLoss = periodCf.DefaultedPrincipal
+                                          - (periodCf.RecoveryPrincipal + periodCf.ReinvestedRecoveryPrincipal);
                 cumCollatLoss += periodCf.CollateralLoss;
                 periodCf.CumCollateralLoss = cumCollatLoss;
                 periodCf.CumCollateralLossPct = cumCollatLoss / firstCashflow.BeginBalance;
