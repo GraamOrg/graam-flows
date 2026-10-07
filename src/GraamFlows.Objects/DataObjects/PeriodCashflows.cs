@@ -1,4 +1,4 @@
-namespace GraamFlows.Objects.DataObjects;
+﻿namespace GraamFlows.Objects.DataObjects;
 
 public class PeriodCashflows
 {
@@ -105,6 +105,17 @@ public class PeriodCashflows
     /// </summary>
     public double ModificationLoss { get; set; }
 
+    /// <summary>
+    ///     Recovery proceeds the reinvestment loop SPENT on new collateral this period
+    ///     (graam-harmony#5596). The loop subtracts that cash from <see cref="RecoveryPrincipal" />
+    ///     — correctly, because spent cash must not also be distributed — but recovered cash that
+    ///     bought collateral was not LOST: it kept the pool at par. Loss is therefore
+    ///     <c>DefaultedPrincipal − (RecoveryPrincipal + ReinvestedRecoveryPrincipal)</c>. Without it,
+    ///     a reinvesting run booked every reinvested recovery as a loss and wrote the notes down
+    ///     by ~2.7x the economic loss. Zero on any run that does not reinvest.
+    /// </summary>
+    public double ReinvestedRecoveryPrincipal { get; set; }
+
     public double TotalCashflow()
     {
         return ScheduledPrincipal + UnscheduledPrincipal + Interest + RecoveryPrincipal + ForbearanceRecovery +
@@ -137,6 +148,7 @@ public class PeriodCashflows
         // the whole modification axis out of any path that clones a period (the deferred
         // termination fold does).
         clone.ModificationLoss = ModificationLoss;
+        clone.ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal;
         return clone;
     }
 
@@ -154,5 +166,6 @@ public class PeriodCashflows
         CollateralLoss += periodCf.CollateralLoss;
         Expenses += periodCf.Expenses;
         ModificationLoss += periodCf.ModificationLoss;
+        ReinvestedRecoveryPrincipal += periodCf.ReinvestedRecoveryPrincipal;
     }
 }

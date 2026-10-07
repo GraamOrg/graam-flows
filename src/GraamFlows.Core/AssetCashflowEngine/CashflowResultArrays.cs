@@ -1,4 +1,4 @@
-using GraamFlows.Objects.DataObjects;
+﻿using GraamFlows.Objects.DataObjects;
 
 namespace GraamFlows.AssetCashflowEngine;
 
@@ -28,6 +28,7 @@ public class CashflowResultArrays
         AdvancedInterest = new double[maxPeriods];
         ForbearanceRecovery = new double[maxPeriods];
         ForbearanceLiquidated = new double[maxPeriods];
+        ReinvestedRecoveryPrincipal = new double[maxPeriods];
         AccumForbearance = new double[maxPeriods];
         WAM = new double[maxPeriods];
         WALA = new double[maxPeriods];
@@ -53,6 +54,9 @@ public class CashflowResultArrays
     public double[] AdvancedInterest { get; }
     public double[] ForbearanceRecovery { get; }
     public double[] ForbearanceLiquidated { get; }
+
+    /// <summary>Recovery spent on reinvestment purchases (graam-harmony#5596). Not a loss.</summary>
+    public double[] ReinvestedRecoveryPrincipal { get; }
     public double[] AccumForbearance { get; }
     public double[] WAM { get; }
     public double[] WALA { get; }
@@ -86,6 +90,7 @@ public class CashflowResultArrays
                 AdvancedInterest = AdvancedInterest[period],
                 ForbearanceRecovery = ForbearanceRecovery[period],
                 ForbearanceLiquidated = ForbearanceLiquidated[period],
+                ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal[period],
                 AccumForbearance = AccumForbearance[period],
                 WAM = WAM[period],
                 WALA = WALA[period]
