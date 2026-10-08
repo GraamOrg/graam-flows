@@ -135,6 +135,16 @@ public class PeriodCashflows
         ScheduledPrincipal -= ScheduledPrincipal / totalPrin * prin;
     }
 
+    /// <summary>
+    ///     How many collateral months this period spends: 1 for a period distributed on its own
+    ///     date, more when earlier months were folded or held into it (a multi-month first
+    ///     Collection Period, or the months between a quarterly deal's Payment Dates). Read by
+    ///     formulas as <c>period_months</c>, so a fee stated per annum and "prorated for the
+    ///     related Interest Accrual Period" can be charged for the whole period it covers.
+    ///     Not summed by <see cref="Add" />: the period it is folded INTO sets it.
+    /// </summary>
+    public int CollateralMonths { get; set; } = 1;
+
     public PeriodCashflows Clone()
     {
         var clone = new PeriodCashflows(CashflowDate, ScheduledPrincipal, Balance, UnscheduledPrincipal, Interest,
@@ -148,6 +158,7 @@ public class PeriodCashflows
         // the whole modification axis out of any path that clones a period (the deferred
         // termination fold does).
         clone.ModificationLoss = ModificationLoss;
+        clone.CollateralMonths = CollateralMonths;
         clone.ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal;
         return clone;
     }
