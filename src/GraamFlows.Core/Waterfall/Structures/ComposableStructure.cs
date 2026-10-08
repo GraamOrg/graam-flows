@@ -398,9 +398,10 @@ public class ComposableStructure : BaseStructure
     /// </summary>
     private static int DistributionMonths(IDeal deal)
     {
-        // Expense rows are bookkeeping tranches the controller builds with a fixed monthly
-        // calendar; they are paid at the EXPENSE step of whatever period runs, so they follow
-        // the deal's calendar rather than state one.
+        // Expense rows are bookkeeping tranches: they are paid at the EXPENSE step of whatever
+        // period runs, so they follow the deal's calendar rather than state one. The readers copy
+        // a note's calendar onto them (ExpenseCalendar) only so their rows carry the notes' dates;
+        // a caller-built deal may still give them any frequency, so they are never counted here.
         var distinct = deal.Tranches
             .Where(t => t.CashflowTypeEnum != CashflowType.Expense)
             .Select(t => PayCalendar.MonthsPerPeriod(t.PayFrequency))

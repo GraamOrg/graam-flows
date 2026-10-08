@@ -490,6 +490,10 @@ public class WaterfallController : ControllerBase
             }
 
         // Build expenses as tranches with CashflowType=Expense
+        // An expense row is dated on the deal's calendar (its first note's), not a fixed monthly
+        // 25th: otherwise a quarterly deal paying on the 20th reports its fees on the 25th, a date
+        // no note row carries. See ExpenseCalendar.
+        var expenseCalendar = GraamFlows.Waterfall.ExpenseCalendar.CalendarTranche(deal);
         if (dto.Expenses != null && dto.Expenses.Any())
             foreach (var expDto in dto.Expenses)
             {
@@ -508,14 +512,10 @@ public class WaterfallController : ControllerBase
                     TrancheType = "Reference",
                     TrancheTypeEnum = TrancheTypeEnum.Reference,
                     ClassReference = expDto.ExpenseName,
-                    PayFrequency = 12,
                     PayDelay = 0,
-                    PayDay = 25,
-                    DayCount = "30/360",
-                    BusinessDayConvention = "Following",
-                    HolidayCalendar = "Settlement",
                     Deal = deal
                 };
+                GraamFlows.Waterfall.ExpenseCalendar.Apply(expenseTranche, expenseCalendar);
                 deal.Tranches.Add(expenseTranche);
 
                 // Create DealStructure with PayFrom=Expense so it's picked up by ExpenseClasses
