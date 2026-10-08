@@ -413,7 +413,8 @@ public class TestDealBuilder
         return this;
     }
 
-    public TestDealBuilder WithExpenseTranche(string name, double formulaAmount, int subOrder = 99)
+    public TestDealBuilder WithExpenseTranche(string name, double formulaAmount, int subOrder = 99,
+        string? formula = null)
     {
         _deal.Tranches.Add(new Tranche
         {
@@ -421,7 +422,7 @@ public class TestDealBuilder
             DealName = _deal.DealName,
             OriginalBalance = 0,
             Factor = 1.0,
-            CouponType = "None",
+            CouponType = "Formula", // as WaterfallController builds expense rows; "None" never compiles the formula
             TrancheType = "Offered",
             CashflowType = "Expense",
             ClassReference = name,
@@ -434,7 +435,7 @@ public class TestDealBuilder
             DayCount = "30/360",
             BusinessDayConvention = "Following",
             HolidayCalendar = "Settlement",
-            CouponFormula = formulaAmount.ToString("F2"),
+            CouponFormula = formula ?? formulaAmount.ToString("F2"),
             Deal = _deal
         });
 
