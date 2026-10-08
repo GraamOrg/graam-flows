@@ -216,7 +216,10 @@ public class CfCore
                 forbRecovDefaultTime,
                 allMarketRates,
                 origMdrTime: origMdrTime,
-                recoveryLag: recoveryLag);
+                recoveryLag: recoveryLag,
+                actual360Fractions: assetData.Actual360.Any(a => a)
+                    ? AccrualBasisParser.Actual360Fractions(firstProjDate, maxPeriods)
+                    : null);
 
             // Convert results to PeriodCashflows and add to deal cashflows
             var periodCashflows = results.ToPeriodCashflows(firstProjDate, groupNum);
@@ -645,7 +648,12 @@ public class CfCore
             var cohortResult = Amortizer.GenerateCashflows(
                 assetData, cohortStartAbsT, cohortEndAbsT,
                 m.Smm, m.Mdr, m.Sev, m.Del, m.DelAdvInt, m.DelAdvPrin, m.ForbP, m.ForbM, m.ForbD,
-                allMarketRates);
+                allMarketRates,
+                // Cohort period p is global period cohortStart + p, so its accrual month is the
+                // pool's: the fractions start at the cohort's first projected month.
+                actual360Fractions: assetData.Actual360.Any(a => a)
+                    ? AccrualBasisParser.Actual360Fractions(firstProjDate.AddMonths(cohortStart), cohortPeriods)
+                    : null);
 
             // Accumulate the cohort's per-period vectors at the global offset.
             for (var p = 0; p < cohortResult.MaxPeriods; p++)
@@ -735,6 +743,7 @@ public class CfCore
             AssetId = $"REINVEST_{originationDate:yyyyMMdd}_{seq}",
             InterestRateType = InterestRateType.FRM,
             AmortizationType = t.AmortizationType,
+            AccrualBasis = t.AccrualBasis,
             OriginalDate = originationDate,
             OriginalBalance = face,
             CurrentBalance = face,

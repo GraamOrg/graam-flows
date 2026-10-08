@@ -23,6 +23,7 @@ public class AssetDataArrays
         ServiceFee = new double[AssetCount];
         DebtService = new double[AssetCount];
         AmortizationType = new int[AssetCount];
+        Actual360 = new bool[AssetCount];
 
         InitialAdjustmentPeriod = new int[AssetCount];
         AdjustmentPeriod = new int[AssetCount];
@@ -65,6 +66,7 @@ public class AssetDataArrays
             ServiceFee[i] = asset.ServiceFee;
             DebtService[i] = asset.DebtService;
             AmortizationType[i] = (int)asset.AmortizationType;
+            Actual360[i] = asset.AccrualBasis == Objects.TypeEnum.AccrualBasis.Actual360;
 
             InitialAdjustmentPeriod[i] = asset.InitialAdjustmentPeriod;
             AdjustmentPeriod[i] = asset.AdjustmentPeriod;
@@ -101,6 +103,12 @@ public class AssetDataArrays
     ///     scheduled-amortization path.
     /// </summary>
     public int[] AmortizationType { get; }
+
+    /// <summary>
+    ///     True where the asset accrues Actual/360 (<see cref="GraamFlows.Objects.TypeEnum.AccrualBasis" />);
+    ///     false keeps the 30/360 accrual.
+    /// </summary>
+    public bool[] Actual360 { get; }
 
     // ARM data
     public int[] InitialAdjustmentPeriod { get; }

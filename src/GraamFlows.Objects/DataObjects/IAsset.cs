@@ -16,6 +16,12 @@ public interface IAsset
     /// </summary>
     AmortizationType AmortizationType { get; set; }
 
+    /// <summary>
+    ///     How the coupon accrues per period. Defaults to <see cref="AccrualBasis.Thirty360" /> so
+    ///     existing assets and payloads accrue exactly as before.
+    /// </summary>
+    AccrualBasis AccrualBasis { get; set; }
+
     DateTime OriginalDate { get; set; }
     double OriginalBalance { get; set; }
     double OriginalInterestRate { get; set; }
