@@ -43,6 +43,21 @@ public record ReinvestTemplate
     /// <summary>Spread over the index for a floating coupon (annual %).</summary>
     public double IndexMargin { get; init; }
 
+    /// <summary>
+    ///     Floor on the INDEX of a floating coupon (annual %): the coupon is
+    ///     <c>max(index, IndexFloor) + IndexMargin</c>. Null (the default) applies none. A loan's
+    ///     index floor is its most common floor; with the index below it, ignoring it understates
+    ///     the bought collateral's coupon by the whole gap.
+    /// </summary>
+    public double? IndexFloor { get; init; }
+
+    /// <summary>
+    ///     All-in COUPON floor (annual %): the coupon is never below it. Null applies none. When a
+    ///     template states both, the binding one wins: <c>max(max(index, IndexFloor) + margin,
+    ///     LifeFloor)</c>.
+    /// </summary>
+    public double? LifeFloor { get; init; }
+
     /// <summary>Term to maturity in months.</summary>
     public int TermMonths { get; init; }
 
