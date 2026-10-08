@@ -719,15 +719,24 @@ public class CfCore
     ///     Instantiate a reinvested asset from a template and a face amount,
     ///     originated on <paramref name="originationDate" />. Floating templates
     ///     are resolved to an effective fixed coupon at origination (index +
-    ///     margin) — a v1 approximation that avoids the curve-offset a mid-stream
-    ///     cohort would otherwise hit in the ARM path.
+    ///     margin, after the template's index and life floors) — a v1 approximation that avoids
+    ///     the curve-offset a mid-stream cohort would otherwise hit in the ARM path.
     /// </summary>
     private static Asset BuildReinvestAsset(ReinvestTemplate t, double face, DateTime originationDate,
         IRateProvider rateProvider, int seq)
     {
         var couponPct = t.CouponRate;
         if (t.IndexName != MarketDataInstEnum.None && rateProvider != null)
-            couponPct = rateProvider.GetRate(t.IndexName, originationDate) + t.IndexMargin;
+        {
+            // The floors bind at the rate this asset is fixed at (see the summary): an index floor
+            // floors the index, a life floor the all-in coupon, and the binding one wins.
+            var index = rateProvider.GetRate(t.IndexName, originationDate);
+            if (t.IndexFloor is { } indexFloor)
+                index = Math.Max(index, indexFloor);
+            couponPct = index + t.IndexMargin;
+            if (t.LifeFloor is { } lifeFloor)
+                couponPct = Math.Max(couponPct, lifeFloor);
+        }
 
         return new Asset
         {
