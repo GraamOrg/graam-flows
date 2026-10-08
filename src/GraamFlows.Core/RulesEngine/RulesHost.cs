@@ -48,6 +48,8 @@ namespace GraamFlows.RulesEngine
         public double eff_wac = 0;
         public double wac = 0;
         public double begin_balance = 0;
+        /// <summary>Collateral months this distribution spends (<see cref="PeriodCashflows.CollateralMonths" />).</summary>
+        public double period_months = 1;
         public double forbearance_amt = 0;
         public double bal_at_issuance = 0;
         public double net_loss;
@@ -97,6 +99,7 @@ namespace GraamFlows.RulesEngine
             net_wac = periodCf.NetWac;
             wac = periodCf.WAC;
             begin_balance = periodCf.BeginBalance;
+            period_months = periodCf.CollateralMonths;
             forbearance_amt = periodCf.AccumForbearance;
             eff_wac = periodCf.EffectiveWac;
             bal_at_issuance = dynGroup.Deal.BalanceAtIssuance;

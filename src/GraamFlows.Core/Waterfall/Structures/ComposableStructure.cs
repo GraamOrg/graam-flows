@@ -1,5 +1,6 @@
 using GraamFlows.Objects.DataObjects;
 using GraamFlows.Objects.TypeEnum;
+using GraamFlows.Objects.Util;
 using GraamFlows.RulesEngine;
 using GraamFlows.Triggers;
 using GraamFlows.Util;
@@ -63,6 +64,17 @@ public class ComposableStructure : BaseStructure
             : deal.ExecutionOrder.ToList();
 
         var dealTerminated = false;
+
+        // The distribution calendar. Collateral is projected monthly; a deal that pays less often
+        // collects over a multi-month Collection Period and distributes it on the Payment Date, so
+        // the months between pay dates are HELD and spent together on the next one. A monthly deal
+        // (every deal before this) never holds anything and runs exactly as before.
+        var monthsPerPeriod = DistributionMonths(deal);
+        var firstPayDate = deal.Tranches.FirstOrDefault()?.FirstPayDate ?? DateTime.MinValue;
+        var lastDateByGroup = periodCashflows
+            .GroupBy(pc => pc.GroupNum)
+            .ToDictionary(g => g.Key, g => g.Max(pc => pc.CashflowDate));
+        var heldUntilPayDate = new Dictionary<string, List<PeriodCashflows>>();
 
         foreach (var period in periodCashflows.GroupBy(pc => pc.CashflowDate))
         {
@@ -152,10 +164,38 @@ public class ComposableStructure : BaseStructure
 
                 groupsAwaitingFirstPay.Remove(periodCf.GroupNum);
 
+                // Not a distribution month: hold the collateral for the next Payment Date. The
+                // tape's last date always distributes, so a projection that ends mid-period is
+                // spent rather than stranded.
+                if (monthsPerPeriod > 1
+                    && !PayCalendar.IsPayMonth(periodCf.CashflowDate, firstPayDate, monthsPerPeriod)
+                    && periodCf.CashflowDate < lastDateByGroup[periodCf.GroupNum])
+                {
+                    if (!heldUntilPayDate.TryGetValue(periodCf.GroupNum, out var held))
+                        heldUntilPayDate[periodCf.GroupNum] = held = new List<PeriodCashflows>();
+                    if (cashflowsBeforeFirstPay.Remove(periodCf.GroupNum, out var preBoundary))
+                        held.AddRange(preBoundary);
+                    held.Add(periodCf);
+                    continue;
+                }
+
+                if (heldUntilPayDate.Remove(periodCf.GroupNum, out var heldCfs))
+                {
+                    foreach (var heldCf in heldCfs)
+                        adjPeriodCf.Add(heldCf);
+                    // The Collection Period OPENS at its earliest month: that is the balance a
+                    // fee struck on "the Fee Basis Amount at the beginning of the Collection
+                    // Period" reads, and the one interest-coverage is measured against.
+                    adjPeriodCf.BeginBalance = heldCfs[0].BeginBalance;
+                    dynGroup.BeginCollatBalance = adjPeriodCf.BeginBalance;
+                    adjPeriodCf.CollateralMonths += heldCfs.Count;
+                }
+
                 if (cashflowsBeforeFirstPay.ContainsKey(periodCf.GroupNum))
                 {
                     foreach (var prevCf in cashflowsBeforeFirstPay[periodCf.GroupNum])
                         adjPeriodCf.Add(prevCf);
+                    adjPeriodCf.CollateralMonths += cashflowsBeforeFirstPay[periodCf.GroupNum].Count;
                     cashflowsBeforeFirstPay.Remove(periodCf.GroupNum);
                 }
 
@@ -191,6 +231,12 @@ public class ComposableStructure : BaseStructure
                 periodTriggerValues.AddRange(triggerValues);
                 periodCfList.Add(adjPeriodCf);
             }
+
+            // A date on which every group was held distributed nothing, so there is nothing for
+            // the overlay to mirror. Scoped to non-monthly deals so a monthly deal's pre-boundary
+            // dates run exactly as before.
+            if (monthsPerPeriod > 1 && periodCfList.Count == 0)
+                continue;
 
             // MACR / exchangeable + notional overlay (ported from MutableStructure).
             // After every group's primary distribution for this period, derive the
@@ -343,6 +389,31 @@ public class ComposableStructure : BaseStructure
             if (tranche.FirstSettleDate < onePeriodBefore)
                 tranche.FirstSettleDate = onePeriodBefore;
         }
+    }
+
+    /// <summary>
+    ///     Months between distributions, from the tranches' <c>PayFrequency</c>. One calendar per
+    ///     deal: tranches that disagree are refused rather than resolved to one of them, since the
+    ///     waterfall distributes every class on the same dates.
+    /// </summary>
+    private static int DistributionMonths(IDeal deal)
+    {
+        // Expense rows are bookkeeping tranches the controller builds with a fixed monthly
+        // calendar; they are paid at the EXPENSE step of whatever period runs, so they follow
+        // the deal's calendar rather than state one.
+        var distinct = deal.Tranches
+            .Where(t => t.CashflowTypeEnum != CashflowType.Expense)
+            .Select(t => PayCalendar.MonthsPerPeriod(t.PayFrequency))
+            .Distinct()
+            .ToList();
+        if (distinct.Count > 1)
+            throw new DealModelingException(deal.DealName,
+                "Tranches state different payment frequencies ("
+                + string.Join(", ", deal.Tranches
+                    .Where(t => t.CashflowTypeEnum != CashflowType.Expense)
+                    .Select(t => $"{t.TrancheName}={t.PayFrequency}"))
+                + "); the waterfall distributes every class on one calendar.");
+        return distinct.FirstOrDefault(1);
     }
 
     /// <summary>
