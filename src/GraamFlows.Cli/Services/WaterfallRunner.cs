@@ -403,6 +403,10 @@ public class WaterfallRunner
             }
 
         // Build expenses
+        // An expense row is dated on the deal's calendar (its first note's), not a fixed monthly
+        // 25th: otherwise a quarterly deal paying on the 20th reports its fees on the 25th, a date
+        // no note row carries. See ExpenseCalendar.
+        var expenseCalendar = GraamFlows.Waterfall.ExpenseCalendar.CalendarTranche(deal);
         if (dto.Expenses != null && dto.Expenses.Any())
             foreach (var expDto in dto.Expenses)
             {
@@ -420,14 +424,10 @@ public class WaterfallRunner
                     TrancheType = "Reference",
                     TrancheTypeEnum = TrancheTypeEnum.Reference,
                     ClassReference = expDto.ExpenseName,
-                    PayFrequency = 12,
                     PayDelay = 0,
-                    PayDay = 25,
-                    DayCount = "30/360",
-                    BusinessDayConvention = "Following",
-                    HolidayCalendar = "Settlement",
                     Deal = deal
                 };
+                GraamFlows.Waterfall.ExpenseCalendar.Apply(expenseTranche, expenseCalendar);
                 deal.Tranches.Add(expenseTranche);
 
                 var expenseStructure = new DealStructure
