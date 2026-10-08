@@ -52,6 +52,7 @@ public static class ReinvestmentConfigMapper
             ReinvestStartDate = dto.ReinvestStartDate,
             Target = dto.Target,
             TargetSchedule = dto.TargetSchedule,
+            ReinvestAllEligibleProceeds = dto.ReinvestAllEligibleProceeds ?? false,
             Holdback = dto.Holdback,
             EligibleProceeds = eligible,
             PostReinvestmentEndDate = dto.PostReinvestmentEndDate,

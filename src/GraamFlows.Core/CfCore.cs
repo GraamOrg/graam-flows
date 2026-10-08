@@ -562,7 +562,9 @@ public class CfCore
 
             var available = proceeds * (1.0 - cfg.Holdback);
             var totalBalance = baseBalance[t] + cohortAccum.Balance[t];
-            var gap = Math.Max(0.0, cfg.TargetAt(t) - totalBalance);
+            // Uncapped (ReinvestAllEligibleProceeds): every eligible dollar buys collateral.
+            var cap = cfg.CapAt(t);
+            var gap = cap is { } c ? Math.Max(0.0, c - totalBalance) : double.PositiveInfinity;
             var reinvestCash = Math.Min(available, gap);
             if (reinvestCash < 1.0) continue;
 
@@ -622,7 +624,7 @@ public class CfCore
                 FaceBought = totalFace,
                 ProceedsAvailable = available,
                 PoolBalanceBefore = totalBalance,
-                TargetBalance = cfg.TargetAt(t),
+                TargetBalance = cap,
                 ByTemplate = byTemplate
             });
 

@@ -46,8 +46,8 @@ public record ReinvestmentPurchase
     /// <summary>Collateral balance at the end of the period before this purchase.</summary>
     public double PoolBalanceBefore { get; init; }
 
-    /// <summary>Balance target in force this period.</summary>
-    public double TargetBalance { get; init; }
+    /// <summary>Balance target in force this period; null when purchases are uncapped.</summary>
+    public double? TargetBalance { get; init; }
 
     /// <summary>The purchase split by reinvestment template, in template order.</summary>
     public IReadOnlyList<ReinvestmentTemplatePurchase> ByTemplate { get; init; } =
