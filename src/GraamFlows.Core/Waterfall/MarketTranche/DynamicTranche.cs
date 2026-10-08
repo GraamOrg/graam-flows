@@ -1,4 +1,5 @@
 ﻿using GraamFlows.Objects.DataObjects;
+using GraamFlows.Objects.Util;
 using GraamFlows.Objects.TypeEnum;
 using GraamFlows.RulesEngine;
 using GraamFlows.Util;
@@ -316,7 +317,10 @@ public class DynamicTranche : DynamicClass
     public virtual DateTime PreviousPayDate(DateTime cashflowDate)
     {
         var busDayConv = CalendarFactory.GetBusinessDayConvention(Tranche.BusinessDayConvention);
-        var datePrev = Calendar.AdvanceMonth(cashflowDate, Tranche.PayDay, -1, busDayConv);
+        // One distribution period back: a month for a monthly deal, three for a quarterly one.
+        // Hard-coded to one month before, so a quarterly note accrued only the period's last month.
+        var monthsBack = PayCalendar.MonthsPerPeriod(Tranche.PayFrequency);
+        var datePrev = Calendar.AdvanceMonth(cashflowDate, Tranche.PayDay, -monthsBack, busDayConv);
         if (datePrev < Tranche.FirstSettleDate || Tranche.FirstPayDate > datePrev)
             datePrev = Tranche.FirstSettleDate;
 
