@@ -1,6 +1,7 @@
 using GraamFlows.Api.Models;
 using GraamFlows.Objects.DataObjects;
 using GraamFlows.Objects.TypeEnum;
+using GraamFlows.Objects.Util;
 
 namespace GraamFlows.Api.Transformers;
 
@@ -38,6 +39,7 @@ public static class ReinvestmentConfigMapper
                 IsSynthetic = t.IsSynthetic,
                 InterestRateType = t.InterestRateType,
                 AmortizationType = t.AmortizationType,
+                AccrualBasis = AccrualBasisParser.Parse(t.DayCount),
                 CouponRate = t.CouponRate,
                 IndexName = t.IndexName,
                 IndexMargin = t.IndexMargin,

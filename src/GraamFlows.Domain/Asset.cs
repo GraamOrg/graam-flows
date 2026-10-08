@@ -60,6 +60,8 @@ public class Asset : IAsset
 
     [Database("Forbearance_Amt")] public double? ForbearanceAmt { get; set; }
 
+    public AccrualBasis AccrualBasis { get; set; } = AccrualBasis.Thirty360;
+
     [Database("Step_Dates_List")] public string StepDatesList { get; set; }
 
     [Database("Step_Rates_List")] public string StepRatesList { get; set; }

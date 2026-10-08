@@ -34,6 +34,12 @@ public static class Amortizer
     /// (12 / payment frequency): 1 = monthly (default), 3 = quarterly, etc. Scales per-period
     /// interest/service-fee accrual, seasoning, and the amortization-schedule term. At the default
     /// of 1 every factor reduces to identity, so the monthly path is byte-for-byte unchanged.</param>
+    /// <param name="actual360Fractions">Per-period Actual/360 year fractions (actual days / 360),
+    /// indexed like the assumption arrays. Required when any asset accrues
+    /// <see cref="AccrualBasis.Actual360" />: such an asset's period interest is
+    /// annual rate × fraction × balance instead of annual rate / 12 × balance. The scheduled
+    /// payment stays on the nominal monthly rate, so a level-pay Actual/360 loan pays more interest
+    /// and less principal in a long month, as such loans do. Ignored for 30/360 assets.</param>
     public static CashflowResultArrays GenerateCashflows(
         AssetDataArrays assetData,
         int startTime,
@@ -51,9 +57,17 @@ public static class Amortizer
         double[][]? absTime = null,
         double[][]? origMdrTime = null,
         int[]? recoveryLag = null,
-        int monthsPerPeriod = 1)
+        int monthsPerPeriod = 1,
+        double[]? actual360Fractions = null)
     {
         if (monthsPerPeriod < 1) monthsPerPeriod = 1;
+        if (actual360Fractions == null && assetData.Actual360.Any(a => a))
+            throw new ArgumentException(
+                "An asset accrues Actual/360 but no per-period day fractions were supplied.",
+                nameof(actual360Fractions));
+        if (actual360Fractions != null && monthsPerPeriod != 1 && assetData.Actual360.Any(a => a))
+            throw new NotSupportedException(
+                "Actual/360 accrual is defined on monthly projection periods only.");
 
         // Per-period rate divisor. Monthly is annualPct / 1200 (= /100 /12);
         // a longer period accrues over more months, so divide by 1200/mpp.
@@ -121,6 +135,7 @@ public static class Amortizer
             var amortType = rawAmortizationType[assetIndex];
             var isBullet = amortType == (int)AmortizationType.Bullet;
             var isPik = amortType == (int)AmortizationType.Pik;
+            var accruesActual360 = assetData.Actual360[assetIndex];
 
             // PIK + delinquency is unsupported: the delinquency-advance formulas
             // assume a cash coupon, but a PIK coupon is capitalized (cash interest
@@ -287,7 +302,9 @@ public static class Amortizer
                         currentAdjustmentPeriod--;
                     }
 
-                    interestPaid = rate * cashflowBalance;
+                    interestPaid = accruesActual360
+                        ? annRatePct / 100.0 * actual360Fractions![period] * cashflowBalance
+                        : rate * cashflowBalance;
 
                     if (age <= ioTerm)
                     {

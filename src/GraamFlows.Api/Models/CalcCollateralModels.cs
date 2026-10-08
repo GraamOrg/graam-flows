@@ -73,6 +73,12 @@ public class AssetDto
     public double DebtService { get; set; }
     public string GroupNum { get; set; } = "0";
 
+    /// <summary>
+    ///     The coupon's day count: "30/360" (the default when absent) or "Actual/360". Any other
+    ///     spelling is rejected rather than accrued as 30/360.
+    /// </summary>
+    public string? DayCount { get; set; }
+
     // ARM-specific fields
     public int InitialAdjustmentPeriod { get; set; }
     public int AdjustmentPeriod { get; set; }

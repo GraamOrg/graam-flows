@@ -227,6 +227,7 @@ public class CalcCollateralController : ControllerBase
             ServiceFee = dto.ServiceFee,
             DebtService = dto.DebtService,
             GroupNum = dto.GroupNum,
+            AccrualBasis = AccrualBasisParser.Parse(dto.DayCount),
             IsIO = dto.IsIO,
             IOTerm = dto.IOTerm,
             ForbearanceAmt = dto.ForbearanceAmt,

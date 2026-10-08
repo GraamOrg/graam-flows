@@ -34,6 +34,12 @@ public record ReinvestTemplate
     /// <summary>Principal-repayment style. Reinvested collateral is typically bullet.</summary>
     public AmortizationType AmortizationType { get; init; } = AmortizationType.Bullet;
 
+    /// <summary>
+    ///     How the reinvested asset's coupon accrues. 30/360 by default (unchanged); Actual/360
+    ///     for collateral that accrues actual days, as SOFR-based loans do.
+    /// </summary>
+    public AccrualBasis AccrualBasis { get; init; } = AccrualBasis.Thirty360;
+
     /// <summary>Fixed coupon rate (annual %), used when the coupon is fixed.</summary>
     public double CouponRate { get; init; }
 
