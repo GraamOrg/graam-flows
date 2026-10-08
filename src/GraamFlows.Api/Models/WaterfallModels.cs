@@ -268,6 +268,12 @@ public class ReinvestTemplateDto
     /// <summary>Principal-repayment style (typically Bullet for reinvested collateral).</summary>
     public AmortizationType AmortizationType { get; set; } = AmortizationType.Bullet;
 
+    /// <summary>
+    ///     The reinvested asset's day count: "30/360" (the default when absent) or "Actual/360".
+    ///     Any other spelling is rejected.
+    /// </summary>
+    public string? DayCount { get; set; }
+
     /// <summary>Fixed coupon rate (annual %).</summary>
     public double CouponRate { get; set; }
 
