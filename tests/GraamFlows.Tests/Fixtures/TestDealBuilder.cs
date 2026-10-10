@@ -29,6 +29,7 @@ public class TestDealBuilder
     private ReinvestmentConfig? _reinvestmentConfig;
     private List<CoverageLevelConfig>? _coverageCascade;
     private IncentiveFeeConfig? _incentiveFee;
+    private InterestDiversionConfig? _interestDiversion;
 
     public TestDealBuilder(
         string dealName = TestConstants.DefaultDealName,
@@ -509,6 +510,13 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>Configures a reinvestment-period interest diversion test.</summary>
+    public TestDealBuilder WithInterestDiversion(InterestDiversionConfig config)
+    {
+        _interestDiversion = config;
+        return this;
+    }
+
     /// <summary>Configures a fee on the residual's distributions above a hurdle IRR.</summary>
     public TestDealBuilder WithIncentiveFee(IncentiveFeeConfig config)
     {
@@ -653,6 +661,8 @@ public class TestDealBuilder
             _deal.CoverageCascade = _coverageCascade;
         if (_incentiveFee != null)
             _deal.IncentiveFee = _incentiveFee;
+        if (_interestDiversion != null)
+            _deal.InterestDiversion = _interestDiversion;
 
         // Add pay rules
         for (var i = 0; i < _payRuleFormulas.Count; i++)

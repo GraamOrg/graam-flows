@@ -40,6 +40,12 @@ public record ReinvestmentPurchase
     /// </summary>
     public double FaceBought { get; init; }
 
+    /// <summary>
+    /// Portion of <see cref="CashSpent" /> that was cash diverted from interest (an interest
+    /// diversion cure), not principal proceeds. Zero otherwise.
+    /// </summary>
+    public double FromAdditionalCash { get; init; }
+
     /// <summary>Eligible principal proceeds available to reinvest this period, after holdback.</summary>
     public double ProceedsAvailable { get; init; }
 
