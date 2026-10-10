@@ -65,6 +65,10 @@ public class ComposableStructure : BaseStructure
 
         var dealTerminated = false;
 
+        // A fee on the residual's distributions above a hurdle IRR (a CLO incentive management
+        // fee). One per run: it carries the residual's running present value across periods.
+        var incentiveFee = deal.IncentiveFee is { } incentiveCfg ? new IncentiveFeeHurdle(incentiveCfg, deal) : null;
+
         // The distribution calendar. Collateral is projected monthly; a deal that pays less often
         // collects over a multi-month Collection Period and distributes it on the Payment Date, so
         // the months between pay dates are HELD and spent together on the next one. A monthly deal
@@ -224,6 +228,10 @@ public class ComposableStructure : BaseStructure
                     ExecuteTermination(dynGroup, adjPeriodCf, applyWritedown: false);
                     dealTerminated = true;
                 }
+
+                // After every step AND any termination payoff: everything the residual received on
+                // this Payment Date is on its cashflow, so the hurdle splits all of it.
+                incentiveFee?.Apply(dynGroup, adjPeriodCf.CashflowDate);
 
                 dynGroup.Advance(adjPeriodCf.CashflowDate);
                 periodCf.EffectiveWac = adjPeriodCf.EffectiveWac;

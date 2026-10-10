@@ -385,6 +385,7 @@ public class WaterfallRunner
 
         // CLO per-level OC/IC coverage cascade (graam-flows#65).
         deal.CoverageCascade = CoverageCascadeMapper.Map(dto.UnifiedWaterfall?.CoverageCascade, dto.DealName);
+        deal.IncentiveFee = IncentiveFeeMapper.Map(dto.UnifiedWaterfall?.IncentiveFee, dto.DealName);
 
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())

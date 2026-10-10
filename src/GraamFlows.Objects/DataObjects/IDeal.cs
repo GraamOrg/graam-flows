@@ -75,6 +75,12 @@ public interface IDeal : IPayRuleAssemblyStore
     IList<CoverageLevelConfig>? CoverageCascade { get; }
 
     /// <summary>
+    /// A fee on the residual class's distributions above a hurdle IRR (optional) — see
+    /// <see cref="IncentiveFeeConfig" />. Absent, the residual keeps everything, as before.
+    /// </summary>
+    IncentiveFeeConfig? IncentiveFee { get; }
+
+    /// <summary>
     /// Controls interleaving of INTEREST and PRINCIPAL steps.
     /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
     /// </summary>
