@@ -283,6 +283,12 @@ public class ReinvestTemplateDto
     /// <summary>Spread over the index for a floating coupon (annual %).</summary>
     public double IndexMargin { get; set; }
 
+    /// <summary>Floor on the index of a floating coupon (annual %); null applies none.</summary>
+    public double? IndexFloor { get; set; }
+
+    /// <summary>All-in coupon floor (annual %); null applies none.</summary>
+    public double? LifeFloor { get; set; }
+
     /// <summary>Term to maturity in months.</summary>
     public int TermMonths { get; set; }
 

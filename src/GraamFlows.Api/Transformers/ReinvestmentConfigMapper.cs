@@ -43,6 +43,8 @@ public static class ReinvestmentConfigMapper
                 CouponRate = t.CouponRate,
                 IndexName = t.IndexName,
                 IndexMargin = t.IndexMargin,
+                IndexFloor = t.IndexFloor,
+                LifeFloor = t.LifeFloor,
                 TermMonths = t.TermMonths,
                 ServiceFee = t.ServiceFee
             })
