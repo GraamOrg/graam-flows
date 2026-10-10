@@ -28,6 +28,9 @@ namespace GraamFlows.Waterfall.Structures;
 /// </summary>
 public class ComposableStructure : BaseStructure
 {
+    // Per run: what the interest diversion test diverted, returned on the DealCashflows.
+    private List<InterestDiversionResult> _interestDiversions = new();
+
     public override DealCashflows Waterfall(IDeal deal, IRateProvider rateProvider, DateTime firstProjectionDate,
         CollateralCashflows cashflows, IAssumptionMill assumps, ITrancheAllocator trancheAllocator)
     {
@@ -64,6 +67,7 @@ public class ComposableStructure : BaseStructure
             : deal.ExecutionOrder.ToList();
 
         var dealTerminated = false;
+        _interestDiversions = new List<InterestDiversionResult>();
 
         // A fee on the residual's distributions above a hurdle IRR (a CLO incentive management
         // fee). One per run: it carries the residual's running present value across periods.
@@ -284,6 +288,7 @@ public class ComposableStructure : BaseStructure
         }
 
         var dealCashflows = dynDeal.DynamicGroups.CreateDealCashflows(cashflows, assumps);
+        dealCashflows.InterestDiversions = _interestDiversions;
         return dealCashflows;
     }
 
@@ -656,6 +661,7 @@ public class ComposableStructure : BaseStructure
         // Execute steps in order
         var waterfallOrder = deal.WaterfallOrder;
         var interleavedDone = false;
+        var interestDiversionApplied = false;
 
         foreach (var step in executionOrder)
         {
@@ -729,6 +735,12 @@ public class ComposableStructure : BaseStructure
 
                 case "EXCESS":
                 case "EXCESS_RELEASE":
+                    if (!interestDiversionApplied)
+                    {
+                        availableInterest = ApplyInterestDiversion(deal, dynGroup, adjPeriodCf, availableInterest);
+                        interestDiversionApplied = true;
+                    }
+
                     PayExcessReleaseStep(dynGroup, adjPeriodCf, availableInterest);
                     availableInterest = 0;
                     break;
@@ -765,6 +777,8 @@ public class ComposableStructure : BaseStructure
             dynGroup.DynamicClasses.Any(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
                 ? 0.0
                 : availableSchedPrin + availablePrepayPrin + availableRecovPrin;
+        if (!interestDiversionApplied)
+            availableInterest = ApplyInterestDiversion(deal, dynGroup, adjPeriodCf, availableInterest);
         CreditResidual(dynGroup, adjPeriodCf, availableInterest, residualPrincipal);
     }
 
@@ -936,6 +950,58 @@ public class ComposableStructure : BaseStructure
     ///     "coverage_diverted" variable. Collateral interest treatment only (no
     ///     reserve draw / no Guaranteed top-up — CLO notes are unguaranteed).
     /// </summary>
+    private double CoverageNumerator(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf) =>
+        DealCarriesVariable(deal, AcpaVariableName)
+            ? dynGroup.GetVariable(AcpaVariableName, periodCf.CashflowDate)
+            : periodCf.Balance + periodCf.ScheduledPrincipal
+              + periodCf.UnscheduledPrincipal + periodCf.RecoveryPrincipal;
+
+    /// <summary>
+    ///     The reinvestment-period interest diversion test (<see cref="InterestDiversionConfig" />):
+    ///     run on the interest left after every note's interest and the coverage tests, before the
+    ///     residual. On a failing Payment Date the lesser of the cap and the cure leaves the
+    ///     waterfall — it buys collateral, which the caller's reinvestment loop books on the next
+    ///     pass (<c>CfCore.RunReinvestingWaterfall</c>). The ratio excludes collateral that very
+    ///     cure bought on this date (<see cref="PeriodCashflows.AdditionalPurchaseFace" />), so the
+    ///     test reads the same before and after its purchase is booked and the passes settle.
+    /// </summary>
+    private double ApplyInterestDiversion(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double availableInterest)
+    {
+        if (deal.InterestDiversion is not { } cfg || availableInterest <= 0.005)
+            return availableInterest;
+        var date = periodCf.CashflowDate;
+        if (date > cfg.EndDate)
+            return availableInterest;
+
+        // The test belongs to the group holding its classes; another group skips it. A group
+        // holding SOME of them is a misconfiguration (a ratio over half a stack), so it fails.
+        var found = cfg.Tranches.Select(name => (name, cls: dynGroup.ClassByName(name))).ToList();
+        if (found.All(f => f.cls == null))
+            return availableInterest;
+        var missing = found.Where(f => f.cls == null).Select(f => f.name).ToList();
+        if (missing.Count > 0)
+            throw new DealModelingException(deal.DealName,
+                $"interestDiversion references class(es) not in group {dynGroup.GroupNum}: {string.Join(", ", missing)}.");
+        var classes = found.Select(f => f.cls!).Distinct().ToList();
+
+        var denom = classes.Sum(c => c.Balance);
+        if (denom <= 0.005)
+            return availableInterest;
+        var numerator = CoverageNumerator(deal, dynGroup, periodCf) - periodCf.AdditionalPurchaseFace;
+        var ratioPct = numerator / denom * 100.0;
+        if (ratioPct >= cfg.TriggerPct)
+            return availableInterest;
+
+        var cureCash = (cfg.TriggerPct / 100.0 * denom - numerator) * cfg.PurchasePricePct / 100.0;
+        var diverted = Math.Min(cfg.MaxPctOfInterest / 100.0 * availableInterest, cureCash);
+        _interestDiversions.Add(new InterestDiversionResult
+        {
+            Date = date, RatioPct = ratioPct, CureCash = cureCash, Diverted = diverted
+        });
+        return availableInterest - diverted;
+    }
+
     private double PayCoverageCascadeInterestStep(IDeal deal, DynamicGroup dynGroup,
         IRateProvider rateProvider, PeriodCashflows periodCf, double availableInterest,
         List<DynamicTranche> allTranches)
@@ -970,10 +1036,7 @@ public class ComposableStructure : BaseStructure
         // period's collections all deal long and reads 0% on the final payment
         // date (the whole pool is principal cash by then), spuriously diverting
         // the junior classes' last coupon to equity's benefit (#67).
-        var numerator = DealCarriesVariable(deal, AcpaVariableName)
-            ? dynGroup.GetVariable(AcpaVariableName, cfDate)
-            : periodCf.Balance + periodCf.ScheduledPrincipal
-              + periodCf.UnscheduledPrincipal + periodCf.RecoveryPrincipal;
+        var numerator = CoverageNumerator(deal, dynGroup, periodCf);
 
         // IC ratios up-front: numerator is the period collateral interest collected
         // (net of fees/expenses paid senior to the notes — the funds entering this

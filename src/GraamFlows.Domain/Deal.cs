@@ -94,6 +94,7 @@ public class Deal : IDeal
     public ReinvestmentConfig? ReinvestmentConfig { get; set; }
     public IList<CoverageLevelConfig>? CoverageCascade { get; set; }
     public IncentiveFeeConfig? IncentiveFee { get; set; }
+    public InterestDiversionConfig? InterestDiversion { get; set; }
     public WaterfallOrderEnum WaterfallOrder { get; set; } = WaterfallOrderEnum.Standard;
 
     public Assembly RuleAssembly { get; set; }

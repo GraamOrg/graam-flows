@@ -81,6 +81,12 @@ public interface IDeal : IPayRuleAssemblyStore
     IncentiveFeeConfig? IncentiveFee { get; }
 
     /// <summary>
+    /// A reinvestment-period interest diversion test (optional) — see
+    /// <see cref="InterestDiversionConfig" />. Requires a reinvestment config.
+    /// </summary>
+    InterestDiversionConfig? InterestDiversion { get; }
+
+    /// <summary>
     /// Controls interleaving of INTEREST and PRINCIPAL steps.
     /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
     /// </summary>
