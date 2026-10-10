@@ -15,6 +15,13 @@ public class DealCashflows
     public Dictionary<ITranche, TrancheCashflows> ClassCashflows { get; }
     public Dictionary<ITranche, TrancheCashflows> TrancheCashflows { get; }
     public IList<TriggerResult> TriggerResults { get; set; }
+
+    /// <summary>
+    ///     Payment Dates on which the deal's interest diversion test failed, and what each diverted
+    ///     (<see cref="InterestDiversionConfig" />). Empty when the deal has no such test or it never
+    ///     failed.
+    /// </summary>
+    public IList<InterestDiversionResult> InterestDiversions { get; set; } = new List<InterestDiversionResult>();
     public Dictionary<string, DateTime> EarliestTerminationDates { get; }
     public Dictionary<string, HashSet<string>> ContributedGroups { get; }
 }

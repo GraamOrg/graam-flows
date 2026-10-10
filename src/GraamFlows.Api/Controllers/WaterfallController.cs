@@ -93,6 +93,7 @@ public class WaterfallController : ControllerBase
             // waterfall distributes. Additive — no config, no change.
             IList<ReinvestmentPurchase> purchases = new List<ReinvestmentPurchase>();
             ReinvestmentAssumptionResolutionDto? reinvestResolution = null;
+            DealCashflows? reinvestedWaterfall = null;
             if (deal.ReinvestmentConfig is { } reinvestCfg && reinvestCfg.Templates.Count > 0)
             {
                 var basePool = collateralCashflows.PeriodCashflows.ToList();
@@ -122,24 +123,19 @@ public class WaterfallController : ControllerBase
                           + "request's own `assumptions`, the same basis as the posted pool."
                 };
 
-                var reinvestment = CfCore.BuildReinvestment(
-                    basePool, reinvestCfg, firstProjDate, reinvestAssumps, rateProvider);
-                var cohorts = reinvestment.Cashflows;
-                purchases = reinvestment.Purchases;
-                if (cohorts.Count > 0)
-                {
-                    // The list-ctor CollateralCashflows has no aggregation dict, so
-                    // rebuild through the aggregating ctor and reuse the engine's own
-                    // per-(date, group) merge — never a duplicated merge here.
-                    var merged = new CollateralCashflows(saveAssetCf: false);
-                    foreach (var cf in basePool) merged.AddPeriodCashflow(cf);
-                    foreach (var cf in cohorts) merged.AddPeriodCashflow(cf);
-                    collateralCashflows = merged;
-                }
+                // Reinvestment + waterfall, to a fixed point when the deal carries an interest
+                // diversion test (its cure buys collateral); one pass otherwise.
+                var run = CfCore.RunReinvestingWaterfall(
+                    deal, collateralCashflows, reinvestCfg, firstProjDate, reinvestAssumps, rateProvider,
+                    cc => WaterfallFactory.GetWaterfall(deal.CashflowEngine)
+                        .Waterfall(deal, rateProvider, firstProjDate, cc, assumps, new TrancheAllocator()));
+                collateralCashflows = run.Collateral;
+                purchases = run.Purchases;
+                reinvestedWaterfall = run.Waterfall;
             }
 
-            var dealCashflows = waterfallEngine.Waterfall(deal, rateProvider, firstProjDate, collateralCashflows,
-                assumps, new TrancheAllocator());
+            var dealCashflows = reinvestedWaterfall ?? waterfallEngine.Waterfall(deal, rateProvider, firstProjDate,
+                collateralCashflows, assumps, new TrancheAllocator());
 
             // Convert to response
             var response = ConvertToResponse(dealCashflows, settleDate);
@@ -151,6 +147,13 @@ public class WaterfallController : ControllerBase
             // Say what the reinvestment loop projected BOUGHT collateral on (graam-harmony#5577).
             // Null on a run that does not reinvest — there is nothing to disclose.
             response.ReinvestmentAssumptionResolution = reinvestResolution;
+
+            // What the interest diversion test diverted, whenever the deal carries one.
+            if (deal.InterestDiversion != null)
+                response.InterestDiversions = dealCashflows.InterestDiversions.Select(d => new InterestDiversionResultDto
+                {
+                    Date = d.Date, RatioPct = d.RatioPct, CureCash = d.CureCash, Diverted = d.Diverted
+                }).ToList();
 
             // Opt-in: the collateral the waterfall actually distributed. With reinvestment this
             // is the posted pool merged with the bought collateral — principal NET of purchases,
@@ -475,6 +478,10 @@ public class WaterfallController : ControllerBase
 
         // Residual-class fee above a hurdle IRR (a CLO incentive management fee).
         deal.IncentiveFee = IncentiveFeeMapper.Map(dto.UnifiedWaterfall?.IncentiveFee, dto.DealName);
+
+        // Reinvestment-period interest diversion test; needs the reinvestment config above.
+        deal.InterestDiversion = InterestDiversionMapper.Map(
+            dto.UnifiedWaterfall?.InterestDiversion, deal.ReinvestmentConfig, dto.DealName);
 
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())

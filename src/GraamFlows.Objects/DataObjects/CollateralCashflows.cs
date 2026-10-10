@@ -114,6 +114,7 @@ public class CollateralCashflows
                 // first cut of #5596 did exactly that, and the loss fix never reached the
                 // waterfall because the merged rows carried a zero.
                 existingCf.ReinvestedRecoveryPrincipal += periodCf.ReinvestedRecoveryPrincipal;
+                existingCf.AdditionalPurchaseFace += periodCf.AdditionalPurchaseFace;
                 existingCf.WAM = periodCf.WAM;
                 existingCf.WALA = periodCf.WALA;
                 existingCf.WAC = existingCf.Interest * 1200 / existingCf.BeginBalance;

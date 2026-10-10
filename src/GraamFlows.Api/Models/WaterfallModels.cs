@@ -600,6 +600,31 @@ public class UnifiedWaterfallDto
     ///     management fee). Absent, the residual keeps everything.
     /// </summary>
     public IncentiveFeeDto? IncentiveFee { get; set; }
+
+    /// <summary>
+    ///     A reinvestment-period interest diversion test: while a class set's OC ratio is below the
+    ///     trigger, up to a share of the remaining interest buys collateral instead of reaching the
+    ///     residual. Requires <c>reinvestment</c>.
+    /// </summary>
+    public InterestDiversionDto? InterestDiversion { get; set; }
+}
+
+public class InterestDiversionDto
+{
+    /// <summary>The note classes whose balance is the ratio's denominator, e.g. ["A","B","C","D","E"].</summary>
+    public List<string> Tranches { get; set; } = new();
+
+    /// <summary>Trigger, percent.</summary>
+    public double TriggerPct { get; set; }
+
+    /// <summary>Most that can be diverted, percent of the interest remaining at the test. Default 100.</summary>
+    public double? MaxPctOfInterest { get; set; }
+
+    /// <summary>Last Payment Date the test applies on. Default: the reinvestment period's end.</summary>
+    public DateTime? EndDate { get; set; }
+
+    /// <summary>Price the diverted cash buys collateral at, percent of par. Default: the templates' weighted price.</summary>
+    public double? PurchasePricePct { get; set; }
 }
 
 /// <summary>
@@ -894,6 +919,27 @@ public class WaterfallResponse
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ReinvestmentPurchaseDto>? AssetReinvestment { get; set; }
+
+    /// <summary>
+    ///     The Payment Dates on which the deal's interest diversion test failed, and what each
+    ///     diverted to buy collateral. Present (possibly empty) whenever the deal carries the test.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<InterestDiversionResultDto>? InterestDiversions { get; set; }
+}
+
+public class InterestDiversionResultDto
+{
+    public DateTime Date { get; set; }
+
+    /// <summary>The ratio before the cure, percent.</summary>
+    public double RatioPct { get; set; }
+
+    /// <summary>The cash that would have restored the trigger.</summary>
+    public double CureCash { get; set; }
+
+    /// <summary>What was diverted to buy collateral: the lesser of the cure and the cap.</summary>
+    public double Diverted { get; set; }
 }
 
 /// <summary>One period's collateral purchase: cash leaving principal, and the face it bought.</summary>
@@ -908,12 +954,15 @@ public class ReinvestmentPurchaseDto
     /// <summary>Date of the collateral period the purchase is drawn from.</summary>
     public DateTime CashflowDate { get; set; }
 
-    /// <summary>Cash spent buying collateral. Equals the three From* amounts summed.</summary>
+    /// <summary>Cash spent buying collateral. Equals the four From* amounts summed.</summary>
     public double CashSpent { get; set; }
 
     public double FromScheduledPrincipal { get; set; }
     public double FromUnscheduledPrincipal { get; set; }
     public double FromRecoveryPrincipal { get; set; }
+
+    /// <summary>Cash diverted from interest by an interest diversion test's cure. Zero otherwise.</summary>
+    public double FromAdditionalCash { get; set; }
 
     /// <summary>Face bought; exceeds <see cref="CashSpent" /> by the discount when bought below par.</summary>
     public double FaceBought { get; set; }
@@ -938,6 +987,7 @@ public class ReinvestmentPurchaseDto
         FromScheduledPrincipal = p.FromScheduledPrincipal,
         FromUnscheduledPrincipal = p.FromUnscheduledPrincipal,
         FromRecoveryPrincipal = p.FromRecoveryPrincipal,
+        FromAdditionalCash = p.FromAdditionalCash,
         FaceBought = p.FaceBought,
         ProceedsAvailable = p.ProceedsAvailable,
         PoolBalanceBefore = p.PoolBalanceBefore,

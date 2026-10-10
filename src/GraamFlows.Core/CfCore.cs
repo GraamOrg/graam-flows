@@ -43,6 +43,13 @@ public class CfCore
         // only runs when the deal carries a ReinvestmentConfig, so the static
         // (non-reinvesting) path is untouched. Reinvested collateral reuses the
         // deal's assumptions (resolved off a sample template asset).
+        if (Deal.InterestDiversion != null)
+            throw new NotSupportedException(
+                $"Deal {Deal.DealName}: interestDiversion buys collateral with diverted interest, which " +
+                "needs the waterfall and the reinvestment loop run to a fixed point " +
+                "(CfCore.RunReinvestingWaterfall). This path builds collateral before any waterfall " +
+                "runs, so the diverted cash would buy nothing; run the deal through the waterfall " +
+                "endpoint with posted collateral.");
         if (Deal.ReinvestmentConfig is { } reinvestCfg && reinvestCfg.Templates.Count > 0)
         {
             var sampleAsset = BuildReinvestAsset(reinvestCfg.Templates[0], 1.0, FirstProjectionDate, rateProvider, 0);
@@ -465,6 +472,91 @@ public class CfCore
         return BuildReinvestment(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider);
     }
 
+    /// <summary>
+    ///     As the <see cref="IAssetAssumptions" /> overload, resolving the reinvested collateral's
+    ///     assumptions from the deal-level ones exactly as <see cref="BuildReinvestment(IList{PeriodCashflows}, ReinvestmentConfig, DateTime, IAssumptionMill, IRateProvider)" /> does.
+    /// </summary>
+    public static (CollateralCashflows Collateral, IList<ReinvestmentPurchase> Purchases, DealCashflows Waterfall,
+        int Passes) RunReinvestingWaterfall(
+            IDeal deal, CollateralCashflows posted, ReinvestmentConfig cfg, DateTime firstProjDate,
+            IAssumptionMill assumps, IRateProvider rateProvider,
+            Func<CollateralCashflows, DealCashflows> runWaterfall)
+    {
+        var sampleAsset = BuildReinvestAsset(cfg.Templates[0], 1.0, firstProjDate, rateProvider, 0);
+        return RunReinvestingWaterfall(deal, posted, cfg, firstProjDate, assumps.GetAssumptionsForAsset(sampleAsset),
+            rateProvider, runWaterfall);
+    }
+
+    /// <summary>The most passes <see cref="RunReinvestingWaterfall" /> takes before refusing.</summary>
+    public const int MaxDiversionPasses = 20;
+
+    /// <summary>
+    ///     A reinvesting deal's collateral and waterfall, run to a FIXED POINT when the deal carries
+    ///     an interest diversion test (<see cref="InterestDiversionConfig" />).
+    ///
+    ///     The test's cure buys collateral with interest the waterfall diverts, and that collateral
+    ///     changes every later period — so the waterfall cannot settle it alone. Each pass books the
+    ///     previous pass's diversions as extra purchase cash on their dates and re-runs the waterfall;
+    ///     it stops when the diversions it reports are the ones it was given. One diversion settles in
+    ///     two passes; each later diversion that depends on an earlier one adds at most one.
+    ///
+    ///     Without a diversion test this is one pass: exactly the reinvestment and waterfall the
+    ///     caller ran before. Returns the merged collateral the waterfall distributed, the purchases,
+    ///     the waterfall, and how many passes it took.
+    /// </summary>
+    public static (CollateralCashflows Collateral, IList<ReinvestmentPurchase> Purchases, DealCashflows Waterfall,
+        int Passes) RunReinvestingWaterfall(
+            IDeal deal, CollateralCashflows posted, ReinvestmentConfig cfg, DateTime firstProjDate,
+            IAssetAssumptions reinvestAssumps, IRateProvider rateProvider,
+            Func<CollateralCashflows, DealCashflows> runWaterfall)
+    {
+        // Merging collateral MUTATES the posted rows (AddPeriodCashflow keeps the first row object
+        // per date and adds into it) and the waterfall writes onto them too, so a second pass over
+        // the same objects would start from the first pass's merged pool — measured: the base pool
+        // vanished from 2033 on. Pass 1 uses the posted rows exactly as the single-pass path always
+        // did; every later pass starts from clones of a snapshot taken before anything ran.
+        var pristine = deal.InterestDiversion != null
+            ? posted.PeriodCashflows.Select(c => c.Clone()).ToList()
+            : null;
+        IReadOnlyDictionary<DateTime, double> extra = new Dictionary<DateTime, double>();
+        for (var pass = 1; pass <= MaxDiversionPasses; pass++)
+        {
+            var basePool = pass == 1
+                ? posted.PeriodCashflows.ToList()
+                : pristine!.Select(c => c.Clone()).ToList();
+            var reinvestment = BuildReinvestment(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider, extra);
+            CollateralCashflows collateral;
+            if (pass == 1 && reinvestment.Cashflows.Count == 0)
+                collateral = posted;
+            else
+            {
+                // The list-ctor CollateralCashflows has no aggregation dict, so rebuild through the
+                // aggregating ctor and reuse the engine's own per-(date, group) merge.
+                collateral = new CollateralCashflows(saveAssetCf: false);
+                foreach (var cf in basePool) collateral.AddPeriodCashflow(cf);
+                foreach (var cf in reinvestment.Cashflows) collateral.AddPeriodCashflow(cf);
+            }
+
+            var waterfall = runWaterfall(collateral);
+            if (deal.InterestDiversion == null)
+                return (collateral, reinvestment.Purchases, waterfall, pass);
+
+            var diverted = waterfall.InterestDiversions
+                .GroupBy(d => d.Date)
+                .ToDictionary(g => g.Key, g => g.Sum(d => d.Diverted));
+            var settled = diverted.Count == extra.Count && diverted.All(kv =>
+                extra.TryGetValue(kv.Key, out var prior) && Math.Abs(prior - kv.Value) < 0.01);
+            if (settled)
+                return (collateral, reinvestment.Purchases, waterfall, pass);
+            extra = diverted;
+        }
+
+        throw new InvalidOperationException(
+            $"Deal {deal.DealName}: the interest diversion test did not settle in {MaxDiversionPasses} passes — " +
+            "each pass's diversions changed the next. The cashflows are not reported rather than " +
+            "reported off an unsettled pass.");
+    }
+
     public static IList<PeriodCashflows> BuildReinvestmentCashflows(
         IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
         IAssetAssumptions reinvestAssumps, IRateProvider rateProvider)
@@ -480,7 +572,8 @@ public class CfCore
     /// </summary>
     public static ReinvestmentResult BuildReinvestment(
         IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
-        IAssetAssumptions reinvestAssumps, IRateProvider rateProvider)
+        IAssetAssumptions reinvestAssumps, IRateProvider rateProvider,
+        IReadOnlyDictionary<DateTime, double>? additionalCash = null)
     {
         cfg.Validate("");
         var empty = ReinvestmentResult.Empty;
@@ -568,7 +661,12 @@ public class CfCore
             // Uncapped (ReinvestAllEligibleProceeds): every eligible dollar buys collateral.
             var cap = cfg.CapAt(t);
             var gap = cap is { } c ? Math.Max(0.0, c - totalBalance) : double.PositiveInfinity;
-            var reinvestCash = Math.Min(available, gap);
+            // Cash from outside the principal proceeds (an interest diversion cure) buys collateral
+            // on top of them: it is not drawn from collateral principal and is not capped by the
+            // target — the indenture deposits it "for the purchase of additional" collateral.
+            var extraCash = additionalCash != null && additionalCash.TryGetValue(date, out var x) && x > 0 ? x : 0.0;
+            var poolCash = Math.Min(available, gap);
+            var reinvestCash = poolCash + extraCash;
             if (reinvestCash < 1.0) continue;
 
             // Cohorts originate at period t and begin amortizing at t+1. If the
@@ -609,7 +707,9 @@ public class CfCore
             // their contribution. The reductions sum to cashSpent exactly
             // (available > 0 here).
             var hb = 1.0 - cfg.Holdback;
-            var drawFraction = cashSpent / available;
+            // Only the pool's share of what was spent is drawn from principal.
+            var spentFromExtra = cashSpent * (extraCash / reinvestCash);
+            var drawFraction = available > 0 ? (cashSpent - spentFromExtra) / available : 0.0;
             cohortAccum.ScheduledPrincipal[t] -= eligSched * hb * drawFraction;
             cohortAccum.UnscheduledPrincipal[t] -= eligUnsched * hb * drawFraction;
             cohortAccum.RecoveryPrincipal[t] -= eligRecov * hb * drawFraction;
@@ -624,6 +724,7 @@ public class CfCore
                 FromScheduledPrincipal = eligSched * hb * drawFraction,
                 FromUnscheduledPrincipal = eligUnsched * hb * drawFraction,
                 FromRecoveryPrincipal = eligRecov * hb * drawFraction,
+                FromAdditionalCash = spentFromExtra,
                 FaceBought = totalFace,
                 ProceedsAvailable = available,
                 PoolBalanceBefore = totalBalance,
@@ -635,6 +736,7 @@ public class CfCore
             // replaces the redirected principal in the pool balance (exactly, at
             // par; a discount purchase adds the small accretion of face over cash).
             cohortAccum.Balance[t] += totalFace;
+            cohortAccum.AdditionalPurchaseFace[t] += cashSpent > 0 ? totalFace * spentFromExtra / cashSpent : 0.0;
 
             var cohortPeriods = horizon - cohortStart;
             var cohortStartAbsT = startTime + cohortStart;
