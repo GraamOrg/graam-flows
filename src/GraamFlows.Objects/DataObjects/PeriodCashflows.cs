@@ -116,6 +116,13 @@ public class PeriodCashflows
     /// </summary>
     public double ReinvestedRecoveryPrincipal { get; set; }
 
+    /// <summary>
+    ///     Face of collateral bought on this date with cash diverted from interest (an interest
+    ///     diversion cure), already included in <see cref="Balance" />. Carried so the diversion
+    ///     test can measure the ratio BEFORE its own cure. Zero otherwise.
+    /// </summary>
+    public double AdditionalPurchaseFace { get; set; }
+
     public double TotalCashflow()
     {
         return ScheduledPrincipal + UnscheduledPrincipal + Interest + RecoveryPrincipal + ForbearanceRecovery +
@@ -160,6 +167,7 @@ public class PeriodCashflows
         clone.ModificationLoss = ModificationLoss;
         clone.CollateralMonths = CollateralMonths;
         clone.ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal;
+        clone.AdditionalPurchaseFace = AdditionalPurchaseFace;
         return clone;
     }
 
@@ -178,5 +186,6 @@ public class PeriodCashflows
         Expenses += periodCf.Expenses;
         ModificationLoss += periodCf.ModificationLoss;
         ReinvestedRecoveryPrincipal += periodCf.ReinvestedRecoveryPrincipal;
+        AdditionalPurchaseFace += periodCf.AdditionalPurchaseFace;
     }
 }
