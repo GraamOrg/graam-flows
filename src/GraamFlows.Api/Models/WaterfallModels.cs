@@ -588,6 +588,47 @@ public class UnifiedWaterfallDto
     ///     Distinct from the single-level RMBS-style OC turbo (EXCESS_TURBO/ocTarget).
     /// </summary>
     public List<CoverageLevelDto>? CoverageCascade { get; set; }
+
+    /// <summary>
+    ///     A fee on the residual class's distributions above a hurdle IRR (a CLO's incentive
+    ///     management fee). Absent, the residual keeps everything.
+    /// </summary>
+    public IncentiveFeeDto? IncentiveFee { get; set; }
+}
+
+/// <summary>
+///     The residual class keeps its distributions until it has earned <see cref="HurdleIrrPct" />
+///     (XIRR: actual/365, annual) on <see cref="Investment" /> from <see cref="InvestmentDate" />;
+///     <see cref="SharePct" /> of what it receives beyond that is booked to <see cref="FeeExpense" />.
+/// </summary>
+public class IncentiveFeeDto
+{
+    /// <summary>The residual (equity) class, e.g. "Subordinated".</summary>
+    public string ResidualTranche { get; set; } = "";
+
+    /// <summary>The expense the fee is booked to; it must be declared in the deal's expenses.</summary>
+    public string FeeExpense { get; set; } = "";
+
+    /// <summary>Hurdle IRR, percent per annum.</summary>
+    public double HurdleIrrPct { get; set; }
+
+    /// <summary>Share above the hurdle, percent.</summary>
+    public double SharePct { get; set; }
+
+    /// <summary>The residual's deemed purchase amount.</summary>
+    public double Investment { get; set; }
+
+    /// <summary>The purchase date — the IRR's time zero.</summary>
+    public DateTime InvestmentDate { get; set; }
+
+    /// <summary>Distributions before the projection (a seasoned deal). Optional.</summary>
+    public List<IncentiveFeeDistributionDto>? PriorDistributions { get; set; }
+}
+
+public class IncentiveFeeDistributionDto
+{
+    public DateTime Date { get; set; }
+    public double Amount { get; set; }
 }
 
 /// <summary>

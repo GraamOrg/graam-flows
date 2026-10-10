@@ -473,6 +473,9 @@ public class WaterfallController : ControllerBase
         // CLO per-level OC/IC coverage cascade (graam-flows#65).
         deal.CoverageCascade = CoverageCascadeMapper.Map(dto.UnifiedWaterfall?.CoverageCascade, dto.DealName);
 
+        // Residual-class fee above a hurdle IRR (a CLO incentive management fee).
+        deal.IncentiveFee = IncentiveFeeMapper.Map(dto.UnifiedWaterfall?.IncentiveFee, dto.DealName);
+
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())
             foreach (var schedDto in dto.ScheduledVariables)

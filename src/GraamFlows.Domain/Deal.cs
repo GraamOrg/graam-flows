@@ -93,6 +93,7 @@ public class Deal : IDeal
     public OcTargetConfig? OcTargetConfig { get; set; }
     public ReinvestmentConfig? ReinvestmentConfig { get; set; }
     public IList<CoverageLevelConfig>? CoverageCascade { get; set; }
+    public IncentiveFeeConfig? IncentiveFee { get; set; }
     public WaterfallOrderEnum WaterfallOrder { get; set; } = WaterfallOrderEnum.Standard;
 
     public Assembly RuleAssembly { get; set; }

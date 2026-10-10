@@ -28,6 +28,7 @@ public class TestDealBuilder
     private OcTargetConfig? _ocTargetConfig;
     private ReinvestmentConfig? _reinvestmentConfig;
     private List<CoverageLevelConfig>? _coverageCascade;
+    private IncentiveFeeConfig? _incentiveFee;
 
     public TestDealBuilder(
         string dealName = TestConstants.DefaultDealName,
@@ -508,6 +509,13 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>Configures a fee on the residual's distributions above a hurdle IRR.</summary>
+    public TestDealBuilder WithIncentiveFee(IncentiveFeeConfig config)
+    {
+        _incentiveFee = config;
+        return this;
+    }
+
     /// <summary>
     ///     Adds a scheduled deal variable (e.g. the "ACPA" OC numerator) covering
     ///     [begin, end].
@@ -643,6 +651,8 @@ public class TestDealBuilder
 
         if (_coverageCascade != null)
             _deal.CoverageCascade = _coverageCascade;
+        if (_incentiveFee != null)
+            _deal.IncentiveFee = _incentiveFee;
 
         // Add pay rules
         for (var i = 0; i < _payRuleFormulas.Count; i++)
