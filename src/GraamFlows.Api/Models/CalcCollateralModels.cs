@@ -15,6 +15,14 @@ public class CalcCollateralRequest
 
     /// <summary>US holiday calendar for <see cref="CollectionCutoffBusinessDays" />. Default "Settlement".</summary>
     public string? HolidayCalendar { get; set; }
+
+    /// <summary>
+    ///     The date the collateral starts accruing interest for its owner (a deal's Closing Date).
+    ///     Interest an asset accrued before it was bought with the asset and is not Interest
+    ///     Proceeds, so it is not projected: an asset's first payment pays only the interest accrued
+    ///     since this date. Null: interest accrues from the start of the first projection period.
+    /// </summary>
+    public DateTime? InterestAccrualStartDate { get; set; }
     public AssumptionsDto Assumptions { get; set; } = new();
 
     /// <summary>
