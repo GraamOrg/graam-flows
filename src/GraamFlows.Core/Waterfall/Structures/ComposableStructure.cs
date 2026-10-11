@@ -83,6 +83,7 @@ public class ComposableStructure : BaseStructure
             .GroupBy(pc => pc.GroupNum)
             .ToDictionary(g => g.Key, g => g.Max(pc => pc.CashflowDate));
         var heldUntilPayDate = new Dictionary<string, List<PeriodCashflows>>();
+        var lastCollateralDate = periodCashflows.Count > 0 ? periodCashflows.Max(pc => pc.CashflowDate) : DateTime.MinValue;
 
         foreach (var period in periodCashflows.GroupBy(pc => pc.CashflowDate))
         {
@@ -185,6 +186,21 @@ public class ComposableStructure : BaseStructure
                         held.AddRange(preBoundary);
                     held.Add(periodCf);
                     continue;
+                }
+
+                // The deal's collateral ends between Payment Dates: its last collections are
+                // distributed on the NEXT Payment Date, as a Collection Period's are, and the notes
+                // accrue to it — not on the collateral's last month, an off-calendar date a
+                // quarterly deal never pays on.
+                if (monthsPerPeriod > 1
+                    && periodCf.CashflowDate == lastCollateralDate
+                    && !PayCalendar.IsPayMonth(periodCf.CashflowDate, firstPayDate, monthsPerPeriod)
+                    && firstPayDate > DateTime.MinValue)
+                {
+                    var next = firstPayDate;
+                    while (next < periodCf.CashflowDate)
+                        next = next.AddMonths(monthsPerPeriod);
+                    adjPeriodCf.CashflowDate = next;
                 }
 
                 if (heldUntilPayDate.Remove(periodCf.GroupNum, out var heldCfs))
