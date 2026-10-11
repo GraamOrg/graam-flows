@@ -152,6 +152,23 @@ public class PeriodCashflows
     /// </summary>
     public int CollateralMonths { get; set; } = 1;
 
+    /// <summary>
+    ///     The Fee Basis Amount at the beginning of this distribution's Collection Period: the
+    ///     collateral principal on hand when the period opens — the pool plus the previous period's
+    ///     principal collections, still awaiting their Payment Date — i.e. the previous period's
+    ///     opening balance less its net losses; for the first distribution, its period's opening
+    ///     balance. Read by formulas as <c>fee_basis</c>. Null outside a waterfall run.
+    /// </summary>
+    public double? FeeBasis { get; set; }
+
+    /// <summary>
+    ///     The distribution's Interest Accrual Period as a 30/360 year fraction: from the previous
+    ///     distribution (the notes' settlement date for the first) to this one. Read by formulas as
+    ///     <c>period_years_30360</c>, for a fee stated per annum on a 360-day year of 30-day months
+    ///     and prorated for the Interest Accrual Period. Null outside a waterfall run.
+    /// </summary>
+    public double? PeriodYears30360 { get; set; }
+
     public PeriodCashflows Clone()
     {
         var clone = new PeriodCashflows(CashflowDate, ScheduledPrincipal, Balance, UnscheduledPrincipal, Interest,
@@ -166,6 +183,8 @@ public class PeriodCashflows
         // termination fold does).
         clone.ModificationLoss = ModificationLoss;
         clone.CollateralMonths = CollateralMonths;
+        clone.FeeBasis = FeeBasis;
+        clone.PeriodYears30360 = PeriodYears30360;
         clone.ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal;
         clone.AdditionalPurchaseFace = AdditionalPurchaseFace;
         return clone;
