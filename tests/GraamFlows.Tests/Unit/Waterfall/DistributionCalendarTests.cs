@@ -109,8 +109,12 @@ public class DistributionCalendarTests
         var pool = Pool(35); // ends one month into the twelfth quarter
         var (_, cf) = Run(4, pool);
 
+        // Distributed on the NEXT Payment Date (the pay months are Feb/May/Aug/Nov): the last
+        // collections are a Collection Period's, paid when it ends — never on an off-calendar month.
         var lastCollateral = pool.PeriodCashflows.Max(p => p.CashflowDate);
-        Rows(cf, "A").Last().CashflowDate.Month.Should().Be(lastCollateral.Month);
+        var lastPay = Rows(cf, "A").Last().CashflowDate;
+        PayCalendar.IsPayMonth(lastPay, FirstPay, 3).Should().BeTrue();
+        lastPay.Should().BeAfter(lastCollateral).And.BeBefore(lastCollateral.AddMonths(3));
         (Principal(Rows(cf, "A")) + Principal(Rows(cf, "B")))
             .Should().BeApproximately(Math.Min(PoolPrincipal(pool), 100_000_000), 1.0);
     }

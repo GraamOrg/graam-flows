@@ -316,12 +316,25 @@ public static class Amortizer
 
                     if (age <= ioTerm)
                     {
-                        principal = 0;
                         cashflowPrevBalance = cashflowBalance;
-                        if (age == ioTerm)
-                            scheduledPayment = Math.Round(
-                                AmortizingPayment(cashflowBalance, rate,
-                                    RemainingPeriods(term - age, monthsPerPeriod)) * 100.0) / 100.0;
+                        if (age >= term)
+                        {
+                            // Interest-only to maturity: the loan repays ON its maturity date. This
+                            // branch used to pay only interest here and let the balance fall through
+                            // to the next period's balloon — every IO-to-maturity loan (a bullet sent
+                            // as IO) repaid one month late.
+                            principal = cashflowBalance;
+                            cashflowBalance = 0;
+                            hasCashflow = false;
+                        }
+                        else
+                        {
+                            principal = 0;
+                            if (age == ioTerm)
+                                scheduledPayment = Math.Round(
+                                    AmortizingPayment(cashflowBalance, rate,
+                                        RemainingPeriods(term - age, monthsPerPeriod)) * 100.0) / 100.0;
+                        }
                     }
                     else if (isPik)
                     {
