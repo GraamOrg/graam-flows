@@ -50,6 +50,10 @@ namespace GraamFlows.RulesEngine
         public double begin_balance = 0;
         /// <summary>Collateral months this distribution spends (<see cref="PeriodCashflows.CollateralMonths" />).</summary>
         public double period_months = 1;
+        /// <summary>The Fee Basis Amount at the beginning of the Collection Period (<see cref="PeriodCashflows.FeeBasis" />).</summary>
+        public double fee_basis = 0;
+        /// <summary>The Interest Accrual Period, 30/360 years (<see cref="PeriodCashflows.PeriodYears30360" />).</summary>
+        public double period_years_30360 = 1.0 / 12;
         public double forbearance_amt = 0;
         public double bal_at_issuance = 0;
         public double net_loss;
@@ -100,6 +104,8 @@ namespace GraamFlows.RulesEngine
             wac = periodCf.WAC;
             begin_balance = periodCf.BeginBalance;
             period_months = periodCf.CollateralMonths;
+            fee_basis = periodCf.FeeBasis ?? periodCf.BeginBalance;
+            period_years_30360 = periodCf.PeriodYears30360 ?? periodCf.CollateralMonths / 12.0;
             forbearance_amt = periodCf.AccumForbearance;
             eff_wac = periodCf.EffectiveWac;
             bal_at_issuance = dynGroup.Deal.BalanceAtIssuance;
