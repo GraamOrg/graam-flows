@@ -30,6 +30,7 @@ public class CashflowResultArrays
         ForbearanceLiquidated = new double[maxPeriods];
         ReinvestedRecoveryPrincipal = new double[maxPeriods];
         AdditionalPurchaseFace = new double[maxPeriods];
+        PurchaseDiscount = new double[maxPeriods];
         AccumForbearance = new double[maxPeriods];
         WAM = new double[maxPeriods];
         WALA = new double[maxPeriods];
@@ -59,6 +60,7 @@ public class CashflowResultArrays
     /// <summary>Recovery spent on reinvestment purchases (graam-harmony#5596). Not a loss.</summary>
     public double[] ReinvestedRecoveryPrincipal { get; }
     public double[] AdditionalPurchaseFace { get; }
+    public double[] PurchaseDiscount { get; }
     public double[] AccumForbearance { get; }
     public double[] WAM { get; }
     public double[] WALA { get; }
@@ -94,6 +96,7 @@ public class CashflowResultArrays
                 ForbearanceLiquidated = ForbearanceLiquidated[period],
                 ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal[period],
                 AdditionalPurchaseFace = AdditionalPurchaseFace[period],
+                PurchaseDiscount = PurchaseDiscount[period],
                 AccumForbearance = AccumForbearance[period],
                 WAM = WAM[period],
                 WALA = WALA[period]

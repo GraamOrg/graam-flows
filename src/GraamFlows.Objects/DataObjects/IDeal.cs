@@ -87,6 +87,12 @@ public interface IDeal : IPayRuleAssemblyStore
     InterestDiversionConfig? InterestDiversion { get; }
 
     /// <summary>
+    /// Expenses paid after the notes' interest and coverage tests rather than at the head of the
+    /// waterfall, their unpaid amounts carried (optional; empty pays every expense at the head).
+    /// </summary>
+    IReadOnlyList<string> ExpensesAfterInterest { get; }
+
+    /// <summary>
     /// Controls interleaving of INTEREST and PRINCIPAL steps.
     /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
     /// </summary>

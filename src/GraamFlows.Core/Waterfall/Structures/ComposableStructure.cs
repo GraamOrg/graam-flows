@@ -69,6 +69,7 @@ public class ComposableStructure : BaseStructure
 
         var dealTerminated = false;
         _interestDiversions = new List<InterestDiversionResult>();
+        _unpaidAfterInterest = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         // A fee on the residual's distributions above a hurdle IRR (a CLO incentive management
         // fee). One per run: it carries the residual's running present value across periods.
@@ -749,6 +750,20 @@ public class ComposableStructure : BaseStructure
                             availableInterest, allTranches)
                         : PayInterestStep(dynGroup, rateProvider, adjPeriodCf, availableInterest,
                             allTranches, deal.InterestTreatmentEnum);
+                    // Expenses the Priority of Payments pays after the notes' interest and coverage
+                    // tests — and after the interest diversion test, which therefore runs first.
+                    if (deal.ExpensesAfterInterest.Count > 0)
+                    {
+                        if (!interestDiversionApplied)
+                        {
+                            availableInterest = ApplyInterestDiversion(deal, dynGroup, adjPeriodCf, availableInterest);
+                            interestDiversionApplied = true;
+                        }
+
+                        availableInterest = PayExpensesAfterInterest(deal, formulaExecutor, dynGroup, adjPeriodCf,
+                            triggerValues, availableInterest);
+                    }
+
                     break;
 
                 case "PRINCIPAL_SCHEDULED":
@@ -876,12 +891,49 @@ public class ComposableStructure : BaseStructure
     /// <summary>
     ///     Pay expenses from available interest (and reserve if needed), returning remaining funds.
     /// </summary>
+    private Dictionary<string, double> _unpaidAfterInterest = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Pay the deal's <see cref="IDeal.ExpensesAfterInterest" />, in the order named, from the
+    ///     interest left after the notes and the coverage tests. An expense not paid in full carries
+    ///     the rest, paid ahead of its own on the next Payment Date (an indenture's "accrued and unpaid"
+    ///     fee). A CLO's subordinated management fee paid at the head of the waterfall was paid ahead of
+    ///     the junior notes' interest: measured against a reference model in a stressed run, Class E
+    ///     came up short each quarter the residual interest could not cover the fee.
+    /// </summary>
+    private double PayExpensesAfterInterest(IDeal deal, IFormulaExecutor formulaExecutor, DynamicGroup dynGroup,
+        PeriodCashflows periodCf, List<TriggerValue> triggerValues, double availableInterest)
+    {
+        var byName = dynGroup.ExpenseClasses.SelectMany(dc => dc.DynamicTranches)
+            .ToDictionary(e => e.Tranche.TrancheName, StringComparer.OrdinalIgnoreCase);
+        var paidTotal = 0.0;
+        foreach (var name in deal.ExpensesAfterInterest)
+        {
+            if (!byName.TryGetValue(name, out var ec))
+                continue;
+            var functionName = RulesBuilder.GetTrancheCpnFormulaName(ec.Tranche);
+            formulaExecutor.Reset(null, triggerValues, dynGroup, periodCf, Enumerable.Repeat(ec, 1));
+            var due = formulaExecutor.EvaluateDouble(functionName)
+                      + (_unpaidAfterInterest.TryGetValue(name, out var carried) ? carried : 0.0);
+            var paid = Math.Min(due, Math.Max(availableInterest, 0.0));
+            availableInterest -= paid;
+            paidTotal += paid;
+            _unpaidAfterInterest[name] = due - paid;
+            ec.PayExpense(periodCf.CashflowDate, paid, due - paid);
+        }
+
+        periodCf.Expenses += paidTotal;
+        return availableInterest;
+    }
+
     private double PayExpensesStep(IFormulaExecutor formulaExecutor, DynamicGroup dynGroup,
         PeriodCashflows periodCf, List<TriggerValue> triggerValues, double availableInterest)
     {
         var netInterest = availableInterest;
 
+        var afterInterest = dynGroup.Deal.ExpensesAfterInterest;
         var expenses = dynGroup.ExpenseClasses.SelectMany(dc => dc.DynamicTranches).OrderBy(e => e.Tranche.TrancheName)
+            .Where(ec => !afterInterest.Contains(ec.Tranche.TrancheName, StringComparer.OrdinalIgnoreCase))
             .Sum(ec =>
             {
                 var functionName = RulesBuilder.GetTrancheCpnFormulaName(ec.Tranche);
@@ -1007,7 +1059,9 @@ public class ComposableStructure : BaseStructure
         DealCarriesVariable(deal, AcpaVariableName)
             ? dynGroup.GetVariable(AcpaVariableName, periodCf.CashflowDate)
             : periodCf.Balance + periodCf.ScheduledPrincipal
-              + periodCf.UnscheduledPrincipal + periodCf.RecoveryPrincipal;
+              + periodCf.UnscheduledPrincipal + periodCf.RecoveryPrincipal
+              // Measured before the Payment Date's purchase: its proceeds at cash, not face.
+              - periodCf.PurchaseDiscount;
 
     /// <summary>
     ///     The reinvestment-period interest diversion test (<see cref="InterestDiversionConfig" />):
