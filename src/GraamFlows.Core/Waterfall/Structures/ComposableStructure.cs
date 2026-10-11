@@ -70,6 +70,7 @@ public class ComposableStructure : BaseStructure
         var dealTerminated = false;
         _interestDiversions = new List<InterestDiversionResult>();
         _unpaidAfterInterest = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        _headShortfall = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         // A fee on the residual's distributions above a hurdle IRR (a CLO incentive management
         // fee). One per run: it carries the residual's running present value across periods.
@@ -764,6 +765,12 @@ public class ComposableStructure : BaseStructure
                             triggerValues, availableInterest);
                     }
 
+                    // What the interest waterfall left unpaid of the senior expenses comes out of
+                    // principal proceeds, ahead of the notes' principal.
+                    if (deal.ExpensesFromPrincipal.Count > 0)
+                        (availableSchedPrin, availablePrepayPrin, availableRecovPrin) = PayExpensesFromPrincipal(
+                            deal, dynGroup, adjPeriodCf, availableSchedPrin, availablePrepayPrin, availableRecovPrin);
+
                     break;
 
                 case "PRINCIPAL_SCHEDULED":
@@ -893,6 +900,43 @@ public class ComposableStructure : BaseStructure
     /// </summary>
     private Dictionary<string, double> _unpaidAfterInterest = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>This period's unpaid amount of each head-of-waterfall expense.</summary>
+    private Dictionary<string, double> _headShortfall = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Pay what the interest waterfall left unpaid of the deal's <see cref="IDeal.ExpensesFromPrincipal" />
+    ///     from this period's principal proceeds — scheduled, then unscheduled, then recoveries — ahead of
+    ///     the notes' principal (a CLO's Principal Priority of Payments clause (A)). Measured against a
+    ///     reference model on a deal's last Payment Date, when interest ran out: the reference paid the
+    ///     Administrative Expenses at the cap and the senior management fee in full; paid only from
+    ///     interest, half the one and none of the other was paid, and the residual kept the difference.
+    /// </summary>
+    private (double Sched, double Prepay, double Recov) PayExpensesFromPrincipal(IDeal deal, DynamicGroup dynGroup,
+        PeriodCashflows periodCf, double sched, double prepay, double recov)
+    {
+        var byName = dynGroup.ExpenseClasses.SelectMany(dc => dc.DynamicTranches)
+            .ToDictionary(e => e.Tranche.TrancheName, StringComparer.OrdinalIgnoreCase);
+        foreach (var name in deal.ExpensesFromPrincipal)
+        {
+            if (!byName.TryGetValue(name, out var ec) || !_headShortfall.TryGetValue(name, out var unpaid) ||
+                unpaid < 0.005)
+                continue;
+            var fromSched = Math.Min(unpaid, Math.Max(sched, 0.0));
+            sched -= fromSched;
+            var fromPrepay = Math.Min(unpaid - fromSched, Math.Max(prepay, 0.0));
+            prepay -= fromPrepay;
+            var fromRecov = Math.Min(unpaid - fromSched - fromPrepay, Math.Max(recov, 0.0));
+            recov -= fromRecov;
+            var paid = fromSched + fromPrepay + fromRecov;
+            if (paid <= 0) continue;
+            ec.PayExpense(periodCf.CashflowDate, paid, -paid);
+            _headShortfall[name] = unpaid - paid;
+            periodCf.Expenses += paid;
+        }
+
+        return (sched, prepay, recov);
+    }
+
     /// <summary>
     ///     Pay the deal's <see cref="IDeal.ExpensesAfterInterest" />, in the order named, from the
     ///     interest left after the notes and the coverage tests. An expense not paid in full carries
@@ -950,6 +994,7 @@ public class ComposableStructure : BaseStructure
 
                 var totalPaid = paidFromInterest + paidFromReserve;
                 var remainingShortfall = expenseDue - totalPaid;
+                _headShortfall[ec.Tranche.TrancheName] = remainingShortfall;
 
                 ec.PayExpense(periodCf.CashflowDate, totalPaid, remainingShortfall);
 
