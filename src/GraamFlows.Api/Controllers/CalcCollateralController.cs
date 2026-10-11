@@ -112,7 +112,8 @@ public class CalcCollateralController : ControllerBase
                 null, // No redemption date function
                 assumpFunc,
                 rateProvider,
-                collectionCutoff: CollectionCutoff(request)
+                collectionCutoff: CollectionCutoff(request),
+                interestAccrualStart: request.InterestAccrualStartDate
             );
 
             // Convert to response
