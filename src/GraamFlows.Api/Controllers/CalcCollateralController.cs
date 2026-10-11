@@ -254,6 +254,7 @@ public class CalcCollateralController : ControllerBase
             AccrualBasis = AccrualBasisParser.Parse(dto.DayCount),
             PaymentFrequency = dto.PaymentFrequency ?? 12,
             NextPaymentDate = dto.NextPaymentDate,
+            MaturityDate = dto.MaturityDate,
             IsIO = dto.IsIO,
             IOTerm = dto.IOTerm,
             ForbearanceAmt = dto.ForbearanceAmt,

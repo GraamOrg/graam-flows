@@ -163,7 +163,12 @@ public static class Amortizer
             var statedNextPayment = assetData.NextPaymentDate[assetIndex];
             var accruesToPayDate = statedNextPayment != null && firstProjDate != null;
             var unpaid = accruesToPayDate ? new List<(DateTime From, DateTime To, double I, double N, double F)>() : null;
+            // A stated maturity date: the last payment pays the interest accrued only up to it.
+            var maturityDate = firstProjDate != null ? assetData.MaturityDate[assetIndex] : null;
             var paymentsMade = 0;
+            // The coupon the accrual carried past a payment date was booked at; a floating coupon
+            // resets ON the payment date, so the carried days take the next row's coupon.
+            double? carriedAtRate = null;
 
             // PIK + delinquency is unsupported: the delinquency-advance formulas
             // assume a cash coupon, but a PIK coupon is capitalized (cash interest
@@ -303,7 +308,14 @@ public static class Amortizer
                                 ? initialAdjustmentPeriod - (age - 1)
                                 : adjustmentPeriod - (age - initialAdjustmentPeriod) % adjustmentPeriod;
 
-                        if (currentAdjustmentPeriod == 0)
+                        // An asset paid to its payment dates is fixed for each interest period: its
+                        // coupon resets ON a payment date, so in the row after a payment row (the
+                        // days carried past the payment date take the new coupon). Its current
+                        // coupon holds until its first payment.
+                        var resets = accruesToPayDate
+                            ? absT - 1 >= firstPayAbsT && (absT - 1 - firstPayAbsT) % payEvery == 0
+                            : currentAdjustmentPeriod == 0;
+                        if (resets)
                         {
                             currentAdjustmentPeriod = adjustmentPeriod;
 
@@ -600,11 +612,35 @@ public static class Amortizer
                     rowFrom = accrualStart < rowTo ? accrualStart : rowTo;
                 }
 
+                // Maturing this row on a stated date: the days after it earn nothing (the loan repaid
+                // on it). A date before the row's start (collected after the previous cutoff) leaves
+                // the row only what the carried accrual holds up to it.
+                var maturesOnDate = maturityDate is { } m && !hasCashflow && m < rowTo;
+                if (maturesOnDate && unpaid == null)
+                {
+                    var matured = maturityDate!.Value;
+                    var keep = matured <= rowFrom ? 0.0 : (matured - rowFrom).TotalDays / (rowTo - rowFrom).TotalDays;
+                    interest *= keep;
+                    netInterest *= keep;
+                    effectiveServiceFee *= keep;
+                }
+
                 // Less-than-monthly, or paid to its payment date: hold the month's interest until the
                 // asset's payment row, or until it pays off / the projection ends, when everything
                 // accrued is paid.
                 if (payEvery > 1 || accruesToPayDate)
                 {
+                    if (carriedAtRate is { } booked && booked > 0 && unpaid is { Count: > 0 }
+                        && Math.Abs(annRatePct - booked) > 1e-12)
+                    {
+                        var c = unpaid[0];
+                        var k = annRatePct / booked;
+                        accruedInterest += c.I * (k - 1);
+                        accruedNetInterest += c.I * (k - 1);
+                        unpaid[0] = (c.From, c.To, c.I * k, c.N + c.I * (k - 1), c.F);
+                    }
+
+                    carriedAtRate = null;
                     accruedInterest += interest;
                     accruedNetInterest += netInterest;
                     accruedServiceFee += effectiveServiceFee;
@@ -619,7 +655,19 @@ public static class Amortizer
                         netInterest = accruedNetInterest;
                         effectiveServiceFee = accruedServiceFee;
                         accruedInterest = accruedNetInterest = accruedServiceFee = 0;
-                        if (unpaid != null)
+                        // The part of the loan that defaults on this payment date does not pay the
+                        // coupon due on it: it defaulted instead. Applied to what the payment would
+                        // have paid (the accrual up to the payment date); days carried past it already
+                        // accrue on the balance the default left. Paid-per-period assets only — a
+                        // monthly asset without a stated calendar keeps its reference-calc standard.
+                        var defaulting = beginBalance > 0 ? Math.Clamp(defPrin / beginBalance, 0.0, 1.0) : 0.0;
+                        if (unpaid == null)
+                        {
+                            interest *= 1.0 - defaulting;
+                            netInterest *= 1.0 - defaulting;
+                            effectiveServiceFee *= 1.0 - defaulting;
+                        }
+                        else
                         {
                             if (!paysOff)
                             {
@@ -639,19 +687,39 @@ public static class Amortizer
                                     tailF += span.F * after;
                                 }
 
-                                interest -= tailI;
-                                netInterest -= tailN;
-                                effectiveServiceFee -= tailF;
+                                interest = (interest - tailI) * (1.0 - defaulting);
+                                netInterest = (netInterest - tailN) * (1.0 - defaulting);
+                                effectiveServiceFee = (effectiveServiceFee - tailF) * (1.0 - defaulting);
                                 accruedInterest = tailI * remains;
                                 accruedNetInterest = tailN * remains;
                                 accruedServiceFee = tailF * remains;
                                 unpaid.Clear();
                                 if (payDate < rowTo)
+                                {
                                     unpaid.Add((payDate, rowTo, accruedInterest, accruedNetInterest, accruedServiceFee));
+                                    carriedAtRate = annRatePct;
+                                }
                             }
                             else
                             {
+                                if (maturesOnDate)
+                                {
+                                    // Paid to the maturity date: the accrual after it never existed.
+                                    foreach (var span in unpaid)
+                                    {
+                                        if (span.To <= maturityDate!.Value || span.To <= span.From) continue;
+                                        var after = (span.To - (maturityDate.Value > span.From ? maturityDate.Value : span.From)).TotalDays
+                                                    / (span.To - span.From).TotalDays;
+                                        interest -= span.I * after;
+                                        netInterest -= span.N * after;
+                                        effectiveServiceFee -= span.F * after;
+                                    }
+                                }
+
                                 unpaid.Clear();
+                                interest *= 1.0 - defaulting;
+                                netInterest *= 1.0 - defaulting;
+                                effectiveServiceFee *= 1.0 - defaulting;
                             }
 
                             if (paymentRow) paymentsMade++;
