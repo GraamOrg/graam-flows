@@ -27,6 +27,7 @@ public class AssetDataArrays
         PaymentMonths = new int[AssetCount];
         FirstPaymentAbsT = new int[AssetCount];
         NextPaymentDate = new DateTime?[AssetCount];
+        MaturityDate = new DateTime?[AssetCount];
 
         InitialAdjustmentPeriod = new int[AssetCount];
         AdjustmentPeriod = new int[AssetCount];
@@ -74,6 +75,7 @@ public class AssetDataArrays
             // Resolved by the caller before this (PaymentSchedule.FirstPaymentAbsT); monthly assets ignore it.
             FirstPaymentAbsT[i] = asset.FirstPaymentAbsT ?? 0;
             NextPaymentDate[i] = asset.NextPaymentDate;
+            MaturityDate[i] = asset.MaturityDate;
 
             InitialAdjustmentPeriod[i] = asset.InitialAdjustmentPeriod;
             AdjustmentPeriod[i] = asset.AdjustmentPeriod;
@@ -131,6 +133,12 @@ public class AssetDataArrays
     ///     accrued up to its payment DATE, not to the row's date (<see cref="Amortizer" />).
     /// </summary>
     public DateTime?[] NextPaymentDate { get; }
+
+    /// <summary>
+    ///     The asset's stated maturity date, or null. Its term was set from it by the caller
+    ///     (<see cref="PaymentSchedule.ApplyMaturityDate" />); its last payment accrues only to it.
+    /// </summary>
+    public DateTime?[] MaturityDate { get; }
 
     // ARM data
     public int[] InitialAdjustmentPeriod { get; }

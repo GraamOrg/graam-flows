@@ -97,6 +97,9 @@ public class CfCore
             foreach (var a in groupAssets.Where(a =>
                          PaymentSchedule.MonthsBetween(a.PaymentFrequency) > 1 || a.NextPaymentDate != null))
                 a.FirstPaymentAbsT ??= PaymentSchedule.FirstPaymentAbsT(a, firstProjDate, maxPeriods, collectionCutoff);
+            // A stated maturity date is the asset's maturity (sets its term), placed like a payment.
+            foreach (var a in groupAssets.Where(a => a.MaturityDate != null))
+                PaymentSchedule.ApplyMaturityDate(a, firstProjDate, maxPeriods, collectionCutoff);
 
             // Convert assets to parallel arrays
             var assetData = new AssetDataArrays(groupAssets);
@@ -211,16 +214,20 @@ public class CfCore
                 forbRecovMaturityTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryMaturity, maxPeriods, startTime, 1.0);
                 forbRecovDefaultTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryDefault, maxPeriods, startTime, -1.0);
 
-                // A quarterly / semi-annual asset prepays and defaults on its payment rows only.
-                if (assetData.PaymentMonths[i] > 1)
+                // A quarterly / semi-annual asset prepays and defaults on its payment rows only; so does
+                // a monthly one that states its payment date (from its first payment on).
+                var statedCalendar = assetData.NextPaymentDate[i] != null;
+                if (assetData.PaymentMonths[i] > 1 || statedCalendar)
                 {
                     if (prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.ABS ||
                         defaultType == Objects.TypeEnum.DefaultTypeEnum.ORIGMDR)
                         throw new NotSupportedException(
                             $"Asset {groupAssets[i].AssetId}: a less-than-monthly payment calendar is not " +
                             "supported with ABS prepayment or ORIGMDR defaults.");
-                    PaymentSchedule.Concentrate(smmTime[i], startTime, assetData.FirstPaymentAbsT[i], assetData.PaymentMonths[i]);
-                    PaymentSchedule.Concentrate(mdrTime[i], startTime, assetData.FirstPaymentAbsT[i], assetData.PaymentMonths[i]);
+                    PaymentSchedule.Concentrate(smmTime[i], startTime, assetData.FirstPaymentAbsT[i],
+                        assetData.PaymentMonths[i], statedCalendar);
+                    PaymentSchedule.Concentrate(mdrTime[i], startTime, assetData.FirstPaymentAbsT[i],
+                        assetData.PaymentMonths[i], statedCalendar);
                 }
             }
 
