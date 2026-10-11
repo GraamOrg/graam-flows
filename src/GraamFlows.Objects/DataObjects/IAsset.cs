@@ -22,6 +22,22 @@ public interface IAsset
     /// </summary>
     AccrualBasis AccrualBasis { get; set; }
 
+    /// <summary>
+    ///     Payments a year (12 monthly — the default — 4 quarterly, 2 semi-annual). A less-than-monthly
+    ///     asset pays interest and prepays, defaults and recovers only on its payment dates
+    ///     (<c>PaymentSchedule</c>).
+    /// </summary>
+    int PaymentFrequency { get; set; }
+
+    /// <summary>The asset's next payment date, which places its payment months. Required below 12.</summary>
+    DateTime? NextPaymentDate { get; set; }
+
+    /// <summary>
+    ///     The absolute period of the first payment row, when the caller places it directly (bought
+    ///     collateral pays on its purchase calendar). Overrides <see cref="NextPaymentDate" />.
+    /// </summary>
+    int? FirstPaymentAbsT { get; set; }
+
     DateTime OriginalDate { get; set; }
     double OriginalBalance { get; set; }
     double OriginalInterestRate { get; set; }

@@ -5,6 +5,16 @@ public class CalcCollateralRequest
 {
     public List<AssetDto> Assets { get; set; } = new();
     public DateTime ProjectionDate { get; set; }
+
+    /// <summary>
+    ///     Business days before each monthly row's date at which its collections close (a managed
+    ///     pool's Collection Period ends N Business Days before the Payment Date). Places a
+    ///     less-than-monthly asset's payment date in a row. Default 0: the row's own date.
+    /// </summary>
+    public int? CollectionCutoffBusinessDays { get; set; }
+
+    /// <summary>US holiday calendar for <see cref="CollectionCutoffBusinessDays" />. Default "Settlement".</summary>
+    public string? HolidayCalendar { get; set; }
     public AssumptionsDto Assumptions { get; set; } = new();
 
     /// <summary>
@@ -78,6 +88,16 @@ public class AssetDto
     ///     spelling is rejected rather than accrued as 30/360.
     /// </summary>
     public string? DayCount { get; set; }
+
+    /// <summary>
+    ///     Payments a year: 12 (the default), 6, 4, 3, 2 or 1. Below 12 the asset pays interest and
+    ///     prepays, defaults and recovers only on its payment dates; <see cref="NextPaymentDate" />
+    ///     is then required.
+    /// </summary>
+    public int? PaymentFrequency { get; set; }
+
+    /// <summary>The asset's next payment date (places its payment months).</summary>
+    public DateTime? NextPaymentDate { get; set; }
 
     // ARM-specific fields
     public int InitialAdjustmentPeriod { get; set; }

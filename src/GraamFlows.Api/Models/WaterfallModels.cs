@@ -215,6 +215,12 @@ public class ReinvestmentDto
     /// </summary>
     public bool? ReinvestAllEligibleProceeds { get; set; }
 
+    /// <summary>
+    ///     During the reinvestment period, buy only on Payment Dates with the proceeds collected
+    ///     since the last one (no intra-period reinvestment). Default false: buy monthly.
+    /// </summary>
+    public bool? ReinvestOnPaymentDatesOnly { get; set; }
+
     /// <summary>Fraction of eligible proceeds released instead of reinvested (default 0).</summary>
     public double Holdback { get; set; }
 
@@ -273,6 +279,9 @@ public class ReinvestTemplateDto
     ///     Any other spelling is rejected.
     /// </summary>
     public string? DayCount { get; set; }
+
+    /// <summary>Payments a year of the bought collateral: 12 (default), 6, 4, 3, 2 or 1.</summary>
+    public int? PaymentFrequency { get; set; }
 
     /// <summary>Fixed coupon rate (annual %).</summary>
     public double CouponRate { get; set; }

@@ -68,6 +68,9 @@ public static class Amortizer
         if (actual360Fractions != null && monthsPerPeriod != 1 && assetData.Actual360.Any(a => a))
             throw new NotSupportedException(
                 "Actual/360 accrual is defined on monthly projection periods only.");
+        if (monthsPerPeriod != 1 && assetData.PaymentMonths.Any(m => m > 1))
+            throw new NotSupportedException(
+                "A less-than-monthly asset's payment calendar is defined on monthly projection periods only.");
 
         // Per-period rate divisor. Monthly is annualPct / 1200 (= /100 /12);
         // a longer period accrues over more months, so divide by 1200/mpp.
@@ -136,6 +139,11 @@ public static class Amortizer
             var isBullet = amortType == (int)AmortizationType.Bullet;
             var isPik = amortType == (int)AmortizationType.Pik;
             var accruesActual360 = assetData.Actual360[assetIndex];
+            // A less-than-monthly asset accrues every month but is PAID on its payment rows
+            // (PaymentSchedule); its hazards were concentrated onto those rows by the caller.
+            var payEvery = assetData.PaymentMonths[assetIndex];
+            var firstPayAbsT = assetData.FirstPaymentAbsT[assetIndex];
+            double accruedInterest = 0, accruedNetInterest = 0, accruedServiceFee = 0;
 
             // PIK + delinquency is unsupported: the delinquency-advance formulas
             // assume a cash coupon, but a PIK coupon is capitalized (cash interest
@@ -542,6 +550,30 @@ public static class Amortizer
                                          (prevBeginBal + beginBalance);
                     resultWAM[period] = (prevBeginBal * resultWAM[period] + beginBalance * (term - age)) /
                                         (prevBeginBal + beginBalance);
+                }
+
+                // Less-than-monthly: hold the month's interest until the asset's payment row, or
+                // until it pays off / the projection ends, when everything accrued is paid.
+                if (payEvery > 1)
+                {
+                    accruedInterest += interest;
+                    accruedNetInterest += netInterest;
+                    accruedServiceFee += effectiveServiceFee;
+                    var paysNow = PaymentSchedule.IsPaymentPeriod(absT, firstPayAbsT, payEvery)
+                                  || balance < 1 || !hasCashflow || absT == endTime || period == maxPeriods - 1;
+                    if (paysNow)
+                    {
+                        interest = accruedInterest;
+                        netInterest = accruedNetInterest;
+                        effectiveServiceFee = accruedServiceFee;
+                        accruedInterest = accruedNetInterest = accruedServiceFee = 0;
+                    }
+                    else
+                    {
+                        interest = 0;
+                        netInterest = 0;
+                        effectiveServiceFee = 0;
+                    }
                 }
 
                 // Aggregate results into period arrays

@@ -58,6 +58,17 @@ public record ReinvestmentConfig
     public bool ReinvestAllEligibleProceeds { get; init; }
 
     /// <summary>
+    /// During the reinvestment period, buy only on the deal's Payment Dates, with the eligible
+    /// proceeds collected since the last one ("no intra-period reinvestment"). A managed pool's
+    /// collections sit in the collection account until the Payment Date; buying each month instead
+    /// starts the bought collateral earning up to a period early and — the material effect — makes
+    /// it mature mid-period years later, so interest in the amortisation years is short by the part
+    /// of each period after a maturity. The post-reinvestment window keeps buying monthly. Needs the
+    /// deal's calendar (<c>CfCore.BuildReinvestment(isPaymentDate:)</c>). False keeps monthly buying.
+    /// </summary>
+    public bool ReinvestOnPaymentDatesOnly { get; init; }
+
+    /// <summary>
     ///     Fraction of eligible proceeds released instead of reinvested (0 =
     ///     reinvest everything, 1 = release everything). Default 0.
     /// </summary>
