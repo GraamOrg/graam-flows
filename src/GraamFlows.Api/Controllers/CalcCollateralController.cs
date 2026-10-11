@@ -111,7 +111,8 @@ public class CalcCollateralController : ControllerBase
                 request.ProjectionDate,
                 null, // No redemption date function
                 assumpFunc,
-                rateProvider
+                rateProvider,
+                collectionCutoff: CollectionCutoff(request)
             );
 
             // Convert to response
@@ -210,6 +211,28 @@ public class CalcCollateralController : ControllerBase
         };
     }
 
+    /// <summary>
+    ///     A row date's collection cutoff: N business days before it on the request's US holiday
+    ///     calendar. Null (the row date itself) when the request states no cutoff.
+    /// </summary>
+    private static Func<DateTime, DateTime>? CollectionCutoff(CalcCollateralRequest request)
+    {
+        if (request.CollectionCutoffBusinessDays is not { } n || n <= 0)
+            return null;
+        var calendar = GraamFlows.Util.Calender.CalendarFactory.GetUSCalendar(request.HolidayCalendar ?? "Settlement");
+        return date =>
+        {
+            var d = date.Date;
+            for (var k = 0; k < n;)
+            {
+                d = d.AddDays(-1);
+                if (calendar.IsBusinessDay(d)) k++;
+            }
+
+            return d;
+        };
+    }
+
     private static IAsset ConvertToAsset(AssetDto dto)
     {
         var asset = new Asset
@@ -228,6 +251,8 @@ public class CalcCollateralController : ControllerBase
             DebtService = dto.DebtService,
             GroupNum = dto.GroupNum,
             AccrualBasis = AccrualBasisParser.Parse(dto.DayCount),
+            PaymentFrequency = dto.PaymentFrequency ?? 12,
+            NextPaymentDate = dto.NextPaymentDate,
             IsIO = dto.IsIO,
             IOTerm = dto.IOTerm,
             ForbearanceAmt = dto.ForbearanceAmt,

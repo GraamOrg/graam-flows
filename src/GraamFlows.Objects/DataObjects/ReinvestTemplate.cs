@@ -40,6 +40,9 @@ public record ReinvestTemplate
     /// </summary>
     public AccrualBasis AccrualBasis { get; init; } = AccrualBasis.Thirty360;
 
+    /// <summary>Payments a year of the bought collateral (12 monthly — the default — 4 quarterly).</summary>
+    public int PaymentFrequency { get; init; } = 12;
+
     /// <summary>Fixed coupon rate (annual %), used when the coupon is fixed.</summary>
     public double CouponRate { get; init; }
 
