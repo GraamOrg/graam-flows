@@ -157,6 +157,11 @@ public static class Amortizer
             // (PaymentSchedule); its hazards were concentrated onto those rows by the caller.
             var payEvery = assetData.PaymentMonths[assetIndex];
             var firstPayAbsT = assetData.FirstPaymentAbsT[assetIndex];
+            // How many payments each row collects, for a stated calendar (null: every payEvery rows).
+            var payRows = assetData.PaymentRowCounts[assetIndex];
+            int PaymentsIn(int t, int p) => payRows != null
+                ? (p >= 0 && p < payRows.Length ? payRows[p] : 0)
+                : (t >= firstPayAbsT && (t - firstPayAbsT) % payEvery == 0 ? 1 : 0);
             double accruedInterest = 0, accruedNetInterest = 0, accruedServiceFee = 0;
             // Pay-date accrual: the asset states its next payment date, so each payment pays the
             // interest accrued to that DATE. `unpaid` holds the accrual not yet paid, by span.
@@ -313,7 +318,7 @@ public static class Amortizer
                         // days carried past the payment date take the new coupon). Its current
                         // coupon holds until its first payment.
                         var resets = accruesToPayDate
-                            ? absT - 1 >= firstPayAbsT && (absT - 1 - firstPayAbsT) % payEvery == 0
+                            ? PaymentsIn(absT - 1, period - 1) > 0
                             : currentAdjustmentPeriod == 0;
                         if (resets)
                         {
@@ -646,8 +651,9 @@ public static class Amortizer
                     accruedServiceFee += effectiveServiceFee;
                     unpaid?.Add((rowFrom, rowTo, interest, netInterest, effectiveServiceFee));
                     var paysOff = balance < 1 || !hasCashflow || absT == endTime || period == maxPeriods - 1;
+                    var paymentsHere = accruesToPayDate ? PaymentsIn(absT, period) : 0;
                     var paymentRow = accruesToPayDate
-                        ? absT >= firstPayAbsT && (absT - firstPayAbsT) % payEvery == 0
+                        ? paymentsHere > 0
                         : PaymentSchedule.IsPaymentPeriod(absT, firstPayAbsT, payEvery);
                     if (paymentRow || paysOff)
                     {
@@ -673,8 +679,9 @@ public static class Amortizer
                             {
                                 // Paid to the payment date; the accrual after it waits for the next
                                 // payment, on the balance this row's prepayments and defaults left.
+                                // Paid to the row's LAST payment date (a row can collect two).
                                 var payDate = PaymentSchedule.PaymentDate(statedNextPayment!.Value, payEvery,
-                                    firstProjDate!.Value, paymentsMade);
+                                    firstProjDate!.Value, paymentsMade + Math.Max(paymentsHere, 1) - 1);
                                 var remains = beginBalance > 0 ? Math.Clamp(balance / beginBalance, 0.0, 1.0) : 0.0;
                                 double tailI = 0, tailN = 0, tailF = 0;
                                 foreach (var span in unpaid)
@@ -722,7 +729,7 @@ public static class Amortizer
                                 effectiveServiceFee *= 1.0 - defaulting;
                             }
 
-                            if (paymentRow) paymentsMade++;
+                            if (paymentRow) paymentsMade += Math.Max(paymentsHere, 1);
                         }
                     }
                     else

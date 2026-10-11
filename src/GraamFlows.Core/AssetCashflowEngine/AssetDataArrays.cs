@@ -28,6 +28,7 @@ public class AssetDataArrays
         FirstPaymentAbsT = new int[AssetCount];
         NextPaymentDate = new DateTime?[AssetCount];
         MaturityDate = new DateTime?[AssetCount];
+        PaymentRowCounts = new int[AssetCount][];
 
         InitialAdjustmentPeriod = new int[AssetCount];
         AdjustmentPeriod = new int[AssetCount];
@@ -139,6 +140,13 @@ public class AssetDataArrays
     ///     (<see cref="PaymentSchedule.ApplyMaturityDate" />); its last payment accrues only to it.
     /// </summary>
     public DateTime?[] MaturityDate { get; }
+
+    /// <summary>
+    ///     Per stated-calendar asset, how many of its payments each projection row collects
+    ///     (<see cref="PaymentSchedule.PaymentRowCounts" />); null for other assets, which pay every
+    ///     <see cref="PaymentMonths" /> rows from <see cref="FirstPaymentAbsT" />. Set by the caller.
+    /// </summary>
+    public int[]?[] PaymentRowCounts { get; }
 
     // ARM data
     public int[] InitialAdjustmentPeriod { get; }

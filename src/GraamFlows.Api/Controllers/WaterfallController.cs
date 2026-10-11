@@ -483,6 +483,10 @@ public class WaterfallController : ControllerBase
         deal.InterestDiversion = InterestDiversionMapper.Map(
             dto.UnifiedWaterfall?.InterestDiversion, deal.ReinvestmentConfig, dto.DealName);
 
+        // Expenses the Priority of Payments pays after the notes' interest (a CLO's subordinated fee).
+        deal.ExpensesAfterInterest = ExpensesAfterInterestMapper.Map(
+            dto.UnifiedWaterfall?.ExpensesAfterInterest, dto.Expenses, dto.DealName);
+
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())
             foreach (var schedDto in dto.ScheduledVariables)

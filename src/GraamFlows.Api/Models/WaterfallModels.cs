@@ -616,6 +616,15 @@ public class UnifiedWaterfallDto
     ///     residual. Requires <c>reinvestment</c>.
     /// </summary>
     public InterestDiversionDto? InterestDiversion { get; set; }
+
+    /// <summary>
+    ///     Expenses the Priority of Payments pays AFTER the notes' interest and coverage tests (and
+    ///     the interest diversion test) — a CLO's Subordinated Collateral Management Fee — instead of
+    ///     at the head of the waterfall with the others. Paid from the interest left; what is not
+    ///     paid is carried and paid, ahead of the period's own, on later Payment Dates. Each name
+    ///     must be one of the deal's expenses.
+    /// </summary>
+    public List<string>? ExpensesAfterInterest { get; set; }
 }
 
 public class InterestDiversionDto
