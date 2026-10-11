@@ -26,6 +26,7 @@ public class AssetDataArrays
         Actual360 = new bool[AssetCount];
         PaymentMonths = new int[AssetCount];
         FirstPaymentAbsT = new int[AssetCount];
+        NextPaymentDate = new DateTime?[AssetCount];
 
         InitialAdjustmentPeriod = new int[AssetCount];
         AdjustmentPeriod = new int[AssetCount];
@@ -72,6 +73,7 @@ public class AssetDataArrays
             PaymentMonths[i] = PaymentSchedule.MonthsBetween(asset.PaymentFrequency);
             // Resolved by the caller before this (PaymentSchedule.FirstPaymentAbsT); monthly assets ignore it.
             FirstPaymentAbsT[i] = asset.FirstPaymentAbsT ?? 0;
+            NextPaymentDate[i] = asset.NextPaymentDate;
 
             InitialAdjustmentPeriod[i] = asset.InitialAdjustmentPeriod;
             AdjustmentPeriod[i] = asset.AdjustmentPeriod;
@@ -118,8 +120,17 @@ public class AssetDataArrays
     /// <summary>Months between the asset's payments (1 = monthly). See <see cref="PaymentSchedule" />.</summary>
     public int[] PaymentMonths { get; }
 
-    /// <summary>Absolute period of the asset's first payment row (ignored when monthly).</summary>
+    /// <summary>
+    ///     Absolute period of the asset's first payment row (ignored for a monthly asset that states
+    ///     no next payment date).
+    /// </summary>
     public int[] FirstPaymentAbsT { get; }
+
+    /// <summary>
+    ///     The asset's stated next payment date, or null. When stated, each payment pays the interest
+    ///     accrued up to its payment DATE, not to the row's date (<see cref="Amortizer" />).
+    /// </summary>
+    public DateTime?[] NextPaymentDate { get; }
 
     // ARM data
     public int[] InitialAdjustmentPeriod { get; }

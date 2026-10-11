@@ -46,10 +46,11 @@ public static class PaymentSchedule
     {
         if (asset.FirstPaymentAbsT is { } fixedT)
             return fixedT;
-        if (asset.NextPaymentDate is not { } next)
+        if (asset.NextPaymentDate is not { } stated)
             throw new ArgumentException(
                 $"Asset {asset.AssetId} pays {asset.PaymentFrequency} times a year but states no next payment " +
                 "date: its payment months cannot be placed, and guessing them moves its cash between periods.");
+        var next = PaymentDate(stated, MonthsBetween(asset.PaymentFrequency), firstProjDate, 0);
         var startT = DateUtil.CalcAbsT(firstProjDate);
         for (var p = 0; p < maxPeriods; p++)
         {
@@ -59,6 +60,22 @@ public static class PaymentSchedule
         }
 
         return startT + maxPeriods; // never within the horizon: it pays only at maturity / payoff
+    }
+
+    /// <summary>
+    ///     The asset's <paramref name="k" />-th payment date of the projection (0 = the first): its
+    ///     stated next payment date rolled forward by whole payment periods past the projection's
+    ///     start (a tape's date that has already gone by is the previous payment, not the next), then
+    ///     <paramref name="k" /> periods on. Counted from the anchor, so a month-end date stays on
+    ///     month ends.
+    /// </summary>
+    public static DateTime PaymentDate(DateTime stated, int monthsBetween, DateTime firstProjDate, int k)
+    {
+        var start = firstProjDate.AddMonths(-1).Date; // row 0 accrues from one month before its date
+        var skipped = 0;
+        while (stated.Date.AddMonths((skipped) * monthsBetween) <= start)
+            skipped++;
+        return stated.Date.AddMonths((skipped + k) * monthsBetween);
     }
 
     /// <summary>True when absolute period <paramref name="absT" /> is one of the asset's payment rows.</summary>

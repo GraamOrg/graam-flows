@@ -77,7 +77,7 @@ public class CfCore
         Func<string, DateTime> redempDateFunc,
         Func<IAsset, IAssetAssumptions> assumpFunc, IRateProvider rateProvider, int threads = 1,
         bool displayAssetCf = false, int poolAgeOffset = 0, int wam = 0,
-        Func<DateTime, DateTime>? collectionCutoff = null)
+        Func<DateTime, DateTime>? collectionCutoff = null, DateTime? interestAccrualStart = null)
     {
         var groupedAssets = assets.GroupBy(asset => asset.GroupNum);
         var dealCashflows = new CollateralCashflows(displayAssetCf);
@@ -91,9 +91,11 @@ public class CfCore
             var endTime = DateUtil.CalcAbsT(endDate);
             var maxPeriods = Math.Min(endTime - startTime + 1, 720);
 
-            // A less-than-monthly asset's payment rows (PaymentSchedule), placed before the arrays
-            // read them.
-            foreach (var a in groupAssets.Where(a => PaymentSchedule.MonthsBetween(a.PaymentFrequency) > 1))
+            // An asset's payment rows (PaymentSchedule), placed before the arrays read them: every
+            // less-than-monthly asset, and a monthly one that states its next payment date (it is
+            // paid the interest accrued to that date, so its payment row has to be known).
+            foreach (var a in groupAssets.Where(a =>
+                         PaymentSchedule.MonthsBetween(a.PaymentFrequency) > 1 || a.NextPaymentDate != null))
                 a.FirstPaymentAbsT ??= PaymentSchedule.FirstPaymentAbsT(a, firstProjDate, maxPeriods, collectionCutoff);
 
             // Convert assets to parallel arrays
@@ -245,7 +247,9 @@ public class CfCore
                 recoveryLag: recoveryLag,
                 actual360Fractions: assetData.Actual360.Any(a => a)
                     ? AccrualBasisParser.Actual360Fractions(firstProjDate, maxPeriods)
-                    : null);
+                    : null,
+                firstProjDate: firstProjDate,
+                interestAccrualStart: interestAccrualStart);
 
             // Convert results to PeriodCashflows and add to deal cashflows
             var periodCashflows = results.ToPeriodCashflows(firstProjDate, groupNum);
