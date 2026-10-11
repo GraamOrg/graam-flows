@@ -123,6 +123,14 @@ public class PeriodCashflows
     /// </summary>
     public double AdditionalPurchaseFace { get; set; }
 
+    /// <summary>
+    ///     Face of collateral bought on this date from principal proceeds, less the cash it cost
+    ///     (the purchase discount), already included in <see cref="Balance" />. A coverage test is
+    ///     measured on the Determination Date, before the Payment Date buys: the proceeds count as
+    ///     the cash they are, not the face they will buy. Zero otherwise.
+    /// </summary>
+    public double PurchaseDiscount { get; set; }
+
     public double TotalCashflow()
     {
         return ScheduledPrincipal + UnscheduledPrincipal + Interest + RecoveryPrincipal + ForbearanceRecovery +
@@ -187,6 +195,7 @@ public class PeriodCashflows
         clone.PeriodYears30360 = PeriodYears30360;
         clone.ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal;
         clone.AdditionalPurchaseFace = AdditionalPurchaseFace;
+        clone.PurchaseDiscount = PurchaseDiscount;
         return clone;
     }
 
@@ -206,5 +215,6 @@ public class PeriodCashflows
         ModificationLoss += periodCf.ModificationLoss;
         ReinvestedRecoveryPrincipal += periodCf.ReinvestedRecoveryPrincipal;
         AdditionalPurchaseFace += periodCf.AdditionalPurchaseFace;
+        PurchaseDiscount += periodCf.PurchaseDiscount;
     }
 }

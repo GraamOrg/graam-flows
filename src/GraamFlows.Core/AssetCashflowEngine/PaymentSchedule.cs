@@ -117,6 +117,33 @@ public static class PaymentSchedule
         asset.OriginalAmortizationTerm = term;
     }
 
+    /// <summary>
+    ///     How many of a stated-calendar asset's payments each projection row collects (index = row,
+    ///     from the projection's first). Each payment is placed on its own: its date
+    ///     (<see cref="PaymentDate" />) lands in the first row whose collection cutoff reaches it. The
+    ///     cutoff moves with weekends and holidays (N business days before the row's date), so a loan
+    ///     paying on the 5th is collected in its own month in one quarter and the next month in
+    ///     another — its payment rows are not simply every third row, and a row can collect two.
+    ///     Measured against a reference model's asset-level export: placing the first payment and
+    ///     stepping a period at a time put such payments a Collection Period early.
+    /// </summary>
+    public static int[] PaymentRowCounts(DateTime stated, int monthsBetween, DateTime firstProjDate, int maxPeriods,
+        Func<DateTime, DateTime>? cutoff)
+    {
+        var counts = new int[Math.Max(maxPeriods, 0)];
+        var startT = DateUtil.CalcAbsT(firstProjDate);
+        for (var k = 0; k < 12 * 100; k++)
+        {
+            var date = PaymentDate(stated, Math.Max(monthsBetween, 1), firstProjDate, k);
+            var row = RowCollecting(date, firstProjDate, maxPeriods, cutoff) - startT;
+            if (row >= maxPeriods)
+                break;
+            counts[row]++;
+        }
+
+        return counts;
+    }
+
     /// <summary>True when absolute period <paramref name="absT" /> is one of the asset's payment rows.</summary>
     public static bool IsPaymentPeriod(int absT, int firstPayAbsT, int monthsBetween) =>
         monthsBetween <= 1 || (absT >= firstPayAbsT && (absT - firstPayAbsT) % monthsBetween == 0);
@@ -137,7 +164,7 @@ public static class PaymentSchedule
     ///     since the start, as before. A monthly asset is concentrated only with a stated calendar.
     /// </summary>
     public static void Concentrate(double[] hazard, int startAbsT, int firstPayAbsT, int monthsBetween,
-        bool statedCalendar = false)
+        bool statedCalendar = false, int[]? paymentRows = null, int? maturityRow = null)
     {
         if (hazard == null || (monthsBetween <= 1 && !statedCalendar))
             return;
@@ -147,11 +174,20 @@ public static class PaymentSchedule
         for (var p = 0; p < h.Length; p++)
         {
             var absT = startAbsT + p;
-            var pays = absT >= firstPayAbsT && (absT - firstPayAbsT) % Math.Max(monthsBetween, 1) == 0;
+            // A stated calendar's payment rows are placed one payment at a time (`PaymentRowCounts`);
+            // otherwise every `monthsBetween` rows from the first.
+            var pays = paymentRows != null
+                ? p < paymentRows.Length && paymentRows[p] > 0
+                : absT >= firstPayAbsT && (absT - firstPayAbsT) % Math.Max(monthsBetween, 1) == 0;
             if (!pays)
             {
                 survive *= 1.0 - h[p]; // a stated calendar's first payment recomputes it (below)
-                hazard[p] = 0.0;
+                // A loan maturing between payment dates prepays or defaults on its maturity, over the
+                // months since its last payment — not never: a reference model's pool defaulted
+                // ~3% more than ours through the years its loans matured.
+                hazard[p] = maturityRow == p && !first ? 1.0 - survive : 0.0;
+                if (maturityRow == p && !first)
+                    survive = 1.0;
                 continue;
             }
 

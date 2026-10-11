@@ -95,6 +95,7 @@ public class Deal : IDeal
     public IList<CoverageLevelConfig>? CoverageCascade { get; set; }
     public IncentiveFeeConfig? IncentiveFee { get; set; }
     public InterestDiversionConfig? InterestDiversion { get; set; }
+    public IReadOnlyList<string> ExpensesAfterInterest { get; set; } = Array.Empty<string>();
     public WaterfallOrderEnum WaterfallOrder { get; set; } = WaterfallOrderEnum.Standard;
 
     public Assembly RuleAssembly { get; set; }

@@ -103,6 +103,17 @@ public class CfCore
 
             // Convert assets to parallel arrays
             var assetData = new AssetDataArrays(groupAssets);
+            // A stated calendar's payments, placed one at a time (the cutoff moves with weekends and
+            // holidays); its first payment row is the first of them.
+            for (var i = 0; i < groupAssets.Count; i++)
+            {
+                if (groupAssets[i].NextPaymentDate is not { } stated) continue;
+                var counts = PaymentSchedule.PaymentRowCounts(stated, assetData.PaymentMonths[i], firstProjDate,
+                    maxPeriods, collectionCutoff);
+                assetData.PaymentRowCounts[i] = counts;
+                var first = Array.FindIndex(counts, c => c > 0);
+                assetData.FirstPaymentAbsT[i] = startTime + (first >= 0 ? first : maxPeriods);
+            }
 
             // Per-asset assumption resolution (graam-flows#5). Previously this
             // code called assumpFunc only on the first asset and applied those
@@ -224,10 +235,14 @@ public class CfCore
                         throw new NotSupportedException(
                             $"Asset {groupAssets[i].AssetId}: a less-than-monthly payment calendar is not " +
                             "supported with ABS prepayment or ORIGMDR defaults.");
+                    // The row the loan matures in (its term from origination), for a stated calendar.
+                    int? maturityRow = statedCalendar
+                        ? assetData.OriginalDate[i] + assetData.OriginalAmortizationTerm[i] - startTime
+                        : null;
                     PaymentSchedule.Concentrate(smmTime[i], startTime, assetData.FirstPaymentAbsT[i],
-                        assetData.PaymentMonths[i], statedCalendar);
+                        assetData.PaymentMonths[i], statedCalendar, assetData.PaymentRowCounts[i], maturityRow);
                     PaymentSchedule.Concentrate(mdrTime[i], startTime, assetData.FirstPaymentAbsT[i],
-                        assetData.PaymentMonths[i], statedCalendar);
+                        assetData.PaymentMonths[i], statedCalendar, assetData.PaymentRowCounts[i], maturityRow);
                 }
             }
 
@@ -803,6 +818,10 @@ public class CfCore
             // par; a discount purchase adds the small accretion of face over cash).
             cohortAccum.Balance[t] += totalFace;
             cohortAccum.AdditionalPurchaseFace[t] += cashSpent > 0 ? totalFace * spentFromExtra / cashSpent : 0.0;
+            // The principal proceeds' share: face over cash (zero at par).
+            cohortAccum.PurchaseDiscount[t] += cashSpent > 0
+                ? totalFace * (cashSpent - spentFromExtra) / cashSpent - (cashSpent - spentFromExtra)
+                : 0.0;
 
             var cohortPeriods = horizon - cohortStart;
             var cohortStartAbsT = startTime + cohortStart;
