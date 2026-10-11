@@ -109,16 +109,18 @@ public class PaymentCalendarTests
     }
 
     [Fact]
-    public void Its_balance_stays_whole_through_the_period_so_it_earns_more_than_a_monthly_payer()
+    public void Its_balance_stays_whole_through_the_period_and_earns_on_all_of_it()
     {
         var q = Run(Loan(4, new DateTime(2026, 1, 15)));
         var m = Run(Loan(null, null));
-        // Same prepayment through a payment row (concentrated, not reduced): rows 0..12 cover 13
-        // months either way — the quarterly loan's rows 0, 3, 6, 9, 12 carry 1 + 3 + 3 + 3 + 3.
-        q.Take(13).Sum(c => c.UnscheduledPrincipal).Should().BeApproximately(m.Take(13).Sum(c => c.UnscheduledPrincipal), 1.0,
+        // Same prepayment, concentrated on payment rows: the quarterly loan's rows 0, 3, 6, 9, 12 carry
+        // 3 + 3 + 3 + 3 + 3 months — its first payment ends a whole quarter that began before the
+        // projection did — so through row 12 it has prepaid what the monthly loan does in 15 months.
+        q.Take(13).Sum(c => c.UnscheduledPrincipal).Should().BeApproximately(m.Take(15).Sum(c => c.UnscheduledPrincipal), 1.0,
             "the same CPR over the same months, only on payment dates");
-        // ... but interest on a balance that is not reduced mid-quarter.
-        q.Take(13).Sum(c => c.Interest).Should().BeGreaterThan(m.Take(13).Sum(c => c.Interest));
+        // ... and a balance that is not reduced mid-quarter.
+        q[2].BeginBalance.Should().Be(q[1].BeginBalance);
+        q[3].BeginBalance.Should().Be(q[1].BeginBalance);
         // Between payments the quarter's interest is exactly the monthly accrual on the whole balance.
         q[3].Interest.Should().BeApproximately(q[1].BeginBalance * 0.08 / 12 * 3, 1e-6);
     }

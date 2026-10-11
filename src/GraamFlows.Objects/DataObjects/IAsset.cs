@@ -38,6 +38,13 @@ public interface IAsset
     /// </summary>
     int? FirstPaymentAbsT { get; set; }
 
+    /// <summary>
+    ///     The asset's stated maturity date, or null. When stated it is the asset's maturity: it repays
+    ///     in the projection row that collects the date (the row's collection cutoff, as for a payment
+    ///     date), and its last payment pays the interest accrued only up to the date.
+    /// </summary>
+    DateTime? MaturityDate { get; set; }
+
     DateTime OriginalDate { get; set; }
     double OriginalBalance { get; set; }
     double OriginalInterestRate { get; set; }

@@ -107,6 +107,12 @@ public class AssetDto
     /// <summary>The asset's next payment date (places its payment months).</summary>
     public DateTime? NextPaymentDate { get; set; }
 
+    /// <summary>
+    ///     The asset's maturity date. When stated it overrides the term: the asset repays in the row
+    ///     whose collection cutoff reaches the date, with interest accrued only up to it.
+    /// </summary>
+    public DateTime? MaturityDate { get; set; }
+
     // ARM-specific fields
     public int InitialAdjustmentPeriod { get; set; }
     public int AdjustmentPeriod { get; set; }
