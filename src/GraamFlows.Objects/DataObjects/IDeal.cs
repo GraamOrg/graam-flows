@@ -93,6 +93,12 @@ public interface IDeal : IPayRuleAssemblyStore
     IReadOnlyList<string> ExpensesAfterInterest { get; }
 
     /// <summary>
+    /// Head-of-waterfall expenses whose unpaid amount is paid from principal proceeds ahead of the
+    /// notes' principal (optional; empty: an unpaid expense stays unpaid, as before).
+    /// </summary>
+    IReadOnlyList<string> ExpensesFromPrincipal { get; }
+
+    /// <summary>
     /// Controls interleaving of INTEREST and PRINCIPAL steps.
     /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
     /// </summary>

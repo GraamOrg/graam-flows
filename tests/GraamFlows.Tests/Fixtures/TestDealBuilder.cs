@@ -30,6 +30,7 @@ public class TestDealBuilder
     private List<CoverageLevelConfig>? _coverageCascade;
     private IncentiveFeeConfig? _incentiveFee;
     private IReadOnlyList<string>? _expensesAfterInterest;
+    private IReadOnlyList<string>? _expensesFromPrincipal;
     private InterestDiversionConfig? _interestDiversion;
 
     public TestDealBuilder(
@@ -519,6 +520,12 @@ public class TestDealBuilder
     }
 
     /// <summary>Configures a fee on the residual's distributions above a hurdle IRR.</summary>
+    public TestDealBuilder WithExpensesFromPrincipal(params string[] names)
+    {
+        _expensesFromPrincipal = names;
+        return this;
+    }
+
     public TestDealBuilder WithExpensesAfterInterest(params string[] names)
     {
         _expensesAfterInterest = names;
@@ -670,6 +677,8 @@ public class TestDealBuilder
             _deal.IncentiveFee = _incentiveFee;
         if (_expensesAfterInterest != null)
             _deal.ExpensesAfterInterest = _expensesAfterInterest;
+        if (_expensesFromPrincipal != null)
+            _deal.ExpensesFromPrincipal = _expensesFromPrincipal;
         if (_interestDiversion != null)
             _deal.InterestDiversion = _interestDiversion;
 
