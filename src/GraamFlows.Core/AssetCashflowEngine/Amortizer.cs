@@ -40,6 +40,18 @@ public static class Amortizer
     /// annual rate × fraction × balance instead of annual rate / 12 × balance. The scheduled
     /// payment stays on the nominal monthly rate, so a level-pay Actual/360 loan pays more interest
     /// and less principal in a long month, as such loans do. Ignored for 30/360 assets.</param>
+    /// <param name="firstProjDate">The date of period 0 (period p covers the month ending on
+    /// firstProjDate + p months). Needed to place an asset's payment DATES: an asset that states its
+    /// next payment date (<see cref="AssetDataArrays.NextPaymentDate" />) is paid, on each payment
+    /// row, the interest accrued from its previous payment date to this one; what accrues after the
+    /// payment date in the row is carried to the next payment (on the balance left after the row's
+    /// prepayments and defaults, which leave on the payment date). Without it such an asset was paid
+    /// interest to the ROW's date — up to a month of interest early on every payment.</param>
+    /// <param name="interestAccrualStart">The date the collateral starts accruing interest for the
+    /// pool's owner (a deal's Closing Date). Interest an asset accrued before it was paid for at
+    /// purchase and is not Interest Proceeds (a CLO's Principal Financed Accrued Interest), so it is
+    /// not projected: a period that straddles the date earns only its days after it. Null: interest
+    /// accrues from the start of period 0.</param>
     public static CashflowResultArrays GenerateCashflows(
         AssetDataArrays assetData,
         int startTime,
@@ -58,7 +70,9 @@ public static class Amortizer
         double[][]? origMdrTime = null,
         int[]? recoveryLag = null,
         int monthsPerPeriod = 1,
-        double[]? actual360Fractions = null)
+        double[]? actual360Fractions = null,
+        DateTime? firstProjDate = null,
+        DateTime? interestAccrualStart = null)
     {
         if (monthsPerPeriod < 1) monthsPerPeriod = 1;
         if (actual360Fractions == null && assetData.Actual360.Any(a => a))
@@ -144,6 +158,12 @@ public static class Amortizer
             var payEvery = assetData.PaymentMonths[assetIndex];
             var firstPayAbsT = assetData.FirstPaymentAbsT[assetIndex];
             double accruedInterest = 0, accruedNetInterest = 0, accruedServiceFee = 0;
+            // Pay-date accrual: the asset states its next payment date, so each payment pays the
+            // interest accrued to that DATE. `unpaid` holds the accrual not yet paid, by span.
+            var statedNextPayment = assetData.NextPaymentDate[assetIndex];
+            var accruesToPayDate = statedNextPayment != null && firstProjDate != null;
+            var unpaid = accruesToPayDate ? new List<(DateTime From, DateTime To, double I, double N, double F)>() : null;
+            var paymentsMade = 0;
 
             // PIK + delinquency is unsupported: the delinquency-advance formulas
             // assume a cash coupon, but a PIK coupon is capitalized (cash interest
@@ -565,21 +585,77 @@ public static class Amortizer
                                         (prevBeginBal + beginBalance);
                 }
 
-                // Less-than-monthly: hold the month's interest until the asset's payment row, or
-                // until it pays off / the projection ends, when everything accrued is paid.
-                if (payEvery > 1)
+                // Interest accrued before the accrual start is not the pool's (see the parameter):
+                // a period that straddles it earns only its days after it.
+                var rowTo = firstProjDate?.AddMonths(period) ?? default;
+                var rowFrom = firstProjDate?.AddMonths(period - 1) ?? default;
+                if (interestAccrualStart is { } accrualStart && firstProjDate != null && accrualStart > rowFrom)
+                {
+                    var earned = accrualStart >= rowTo
+                        ? 0.0
+                        : (rowTo - accrualStart).TotalDays / (rowTo - rowFrom).TotalDays;
+                    interest *= earned;
+                    netInterest *= earned;
+                    effectiveServiceFee *= earned;
+                    rowFrom = accrualStart < rowTo ? accrualStart : rowTo;
+                }
+
+                // Less-than-monthly, or paid to its payment date: hold the month's interest until the
+                // asset's payment row, or until it pays off / the projection ends, when everything
+                // accrued is paid.
+                if (payEvery > 1 || accruesToPayDate)
                 {
                     accruedInterest += interest;
                     accruedNetInterest += netInterest;
                     accruedServiceFee += effectiveServiceFee;
-                    var paysNow = PaymentSchedule.IsPaymentPeriod(absT, firstPayAbsT, payEvery)
-                                  || balance < 1 || !hasCashflow || absT == endTime || period == maxPeriods - 1;
-                    if (paysNow)
+                    unpaid?.Add((rowFrom, rowTo, interest, netInterest, effectiveServiceFee));
+                    var paysOff = balance < 1 || !hasCashflow || absT == endTime || period == maxPeriods - 1;
+                    var paymentRow = accruesToPayDate
+                        ? absT >= firstPayAbsT && (absT - firstPayAbsT) % payEvery == 0
+                        : PaymentSchedule.IsPaymentPeriod(absT, firstPayAbsT, payEvery);
+                    if (paymentRow || paysOff)
                     {
                         interest = accruedInterest;
                         netInterest = accruedNetInterest;
                         effectiveServiceFee = accruedServiceFee;
                         accruedInterest = accruedNetInterest = accruedServiceFee = 0;
+                        if (unpaid != null)
+                        {
+                            if (!paysOff)
+                            {
+                                // Paid to the payment date; the accrual after it waits for the next
+                                // payment, on the balance this row's prepayments and defaults left.
+                                var payDate = PaymentSchedule.PaymentDate(statedNextPayment!.Value, payEvery,
+                                    firstProjDate!.Value, paymentsMade);
+                                var remains = beginBalance > 0 ? Math.Clamp(balance / beginBalance, 0.0, 1.0) : 0.0;
+                                double tailI = 0, tailN = 0, tailF = 0;
+                                foreach (var span in unpaid)
+                                {
+                                    if (span.To <= payDate || span.To <= span.From) continue;
+                                    var after = (span.To - (payDate > span.From ? payDate : span.From)).TotalDays
+                                                / (span.To - span.From).TotalDays;
+                                    tailI += span.I * after;
+                                    tailN += span.N * after;
+                                    tailF += span.F * after;
+                                }
+
+                                interest -= tailI;
+                                netInterest -= tailN;
+                                effectiveServiceFee -= tailF;
+                                accruedInterest = tailI * remains;
+                                accruedNetInterest = tailN * remains;
+                                accruedServiceFee = tailF * remains;
+                                unpaid.Clear();
+                                if (payDate < rowTo)
+                                    unpaid.Add((payDate, rowTo, accruedInterest, accruedNetInterest, accruedServiceFee));
+                            }
+                            else
+                            {
+                                unpaid.Clear();
+                            }
+
+                            if (paymentRow) paymentsMade++;
+                        }
                     }
                     else
                     {
