@@ -62,6 +62,10 @@ public class Asset : IAsset
 
     public AccrualBasis AccrualBasis { get; set; } = AccrualBasis.Thirty360;
 
+    public int PaymentFrequency { get; set; } = 12;
+    public DateTime? NextPaymentDate { get; set; }
+    public int? FirstPaymentAbsT { get; set; }
+
     [Database("Step_Dates_List")] public string StepDatesList { get; set; }
 
     [Database("Step_Rates_List")] public string StepRatesList { get; set; }

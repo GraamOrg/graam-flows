@@ -24,6 +24,8 @@ public class AssetDataArrays
         DebtService = new double[AssetCount];
         AmortizationType = new int[AssetCount];
         Actual360 = new bool[AssetCount];
+        PaymentMonths = new int[AssetCount];
+        FirstPaymentAbsT = new int[AssetCount];
 
         InitialAdjustmentPeriod = new int[AssetCount];
         AdjustmentPeriod = new int[AssetCount];
@@ -67,6 +69,9 @@ public class AssetDataArrays
             DebtService[i] = asset.DebtService;
             AmortizationType[i] = (int)asset.AmortizationType;
             Actual360[i] = asset.AccrualBasis == Objects.TypeEnum.AccrualBasis.Actual360;
+            PaymentMonths[i] = PaymentSchedule.MonthsBetween(asset.PaymentFrequency);
+            // Resolved by the caller before this (PaymentSchedule.FirstPaymentAbsT); monthly assets ignore it.
+            FirstPaymentAbsT[i] = asset.FirstPaymentAbsT ?? 0;
 
             InitialAdjustmentPeriod[i] = asset.InitialAdjustmentPeriod;
             AdjustmentPeriod[i] = asset.AdjustmentPeriod;
@@ -109,6 +114,12 @@ public class AssetDataArrays
     ///     false keeps the 30/360 accrual.
     /// </summary>
     public bool[] Actual360 { get; }
+
+    /// <summary>Months between the asset's payments (1 = monthly). See <see cref="PaymentSchedule" />.</summary>
+    public int[] PaymentMonths { get; }
+
+    /// <summary>Absolute period of the asset's first payment row (ignored when monthly).</summary>
+    public int[] FirstPaymentAbsT { get; }
 
     // ARM data
     public int[] InitialAdjustmentPeriod { get; }

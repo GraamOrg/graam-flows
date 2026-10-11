@@ -55,8 +55,9 @@ public class CfCore
             var sampleAsset = BuildReinvestAsset(reinvestCfg.Templates[0], 1.0, FirstProjectionDate, rateProvider, 0);
             var reinvestAssumps = assumps.GetAssumptionsForAsset(sampleAsset);
             var basePool = dealCashflows.PeriodCashflows.ToList();
-            foreach (var cf in BuildReinvestmentCashflows(
-                         basePool, reinvestCfg, FirstProjectionDate, reinvestAssumps, rateProvider))
+            foreach (var cf in BuildReinvestment(
+                         basePool, reinvestCfg, FirstProjectionDate, reinvestAssumps, rateProvider,
+                         isPaymentDate: PayCalendar.DistributionDates(Deal)).Cashflows)
                 dealCashflows.AddPeriodCashflow(cf);
         }
 
@@ -75,7 +76,8 @@ public class CfCore
     public static CollateralCashflows GenerateAssetCashflows(IList<IAsset> assets, DateTime firstProjDate,
         Func<string, DateTime> redempDateFunc,
         Func<IAsset, IAssetAssumptions> assumpFunc, IRateProvider rateProvider, int threads = 1,
-        bool displayAssetCf = false, int poolAgeOffset = 0, int wam = 0)
+        bool displayAssetCf = false, int poolAgeOffset = 0, int wam = 0,
+        Func<DateTime, DateTime>? collectionCutoff = null)
     {
         var groupedAssets = assets.GroupBy(asset => asset.GroupNum);
         var dealCashflows = new CollateralCashflows(displayAssetCf);
@@ -88,6 +90,11 @@ public class CfCore
             var endDate = redempDateFunc?.Invoke(groupNum) ?? firstProjDate.AddYears(50);
             var endTime = DateUtil.CalcAbsT(endDate);
             var maxPeriods = Math.Min(endTime - startTime + 1, 720);
+
+            // A less-than-monthly asset's payment rows (PaymentSchedule), placed before the arrays
+            // read them.
+            foreach (var a in groupAssets.Where(a => PaymentSchedule.MonthsBetween(a.PaymentFrequency) > 1))
+                a.FirstPaymentAbsT ??= PaymentSchedule.FirstPaymentAbsT(a, firstProjDate, maxPeriods, collectionCutoff);
 
             // Convert assets to parallel arrays
             var assetData = new AssetDataArrays(groupAssets);
@@ -201,6 +208,18 @@ public class CfCore
                 forbRecovPpayTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryPrepay, maxPeriods, startTime, -1.0);
                 forbRecovMaturityTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryMaturity, maxPeriods, startTime, 1.0);
                 forbRecovDefaultTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryDefault, maxPeriods, startTime, -1.0);
+
+                // A quarterly / semi-annual asset prepays and defaults on its payment rows only.
+                if (assetData.PaymentMonths[i] > 1)
+                {
+                    if (prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.ABS ||
+                        defaultType == Objects.TypeEnum.DefaultTypeEnum.ORIGMDR)
+                        throw new NotSupportedException(
+                            $"Asset {groupAssets[i].AssetId}: a less-than-monthly payment calendar is not " +
+                            "supported with ABS prepayment or ORIGMDR defaults.");
+                    PaymentSchedule.Concentrate(smmTime[i], startTime, assetData.FirstPaymentAbsT[i], assetData.PaymentMonths[i]);
+                    PaymentSchedule.Concentrate(mdrTime[i], startTime, assetData.FirstPaymentAbsT[i], assetData.PaymentMonths[i]);
+                }
             }
 
             // Build market rate arrays
@@ -524,7 +543,8 @@ public class CfCore
             var basePool = pass == 1
                 ? posted.PeriodCashflows.ToList()
                 : pristine!.Select(c => c.Clone()).ToList();
-            var reinvestment = BuildReinvestment(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider, extra);
+            var reinvestment = BuildReinvestment(basePool, cfg, firstProjDate, reinvestAssumps, rateProvider, extra,
+                PayCalendar.DistributionDates(deal));
             CollateralCashflows collateral;
             if (pass == 1 && reinvestment.Cashflows.Count == 0)
                 collateral = posted;
@@ -573,9 +593,14 @@ public class CfCore
     public static ReinvestmentResult BuildReinvestment(
         IList<PeriodCashflows> basePool, ReinvestmentConfig cfg, DateTime firstProjDate,
         IAssetAssumptions reinvestAssumps, IRateProvider rateProvider,
-        IReadOnlyDictionary<DateTime, double>? additionalCash = null)
+        IReadOnlyDictionary<DateTime, double>? additionalCash = null,
+        Func<DateTime, bool>? isPaymentDate = null)
     {
         cfg.Validate("");
+        if (cfg.ReinvestOnPaymentDatesOnly && isPaymentDate == null)
+            throw new ArgumentException(
+                "ReinvestOnPaymentDatesOnly needs the deal's Payment Dates (isPaymentDate).",
+                nameof(isPaymentDate));
         var empty = ReinvestmentResult.Empty;
         if (cfg.Templates.Count == 0 || basePool == null || basePool.Count == 0)
             return empty;
@@ -634,6 +659,10 @@ public class CfCore
         var seq = 0;
         var purchases = new List<ReinvestmentPurchase>();
 
+        // Proceeds collected in the reinvestment period's non-Payment-Date months, waiting for the
+        // next Payment Date (ReinvestOnPaymentDatesOnly): (period, scheduled, prepaid, recovered).
+        var held = new List<(int T, double Sched, double Unsched, double Recov)>();
+
         for (var t = 0; t < horizon; t++)
         {
             var date = PeriodDate(periodDates, firstProjDate, t);
@@ -654,6 +683,26 @@ public class CfCore
                 ? baseUnsched[t] + cohortAccum.UnscheduledPrincipal[t] : 0.0;
             var eligRecov = eligible.HasFlag(EligibleProceeds.Recoveries)
                 ? baseRecovery[t] + cohortAccum.RecoveryPrincipal[t] : 0.0;
+
+            // No intra-period reinvestment: a non-Payment-Date month of the reinvestment period
+            // holds its proceeds; the Payment Date spends them with its own. Past the window the
+            // pool buys monthly again, and anything still held there (a window that did not end on
+            // a Payment Date) was never spent — it pays down, as uninvested collections do.
+            var onPaymentDatesOnly = cfg.ReinvestOnPaymentDatesOnly && date <= cfg.ReinvestEndDate;
+            if (onPaymentDatesOnly && !isPaymentDate!(date))
+            {
+                if (eligSched + eligUnsched + eligRecov > 0)
+                    held.Add((t, eligSched, eligUnsched, eligRecov));
+                continue;
+            }
+
+            if (!onPaymentDatesOnly)
+                held.Clear();
+            var sources = held.Append((T: t, Sched: eligSched, Unsched: eligUnsched, Recov: eligRecov)).ToList();
+            held.Clear();
+            eligSched = sources.Sum(s => s.Sched);
+            eligUnsched = sources.Sum(s => s.Unsched);
+            eligRecov = sources.Sum(s => s.Recov);
             var proceeds = eligSched + eligUnsched + eligRecov;
 
             var available = proceeds * (1.0 - cfg.Holdback);
@@ -710,11 +759,17 @@ public class CfCore
             // Only the pool's share of what was spent is drawn from principal.
             var spentFromExtra = cashSpent * (extraCash / reinvestCash);
             var drawFraction = available > 0 ? (cashSpent - spentFromExtra) / available : 0.0;
-            cohortAccum.ScheduledPrincipal[t] -= eligSched * hb * drawFraction;
-            cohortAccum.UnscheduledPrincipal[t] -= eligUnsched * hb * drawFraction;
-            cohortAccum.RecoveryPrincipal[t] -= eligRecov * hb * drawFraction;
-            // Spent, not lost (graam-harmony#5596): carried so both loss formulas add it back.
-            cohortAccum.ReinvestedRecoveryPrincipal[t] += eligRecov * hb * drawFraction;
+            // Each month's share is drawn from the month that collected it, so a held month's
+            // principal leaves the distributable cash it sat in (the waterfall folds the period's
+            // months into its Payment Date, where the two meet).
+            foreach (var s in sources)
+            {
+                cohortAccum.ScheduledPrincipal[s.T] -= s.Sched * hb * drawFraction;
+                cohortAccum.UnscheduledPrincipal[s.T] -= s.Unsched * hb * drawFraction;
+                cohortAccum.RecoveryPrincipal[s.T] -= s.Recov * hb * drawFraction;
+                // Spent, not lost (graam-harmony#5596): carried so both loss formulas add it back.
+                cohortAccum.ReinvestedRecoveryPrincipal[s.T] += s.Recov * hb * drawFraction;
+            }
 
             purchases.Add(new ReinvestmentPurchase
             {
@@ -744,6 +799,16 @@ public class CfCore
 
             var assetData = new AssetDataArrays(cohortAssets);
             var m = BuildReinvestAssumptionMatrices(reinvestAssumps, cohortAssets.Count, cohortPeriods, cohortStartAbsT);
+            // A quarterly template's cohort prepays and defaults on its payment rows. The matrices
+            // share one row across the cohort, so a row is copied before it is concentrated.
+            for (var ai = 0; ai < cohortAssets.Count; ai++)
+            {
+                if (assetData.PaymentMonths[ai] <= 1) continue;
+                m.Smm[ai] = (double[])m.Smm[ai].Clone();
+                m.Mdr[ai] = (double[])m.Mdr[ai].Clone();
+                PaymentSchedule.Concentrate(m.Smm[ai], cohortStartAbsT, assetData.FirstPaymentAbsT[ai], assetData.PaymentMonths[ai]);
+                PaymentSchedule.Concentrate(m.Mdr[ai], cohortStartAbsT, assetData.FirstPaymentAbsT[ai], assetData.PaymentMonths[ai]);
+            }
             var allMarketRates = BuildMarketRateArrays(rateProvider, date, cohortPeriods,
                 cohortAssets.Select(a => a.IndexName));
 
@@ -855,6 +920,9 @@ public class CfCore
             InterestRateType = InterestRateType.FRM,
             AmortizationType = t.AmortizationType,
             AccrualBasis = t.AccrualBasis,
+            // Bought collateral pays on its purchase calendar: first payment one period after it.
+            PaymentFrequency = t.PaymentFrequency,
+            FirstPaymentAbsT = DateUtil.CalcAbsT(originationDate) + PaymentSchedule.MonthsBetween(t.PaymentFrequency),
             OriginalDate = originationDate,
             OriginalBalance = face,
             CurrentBalance = face,

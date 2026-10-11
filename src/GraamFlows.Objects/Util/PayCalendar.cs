@@ -24,6 +24,21 @@ public static class PayCalendar
     ///     True when <paramref name="date" /> falls in a distribution month: the first pay month or a
     ///     whole number of periods after it. A month before the first pay month is never one.
     /// </summary>
+    /// <summary>
+    ///     The deal's distribution months, on the same rule the waterfall distributes by: the note
+    ///     classes' period (expense rows follow the deal, never state it) anchored at the first
+    ///     note's <c>FirstPayDate</c>.
+    /// </summary>
+    public static Func<DateTime, bool> DistributionDates(GraamFlows.Objects.DataObjects.IDeal deal)
+    {
+        var notes = deal.Tranches
+            .Where(t => t.CashflowTypeEnum != GraamFlows.Objects.TypeEnum.CashflowType.Expense)
+            .ToList();
+        var months = notes.Select(t => MonthsPerPeriod(t.PayFrequency)).DefaultIfEmpty(1).First();
+        var first = notes.FirstOrDefault()?.FirstPayDate ?? DateTime.MinValue;
+        return date => IsPayMonth(date, first, months);
+    }
+
     public static bool IsPayMonth(DateTime date, DateTime firstPayDate, int monthsPerPeriod)
     {
         var since = (date.Year - firstPayDate.Year) * 12 + (date.Month - firstPayDate.Month);
