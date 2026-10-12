@@ -220,7 +220,11 @@ public class InterestDiversionTests
 
         var cfg = InterestDiversionMapper.Map(dto, Reinvest(), "D")!;
         cfg.EndDate.Should().Be(FirstPay.AddMonths(12), "the reinvestment period's end");
-        cfg.PurchasePricePct.Should().Be(99.5, "the templates' price");
+        cfg.PurchasePricePct.Should().Be(100, "the cure is a deposit of Principal Proceeds, counted at face — " +
+                                              "not the templates' 99.5 purchase price");
+        InterestDiversionMapper.Map(new InterestDiversionDto
+                { Tranches = new() { "A", "E" }, TriggerPct = 103.75, PurchasePricePct = 99.5 }, Reinvest(), "D")!
+            .PurchasePricePct.Should().Be(99.5, "a stated price is kept");
         cfg.MaxPctOfInterest.Should().Be(50);
         InterestDiversionMapper.Map(null, Reinvest(), "D").Should().BeNull();
         FluentActions.Invoking(() => InterestDiversionMapper.Map(
