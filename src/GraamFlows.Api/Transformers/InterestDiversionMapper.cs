@@ -30,19 +30,15 @@ public static class InterestDiversionMapper
         if (dto.PurchasePricePct is <= 0)
             Fail($"purchasePricePct must be positive, got {dto.PurchasePricePct}");
 
-        var templates = reinvestment!.Templates;
-        var totalAlloc = templates.Sum(t => t.AllocationPct);
-        var weightedPrice = totalAlloc > 0
-            ? templates.Sum(t => t.EffectivePrice * t.AllocationPct) / totalAlloc
-            : 100.0;
-
         return new InterestDiversionConfig
         {
             Tranches = dto.Tranches!.ToList(),
             TriggerPct = dto.TriggerPct,
             MaxPctOfInterest = dto.MaxPctOfInterest ?? 100.0,
             EndDate = dto.EndDate ?? reinvestment.ReinvestEndDate,
-            PurchasePricePct = dto.PurchasePricePct ?? weightedPrice
+            // The cure is a deposit of Principal Proceeds, which the ratio counts at face: by default
+            // it is the par shortfall itself, whatever the cash later buys collateral at.
+            PurchasePricePct = dto.PurchasePricePct ?? 100.0
         };
     }
 }
