@@ -625,6 +625,14 @@ public class UnifiedWaterfallDto
     ///     must be one of the deal's expenses.
     /// </summary>
     public List<string>? ExpensesAfterInterest { get; set; }
+
+    /// <summary>
+    ///     Expenses whose amount the interest waterfall leaves unpaid is paid from principal proceeds,
+    ///     ahead of the notes' principal — a CLO's Principal Priority of Payments clause (A) (taxes,
+    ///     Administrative Expenses up to the cap, the Senior Collateral Management Fee). In the order
+    ///     named; each must be one of the deal's expenses paid at the head of the waterfall.
+    /// </summary>
+    public List<string>? ExpensesFromPrincipal { get; set; }
 }
 
 public class InterestDiversionDto
