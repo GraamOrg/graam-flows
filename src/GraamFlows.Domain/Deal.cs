@@ -98,6 +98,7 @@ public class Deal : IDeal
     public IReadOnlyList<string> ExpensesAfterInterest { get; set; } = Array.Empty<string>();
     public IReadOnlyList<string> ExpensesFromPrincipal { get; set; } = Array.Empty<string>();
     public PrincipalAfterNotesConfig? PrincipalAfterNotes { get; set; }
+    public IReadOnlyList<DeferrableNoteConfig> DeferrableNotes { get; set; } = Array.Empty<DeferrableNoteConfig>();
     public WaterfallOrderEnum WaterfallOrder { get; set; } = WaterfallOrderEnum.Standard;
 
     public Assembly RuleAssembly { get; set; }

@@ -40,6 +40,22 @@ public class DynamicClass : IPayable
     internal DynamicClass DynAcrretionClass { get; private set; }
     internal DynamicClass DynAccrualClass { get; private set; }
     public bool IsInPaymentPhase { get; private set; }
+
+    /// <summary>
+    ///     A Deferrable Note's Priority Classes (<see cref="DeferrableNoteConfig" />); null: the class is
+    ///     not deferrable and its unpaid interest is carried as <see cref="TrancheCashflow.AccumInterestShortfall" />.
+    /// </summary>
+    internal IReadOnlyList<DynamicClass>? DeferrablePriorityClasses { get; set; }
+
+    // Capitalized interest still in the balance, and the balance it was last reconciled at: anything
+    // that reduces the balance since (principal, a diversion's paydown) repays it first, because the
+    // principal Priority of Payments pays a class's deferred interest ahead of its principal.
+    private double _deferredInterest;
+    private double _deferredMark;
+
+    /// <summary>Interest capitalized into this class's balance and not yet repaid.</summary>
+    public double DeferredInterest =>
+        _deferredInterest <= 0 ? 0 : Math.Max(0, _deferredInterest - Math.Max(0, _deferredMark - Balance));
     public HashSet<string> ShortfallInterestSupport { get; set; }
 
     public void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
@@ -106,7 +122,77 @@ public class DynamicClass : IPayable
             }
         }
 
+        if (DeferrablePriorityClasses != null)
+            interestPaid += PayAndDeferInterest(cfDate, Math.Max(0, availableFunds - interestPaid));
+
         return interestPaid;
+    }
+
+    /// <summary>
+    ///     A Deferrable Note's interest step, after its current interest: pay its deferred interest
+    ///     from what is left (it is principal balance, so it is paid as principal), then — while a
+    ///     Priority Class is outstanding, and unless the period ends in a termination payoff —
+    ///     capitalize this period's unpaid interest into the balance instead of carrying it as a
+    ///     shortfall. Returns the cash it used.
+    /// </summary>
+    private double PayAndDeferInterest(DateTime cfDate, double remainingFunds)
+    {
+        _deferredInterest = DeferredInterest;
+
+        var paid = Math.Min(remainingFunds, _deferredInterest);
+        if (paid > 0.005)
+        {
+            Pay(cfDate, 0, paid);
+            _deferredInterest -= paid;
+        }
+        else
+        {
+            paid = 0;
+        }
+
+        // On a Redemption Date the termination payoff pays the period's unpaid interest as interest
+        // (BaseStructure.PayTerminationInterestShortfall); deferring it would pay it as principal.
+        if (!DynamicGroup.Terminating && DeferrablePriorityClasses!.Any(c => c.Balance > 0.005))
+        {
+            var capitalized = 0.0;
+            foreach (var dynTran in DynamicTranches)
+            {
+                var cf = dynTran.GetCashflow(cfDate);
+                // This period's unpaid interest: the shortfall only a class with a Priority Class
+                // outstanding can have accrued, so the whole of it is still carried.
+                var unpaid = cf.InterestShortfall;
+                if (unpaid <= 0.005)
+                    continue;
+                cf.AccumInterestShortfall -= unpaid;
+                cf.CapitalizedInterest += unpaid;
+                dynTran.AddToBalance(cfDate, unpaid);
+                capitalized += unpaid;
+            }
+
+            if (capitalized > 0)
+            {
+                GetCashflow(cfDate).CapitalizedInterest += capitalized;
+                AddToBalance(cfDate, capitalized);
+                _deferredInterest += capitalized;
+            }
+        }
+
+        _deferredMark = Balance;
+        return paid;
+    }
+
+    /// <summary>
+    ///     Raise the balance by capitalized interest. Not <see cref="IncreaseNotional" />, which books a
+    ///     modification, nor <see cref="Writeup" />, which reverses a writedown: this is interest the
+    ///     class is owed, become principal.
+    /// </summary>
+    internal void AddToBalance(DateTime cashflowDate, double amount)
+    {
+        var cashflow = GetCashflow(cashflowDate);
+        SetBalance(Balance + amount);
+        cashflow.Balance = Balance;
+        cashflow.Factor = Factor();
+        Cashflows[AdjustedCashflowDate(cashflowDate)] = cashflow;
     }
 
     public double InterestDue(DateTime cfDate, IRateProvider rateProvider, IEnumerable<DynamicTranche> allTranches)
@@ -120,7 +206,7 @@ public class DynamicClass : IPayable
             // its own PayInterest then refuses, stranding them above the classes below it.
             return NetOfModification(dynTran.Interest(cf, rateProvider, allTranchesList), cf)
                    + cf.AccumInterestShortfall;
-        });
+        }) + (DeferrablePriorityClasses != null ? DeferredInterest : 0);
     }
 
     /// <summary>
