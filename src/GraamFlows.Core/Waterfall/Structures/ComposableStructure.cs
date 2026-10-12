@@ -276,6 +276,7 @@ public class ComposableStructure : BaseStructure
                 ValidateRequiredPayables(deal, dynGroup, executionOrder);
 
                 // Run composable waterfall period (interest accrues on begin balance even if terminating)
+                dynGroup.Terminating = terminated;
                 RunComposablePeriod(deal, rateProvider, dynGroup, adjPeriodCf, triggerValues, formulaExecutor, payRuleExecutor, executionOrder);
 
                 // Apply deferred termination: pay off all remaining balances. The period's
@@ -728,6 +729,7 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "INTEREST":
+                    BindDeferrableNotes(deal, dynGroup);
                     if (waterfallOrder != WfOrder.Standard)
                     {
                         // Interleaved mode: handle INTEREST + all PRINCIPAL together on first encounter
@@ -1151,6 +1153,26 @@ public class ComposableStructure : BaseStructure
               - periodCf.PurchaseDiscount;
 
     /// <summary>
+    ///     Mark each <see cref="IDeal.DeferrableNotes" /> class in this group with its Priority Classes
+    ///     (<see cref="DynamicClass.DeferrablePriorityClasses" />).
+    /// </summary>
+    private static void BindDeferrableNotes(IDeal deal, DynamicGroup dynGroup)
+    {
+        foreach (var note in deal.DeferrableNotes)
+        {
+            var cls = dynGroup.ClassByName(note.Class);
+            if (cls == null)
+                continue;
+            // Its Priority Classes rank senior to it in the same Priority of Payments; one in another
+            // group is a misconfiguration, so it fails rather than reading as never outstanding.
+            cls.DeferrablePriorityClasses = note.PriorityClasses.Select(name => dynGroup.ClassByName(name)
+                ?? throw new DealModelingException(deal.DealName,
+                    $"deferrableNotes: priority class {name} of {note.Class} is not in group {dynGroup.GroupNum}."))
+                .ToList();
+        }
+    }
+
+    /// <summary>
     ///     The reinvestment-period interest diversion test (<see cref="InterestDiversionConfig" />):
     ///     run on the interest left after every note's interest and the coverage tests, before the
     ///     residual. On a failing Payment Date the lesser of the cap and the cure leaves the
@@ -1241,7 +1263,10 @@ public class ComposableStructure : BaseStructure
         {
             if (!cascade[i].IcTriggerPct.HasValue)
                 continue;
-            var due = levelClasses[i].Sum(c => c.InterestDue(cfDate, rateProvider, allTranches));
+            // Deferred interest is principal balance: the test's interest due excludes it (it includes
+            // the interest accruing on it, which the class's coupon already does).
+            var due = levelClasses[i].Sum(c => c.InterestDue(cfDate, rateProvider, allTranches)
+                                               - (c.DeferrablePriorityClasses != null ? c.DeferredInterest : 0));
             icRatioPct[i] = due > 0.005 ? interestCollected / due * 100.0 : double.PositiveInfinity;
         }
 

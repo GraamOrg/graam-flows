@@ -116,6 +116,14 @@ public class TrancheCashflow
     /// </summary>
     public double ModificationWritedown { get; set; }
 
+    /// <summary>
+    ///     Interest unpaid this period that was added to the balance (a Deferrable Note's deferred
+    ///     interest, <see cref="DeferrableNoteConfig" />) — why the balance can RISE: it ends at
+    ///     begin + capitalized − principal − writedown. Still reported in
+    ///     <see cref="InterestShortfall" />, but not carried in <see cref="AccumInterestShortfall" />.
+    /// </summary>
+    public double CapitalizedInterest { get; set; }
+
     public TrancheCashflow Copy()
     {
         var tcf = new TrancheCashflow(TrancheName, Tranche, CashflowDate, UnscheduledPrincipal, ScheduledPrincipal,
@@ -125,6 +133,7 @@ public class TrancheCashflow
             AccrualDays, IsLockedOut, InterestShortfall, AccumInterestShortfall, InterestShortfallPayback);
         tcf.ModificationLoss = ModificationLoss;
         tcf.ModificationWritedown = ModificationWritedown;
+        tcf.CapitalizedInterest = CapitalizedInterest;
         return tcf;
     }
 

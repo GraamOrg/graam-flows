@@ -51,6 +51,12 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     public double CollateralNetWac { get; set; }
     public double BeginCollatBalance { get; set; }
     public bool HasCrossedGroups { get; private set; }
+
+    /// <summary>
+    ///     The period being run ends in a termination payoff (a Redemption Date): nothing is deferred
+    ///     on it, because deferred interest is due and payable no later than the Redemption Date.
+    /// </summary>
+    internal bool Terminating { get; set; }
     public double CollateralBondRatio { get; set; }
     public DateTime EarliestTerminationDate { get; set; }
 

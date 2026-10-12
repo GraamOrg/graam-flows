@@ -50,6 +50,37 @@ public static class ExpensesAfterInterestMapper
     }
 
     /// <summary>
+    ///     Maps <see cref="UnifiedWaterfallDto.DeferrableNotes" />. Every class must be one of the deal's
+    ///     tranches and name at least one Priority Class other than itself (a class with none can
+    ///     never defer); each class is listed once. Refused rather than silently ignored.
+    /// </summary>
+    public static IReadOnlyList<DeferrableNoteConfig> MapDeferrableNotes(List<DeferrableNoteDto>? dtos,
+        IEnumerable<string> trancheNames, string? dealName)
+    {
+        if (dtos == null || dtos.Count == 0)
+            return Array.Empty<DeferrableNoteConfig>();
+        var tranches = trancheNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in dtos)
+        {
+            var unknown = d.PriorityClasses.Prepend(d.Class).Where(n => !tranches.Contains(n)).Distinct().ToList();
+            if (unknown.Count > 0)
+                throw new ArgumentException(
+                    $"Deal {dealName}: deferrableNotes names {string.Join(", ", unknown)}, which is not a tranche.");
+            if (!seen.Add(d.Class))
+                throw new ArgumentException($"Deal {dealName}: deferrableNotes lists class {d.Class} twice.");
+            if (d.PriorityClasses.Count == 0 ||
+                d.PriorityClasses.Any(p => string.Equals(p, d.Class, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException(
+                    $"Deal {dealName}: deferrable class {d.Class} must name its Priority Classes (the classes " +
+                    "senior to it), not itself: its unpaid interest is deferred only while one is outstanding.");
+        }
+
+        return dtos.Select(d => new DeferrableNoteConfig
+            { Class = d.Class, PriorityClasses = d.PriorityClasses.ToList() }).ToList();
+    }
+
+    /// <summary>
     ///     Maps <see cref="UnifiedWaterfallDto.ExpensesFromPrincipal" />: head-of-waterfall expenses
     ///     topped up from principal ahead of the notes. Validated as <see cref="Map" />, and none may
     ///     also be paid after interest — an expense paid after the notes is not paid ahead of them.
