@@ -8,7 +8,8 @@ public class UnitedStates : Calendar
         Settlement, //!< generic settlement calendar
         NYSE, //!< New York stock exchange calendar
         GovernmentBond, //!< government-bond calendar
-        NERC //!< off-peak days for NERC
+        NERC, //!< off-peak days for NERC
+        FederalReserve //!< Federal Reserve (bank) holidays: a Saturday holiday is not moved to Friday
     }
 
     public UnitedStates() : this(Market.Settlement)
@@ -30,6 +31,9 @@ public class UnitedStates : Calendar
                 break;
             case Market.NERC:
                 _calendar = NERC.Singleton;
+                break;
+            case Market.FederalReserve:
+                _calendar = FederalReserve.Singleton;
                 break;
             default:
                 throw new ArgumentException("Unknown market: " + m);
@@ -72,6 +76,54 @@ public class UnitedStates : Calendar
             return (d == 11 || (d == 12 && w == DayOfWeek.Monday) ||
                     (d == 10 && w == DayOfWeek.Friday)) && m == Month.November;
         return d >= 22 && d <= 28 && w == DayOfWeek.Monday && m == Month.October;
+    }
+
+    /// <summary>
+    ///     The Federal Reserve's holidays — the days New York banks close, which is what an indenture's
+    ///     "Business Day" means. A holiday on a Sunday is observed the Monday after; one on a Saturday is
+    ///     NOT moved to the Friday before (the Fed is open that Friday), unlike <see cref="Settlement" />.
+    ///     Includes Juneteenth (from 2022). Measured against a reference model's collection cutoffs: the
+    ///     settlement calendar's Friday-before Veterans Day 2028 moved a cutoff back a business day and a
+    ///     Collection Period's payments on the 5th and 6th into the next one.
+    /// </summary>
+    public class FederalReserve : WesternImpl
+    {
+        public static readonly FederalReserve Singleton = new();
+
+        private FederalReserve()
+        {
+        }
+
+        public override string Name()
+        {
+            return "US Federal Reserve";
+        }
+
+        public override bool IsBusinessDay(DateTime date)
+        {
+            var w = date.DayOfWeek;
+            var d = date.Day;
+            var m = (Month)date.Month;
+            var y = date.Year;
+            bool OnOrMonday(int day, Month month) =>
+                m == month && (d == day || (d == day + 1 && w == DayOfWeek.Monday));
+            if (IsWeekend(w)
+                || OnOrMonday(1, Month.January)
+                // Martin Luther King's birthday (third Monday in January)
+                || (d >= 15 && d <= 21 && w == DayOfWeek.Monday && m == Month.January && y >= 1983)
+                || IsWashingtonBirthday(d, m, y, w)
+                || IsMemorialDay(d, m, y, w)
+                || (y >= 2022 && OnOrMonday(19, Month.June))
+                || OnOrMonday(4, Month.July)
+                || IsLaborDay(d, m, y, w)
+                || IsColumbusDay(d, m, y, w)
+                || OnOrMonday(11, Month.November)
+                // Thanksgiving Day (fourth Thursday in November)
+                || (d >= 22 && d <= 28 && w == DayOfWeek.Thursday && m == Month.November)
+                || OnOrMonday(25, Month.December))
+                return false;
+            return true;
+        }
     }
 
     public class Settlement : WesternImpl
