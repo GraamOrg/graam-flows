@@ -66,6 +66,7 @@ public class Asset : IAsset
     public DateTime? NextPaymentDate { get; set; }
     public int? FirstPaymentAbsT { get; set; }
     public DateTime? MaturityDate { get; set; }
+    public DateTime? RemainingTermAsOfDate { get; set; }
 
     [Database("Step_Dates_List")] public string StepDatesList { get; set; }
 
