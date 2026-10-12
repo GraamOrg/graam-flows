@@ -50,6 +50,25 @@ public static class ExpensesAfterInterestMapper
     }
 
     /// <summary>
+    ///     Maps <see cref="UnifiedWaterfallDto.InterestFromPrincipal" />: each a tranche, listed once;
+    ///     refused rather than silently ignored.
+    /// </summary>
+    public static IReadOnlyList<string> MapInterestFromPrincipal(List<string>? names,
+        IEnumerable<string> trancheNames, string? dealName)
+    {
+        if (names == null || names.Count == 0)
+            return Array.Empty<string>();
+        var tranches = trancheNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unknown = names.Where(n => !tranches.Contains(n)).ToList();
+        if (unknown.Count > 0)
+            throw new ArgumentException(
+                $"Deal {dealName}: interestFromPrincipal names {string.Join(", ", unknown)}, which is not a tranche.");
+        if (names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Count)
+            throw new ArgumentException($"Deal {dealName}: interestFromPrincipal lists a class twice.");
+        return names.ToList();
+    }
+
+    /// <summary>
     ///     Maps <see cref="UnifiedWaterfallDto.DeferrableNotes" />. Every class must be one of the deal's
     ///     tranches and name at least one Priority Class other than itself (a class with none can
     ///     never defer); each class is listed once. Refused rather than silently ignored.
