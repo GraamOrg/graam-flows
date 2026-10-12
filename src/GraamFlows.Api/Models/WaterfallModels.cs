@@ -688,7 +688,10 @@ public class InterestDiversionDto
     /// <summary>Last Payment Date the test applies on. Default: the reinvestment period's end.</summary>
     public DateTime? EndDate { get; set; }
 
-    /// <summary>Price the diverted cash buys collateral at, percent of par. Default: the templates' weighted price.</summary>
+    /// <summary>
+    ///     Price the cure is sized at, percent of par (cure = par shortfall × price). Default 100: the
+    ///     cure is a deposit of Principal Proceeds, which the ratio counts at face.
+    /// </summary>
     public double? PurchasePricePct { get; set; }
 }
 
