@@ -31,8 +31,12 @@ public record InterestDiversionConfig
     public DateTime EndDate { get; init; }
 
     /// <summary>
-    /// Price (percent of par) the diverted cash buys collateral at — the cure buys par / price.
-    /// Defaults to the reinvestment templates' allocation-weighted price.
+    /// Price (percent of par) the cure is sized at: cure = par shortfall × price. Default 100: an
+    /// indenture diverts "the minimum amount that needs to be deposited into the Collection Account
+    /// as Principal Proceeds" to satisfy the test, and Principal Proceeds count in the ratio at face,
+    /// so the cure is the par shortfall whatever the cash later buys collateral at (the purchase
+    /// itself is priced by the reinvestment templates). State it only for an indenture that sizes the
+    /// cure at a purchase price.
     /// </summary>
     public double PurchasePricePct { get; init; } = 100.0;
 }
