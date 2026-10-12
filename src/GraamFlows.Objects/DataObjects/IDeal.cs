@@ -99,6 +99,15 @@ public interface IDeal : IPayRuleAssemblyStore
     IReadOnlyList<string> ExpensesFromPrincipal { get; }
 
     /// <summary>
+    /// Classes whose unpaid interest is paid from principal proceeds after
+    /// <see cref="ExpensesFromPrincipal" />, ahead of the notes' principal, senior first (optional;
+    /// empty: unpaid interest is carried to the next Payment Date, as before). A Deferrable Note's
+    /// interest capitalized while a senior class is outstanding is principal, not a carried
+    /// shortfall, so this pays it only once the class is the most senior outstanding.
+    /// </summary>
+    IReadOnlyList<string> InterestFromPrincipal { get; }
+
+    /// <summary>
     /// After-interest expenses paid from principal after the notes (optional) — see
     /// <see cref="PrincipalAfterNotesConfig" />.
     /// </summary>
