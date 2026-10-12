@@ -486,6 +486,8 @@ public class WaterfallController : ControllerBase
         // Expenses the Priority of Payments pays after the notes' interest (a CLO's subordinated fee).
         deal.ExpensesAfterInterest = ExpensesAfterInterestMapper.Map(
             dto.UnifiedWaterfall?.ExpensesAfterInterest, dto.Expenses, dto.DealName);
+        deal.ExpensesFromPrincipal = ExpensesAfterInterestMapper.MapFromPrincipal(
+            dto.UnifiedWaterfall?.ExpensesFromPrincipal, dto.Expenses, deal.ExpensesAfterInterest, dto.DealName);
 
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())

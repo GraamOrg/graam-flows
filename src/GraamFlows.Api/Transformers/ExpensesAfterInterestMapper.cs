@@ -9,7 +9,8 @@ namespace GraamFlows.Api.Transformers;
 /// </summary>
 public static class ExpensesAfterInterestMapper
 {
-    public static IReadOnlyList<string> Map(IList<string>? names, IEnumerable<ExpenseDto>? expenses, string? dealName)
+    public static IReadOnlyList<string> Map(IList<string>? names, IEnumerable<ExpenseDto>? expenses, string? dealName,
+        string field = "expensesAfterInterest")
     {
         if (names is not { Count: > 0 })
             return Array.Empty<string>();
@@ -18,8 +19,25 @@ public static class ExpensesAfterInterestMapper
         var unknown = names.Where(n => !defined.Contains(n)).ToList();
         if (unknown.Count > 0)
             throw new ArgumentException(
-                $"Deal {dealName}: expensesAfterInterest names {string.Join(", ", unknown)}, which the deal does " +
+                $"Deal {dealName}: {field} names {string.Join(", ", unknown)}, which the deal does " +
                 "not define as an expense — it would be paid nowhere.");
         return names.ToList();
+    }
+
+    /// <summary>
+    ///     Maps <see cref="UnifiedWaterfallDto.ExpensesFromPrincipal" />: head-of-waterfall expenses
+    ///     topped up from principal ahead of the notes. Validated as <see cref="Map" />, and none may
+    ///     also be paid after interest — an expense paid after the notes is not paid ahead of them.
+    /// </summary>
+    public static IReadOnlyList<string> MapFromPrincipal(IList<string>? names, IEnumerable<ExpenseDto>? expenses,
+        IReadOnlyList<string> afterInterest, string? dealName)
+    {
+        var mapped = Map(names, expenses, dealName, "expensesFromPrincipal");
+        var both = mapped.Intersect(afterInterest, StringComparer.OrdinalIgnoreCase).ToList();
+        if (both.Count > 0)
+            throw new ArgumentException(
+                $"Deal {dealName}: {string.Join(", ", both)} is both paid after interest and topped up from " +
+                "principal ahead of the notes; an expense paid after the notes is not paid ahead of them.");
+        return mapped;
     }
 }
