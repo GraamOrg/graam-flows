@@ -640,6 +640,21 @@ public class UnifiedWaterfallDto
     ///     paying an unpaid Subordinated Collateral Management Fee after the Reinvestment Period).
     /// </summary>
     public PrincipalAfterNotesDto? PrincipalAfterNotes { get; set; }
+
+    /// <summary>
+    ///     Deferrable classes: interest left unpaid while one of a class's Priority Classes is
+    ///     outstanding is added to its principal balance rather than carried as a shortfall (a CLO
+    ///     indenture's Secured Note Deferred Interest).
+    /// </summary>
+    public List<DeferrableNoteDto>? DeferrableNotes { get; set; }
+}
+
+public class DeferrableNoteDto
+{
+    public string Class { get; set; } = "";
+
+    /// <summary>Every class ranking senior to it.</summary>
+    public List<string> PriorityClasses { get; set; } = new();
 }
 
 public class PrincipalAfterNotesDto
@@ -1082,6 +1097,12 @@ public class TrancheCashflowDto
     ///     than a credit event. NEGATIVE on the class the notional bites are transferred to.
     /// </summary>
     public double ModificationWritedown { get; set; }
+
+    /// <summary>
+    ///     A Deferrable Note's unpaid interest added to its balance this period: the balance ends at
+    ///     begin + capitalized − principal − writedown.
+    /// </summary>
+    public double CapitalizedInterest { get; set; }
     public double Factor { get; set; }
     public double CreditSupport { get; set; }
     public double BeginCreditSupport { get; set; }

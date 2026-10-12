@@ -105,6 +105,12 @@ public interface IDeal : IPayRuleAssemblyStore
     PrincipalAfterNotesConfig? PrincipalAfterNotes { get; }
 
     /// <summary>
+    /// Classes whose unpaid interest is capitalized into their balance while a Priority Class is
+    /// outstanding — see <see cref="DeferrableNoteConfig" />. Empty: none.
+    /// </summary>
+    IReadOnlyList<DeferrableNoteConfig> DeferrableNotes { get; }
+
+    /// <summary>
     /// Controls interleaving of INTEREST and PRINCIPAL steps.
     /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
     /// </summary>
