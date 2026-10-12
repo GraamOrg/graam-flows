@@ -32,6 +32,7 @@ public class TestDealBuilder
     private IReadOnlyList<string>? _expensesAfterInterest;
     private IReadOnlyList<string>? _expensesFromPrincipal;
     private PrincipalAfterNotesConfig? _principalAfterNotes;
+    private IReadOnlyList<DeferrableNoteConfig>? _deferrableNotes;
     private InterestDiversionConfig? _interestDiversion;
 
     public TestDealBuilder(
@@ -527,6 +528,13 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>Configures Deferrable Notes: unpaid interest capitalized while a Priority Class is outstanding.</summary>
+    public TestDealBuilder WithDeferrableNotes(params DeferrableNoteConfig[] notes)
+    {
+        _deferrableNotes = notes;
+        return this;
+    }
+
     public TestDealBuilder WithExpensesFromPrincipal(params string[] names)
     {
         _expensesFromPrincipal = names;
@@ -688,6 +696,8 @@ public class TestDealBuilder
             _deal.ExpensesFromPrincipal = _expensesFromPrincipal;
         if (_principalAfterNotes != null)
             _deal.PrincipalAfterNotes = _principalAfterNotes;
+        if (_deferrableNotes != null)
+            _deal.DeferrableNotes = _deferrableNotes;
         if (_interestDiversion != null)
             _deal.InterestDiversion = _interestDiversion;
 

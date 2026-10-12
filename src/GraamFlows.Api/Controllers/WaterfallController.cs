@@ -491,6 +491,8 @@ public class WaterfallController : ControllerBase
         deal.PrincipalAfterNotes = ExpensesAfterInterestMapper.MapPrincipalAfterNotes(
             dto.UnifiedWaterfall?.PrincipalAfterNotes, deal.ExpensesAfterInterest,
             deal.Tranches.Select(t => t.TrancheName), dto.DealName);
+        deal.DeferrableNotes = ExpensesAfterInterestMapper.MapDeferrableNotes(
+            dto.UnifiedWaterfall?.DeferrableNotes, deal.Tranches.Select(t => t.TrancheName), dto.DealName);
 
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())
@@ -776,6 +778,7 @@ public class WaterfallController : ControllerBase
                     CumWritedown = cf.Value.CumWritedown,
                     ModificationLoss = cf.Value.ModificationLoss,
                     ModificationWritedown = cf.Value.ModificationWritedown,
+                    CapitalizedInterest = cf.Value.CapitalizedInterest,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
                     BeginCreditSupport = cf.Value.BeginCreditSupport,
@@ -852,6 +855,7 @@ public class WaterfallController : ControllerBase
                     CumWritedown = cf.Value.CumWritedown,
                     ModificationLoss = cf.Value.ModificationLoss,
                     ModificationWritedown = cf.Value.ModificationWritedown,
+                    CapitalizedInterest = cf.Value.CapitalizedInterest,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
                     BeginCreditSupport = cf.Value.BeginCreditSupport,
