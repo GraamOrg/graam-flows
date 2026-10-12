@@ -1,4 +1,5 @@
 using GraamFlows.Api.Models;
+using GraamFlows.Objects.DataObjects;
 
 namespace GraamFlows.Api.Transformers;
 
@@ -22,6 +23,30 @@ public static class ExpensesAfterInterestMapper
                 $"Deal {dealName}: {field} names {string.Join(", ", unknown)}, which the deal does " +
                 "not define as an expense — it would be paid nowhere.");
         return names.ToList();
+    }
+
+    /// <summary>
+    ///     Maps <see cref="UnifiedWaterfallDto.PrincipalAfterNotes" />. Each expense must be one the
+    ///     deal pays after interest (only those carry an unpaid amount to pay), and each note one of
+    ///     the deal's tranches; either refused rather than silently ignored.
+    /// </summary>
+    public static PrincipalAfterNotesConfig? MapPrincipalAfterNotes(PrincipalAfterNotesDto? dto,
+        IReadOnlyList<string> afterInterest, IEnumerable<string> trancheNames, string? dealName)
+    {
+        if (dto == null || dto.Expenses.Count == 0)
+            return null;
+        var notAfter = dto.Expenses.Where(e => !afterInterest.Contains(e, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (notAfter.Count > 0)
+            throw new ArgumentException(
+                $"Deal {dealName}: principalAfterNotes pays {string.Join(", ", notAfter)}, which is not paid after " +
+                "interest (expensesAfterInterest): only an after-interest expense carries an unpaid amount to pay.");
+        var tranches = trancheNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unknown = dto.Notes.Where(n => !tranches.Contains(n)).ToList();
+        if (dto.Notes.Count == 0 || unknown.Count > 0)
+            throw new ArgumentException(
+                $"Deal {dealName}: principalAfterNotes must name the notes repaid ahead of it" +
+                (unknown.Count > 0 ? $"; {string.Join(", ", unknown)} is not a tranche." : "."));
+        return new PrincipalAfterNotesConfig { Expenses = dto.Expenses.ToList(), Notes = dto.Notes.ToList(), FromDate = dto.FromDate };
     }
 
     /// <summary>

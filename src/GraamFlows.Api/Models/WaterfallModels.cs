@@ -633,6 +633,22 @@ public class UnifiedWaterfallDto
     ///     named; each must be one of the deal's expenses paid at the head of the waterfall.
     /// </summary>
     public List<string>? ExpensesFromPrincipal { get; set; }
+
+    /// <summary>
+    ///     After-interest expenses whose carried unpaid amount is paid from principal proceeds after
+    ///     the named notes and before the residual (a CLO's Principal Priority of Payments clause
+    ///     paying an unpaid Subordinated Collateral Management Fee after the Reinvestment Period).
+    /// </summary>
+    public PrincipalAfterNotesDto? PrincipalAfterNotes { get; set; }
+}
+
+public class PrincipalAfterNotesDto
+{
+    public List<string> Expenses { get; set; } = new();
+    public List<string> Notes { get; set; } = new();
+
+    /// <summary>First Payment Date it applies on; null: every Payment Date.</summary>
+    public DateTime? FromDate { get; set; }
 }
 
 public class InterestDiversionDto
