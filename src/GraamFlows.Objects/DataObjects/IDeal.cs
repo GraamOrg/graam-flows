@@ -99,6 +99,12 @@ public interface IDeal : IPayRuleAssemblyStore
     IReadOnlyList<string> ExpensesFromPrincipal { get; }
 
     /// <summary>
+    /// After-interest expenses paid from principal after the notes (optional) — see
+    /// <see cref="PrincipalAfterNotesConfig" />.
+    /// </summary>
+    PrincipalAfterNotesConfig? PrincipalAfterNotes { get; }
+
+    /// <summary>
     /// Controls interleaving of INTEREST and PRINCIPAL steps.
     /// Standard: all interest then all principal. InterestFirst/PrincipalFirst: lockstep by seniority.
     /// </summary>

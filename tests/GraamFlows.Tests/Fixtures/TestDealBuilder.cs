@@ -31,6 +31,7 @@ public class TestDealBuilder
     private IncentiveFeeConfig? _incentiveFee;
     private IReadOnlyList<string>? _expensesAfterInterest;
     private IReadOnlyList<string>? _expensesFromPrincipal;
+    private PrincipalAfterNotesConfig? _principalAfterNotes;
     private InterestDiversionConfig? _interestDiversion;
 
     public TestDealBuilder(
@@ -520,6 +521,12 @@ public class TestDealBuilder
     }
 
     /// <summary>Configures a fee on the residual's distributions above a hurdle IRR.</summary>
+    public TestDealBuilder WithPrincipalAfterNotes(PrincipalAfterNotesConfig config)
+    {
+        _principalAfterNotes = config;
+        return this;
+    }
+
     public TestDealBuilder WithExpensesFromPrincipal(params string[] names)
     {
         _expensesFromPrincipal = names;
@@ -679,6 +686,8 @@ public class TestDealBuilder
             _deal.ExpensesAfterInterest = _expensesAfterInterest;
         if (_expensesFromPrincipal != null)
             _deal.ExpensesFromPrincipal = _expensesFromPrincipal;
+        if (_principalAfterNotes != null)
+            _deal.PrincipalAfterNotes = _principalAfterNotes;
         if (_interestDiversion != null)
             _deal.InterestDiversion = _interestDiversion;
 

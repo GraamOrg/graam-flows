@@ -488,6 +488,9 @@ public class WaterfallController : ControllerBase
             dto.UnifiedWaterfall?.ExpensesAfterInterest, dto.Expenses, dto.DealName);
         deal.ExpensesFromPrincipal = ExpensesAfterInterestMapper.MapFromPrincipal(
             dto.UnifiedWaterfall?.ExpensesFromPrincipal, dto.Expenses, deal.ExpensesAfterInterest, dto.DealName);
+        deal.PrincipalAfterNotes = ExpensesAfterInterestMapper.MapPrincipalAfterNotes(
+            dto.UnifiedWaterfall?.PrincipalAfterNotes, deal.ExpensesAfterInterest,
+            deal.Tranches.Select(t => t.TrancheName), dto.DealName);
 
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())
