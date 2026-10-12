@@ -191,10 +191,16 @@ public static class PaymentSchedule
                 continue;
             }
 
-            if (first && statedCalendar)
+            if (statedCalendar)
             {
+                // Each payment ends one payment period and carries that period's hazard — a row
+                // collecting two payments carries two periods, and a payment collected a row late
+                // (its cutoff fell before it) still carries one, not the rows since the last. A
+                // reference model's per-loan defaults: a quarterly loan's payment slipping a row took
+                // 3 months' hazard where ours took 4 (then 2); a monthly row with two payments, 2.
+                var payments = paymentRows != null && p < paymentRows.Length ? Math.Max(paymentRows[p], 1) : 1;
                 survive = 1.0;
-                for (var j = 0; j < Math.Max(monthsBetween, 1); j++)
+                for (var j = 0; j < payments * Math.Max(monthsBetween, 1); j++)
                     survive *= 1.0 - (p - j >= 0 ? h[p - j] : h[p]);
             }
             else
