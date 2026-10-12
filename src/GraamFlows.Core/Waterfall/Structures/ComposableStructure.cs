@@ -772,6 +772,10 @@ public class ComposableStructure : BaseStructure
                     if (deal.ExpensesFromPrincipal.Count > 0)
                         (availableSchedPrin, availablePrepayPrin, availableRecovPrin) = PayExpensesFromPrincipal(
                             deal, dynGroup, adjPeriodCf, availableSchedPrin, availablePrepayPrin, availableRecovPrin);
+                    // ... and then the notes' unpaid interest, senior first, still ahead of their principal.
+                    if (deal.InterestFromPrincipal.Count > 0)
+                        (availableSchedPrin, availablePrepayPrin, availableRecovPrin) = PayInterestFromPrincipal(
+                            deal, dynGroup, adjPeriodCf, availableSchedPrin, availablePrepayPrin, availableRecovPrin);
                     // ... and, after the notes, the carried after-interest expenses (only from the
                     // principal the notes no longer need), before the residual.
                     if (deal.PrincipalAfterNotes is { } afterNotes)
@@ -965,13 +969,7 @@ public class ComposableStructure : BaseStructure
             if (!byName.TryGetValue(name, out var ec) || !_headShortfall.TryGetValue(name, out var unpaid) ||
                 unpaid < 0.005)
                 continue;
-            var fromSched = Math.Min(unpaid, Math.Max(sched, 0.0));
-            sched -= fromSched;
-            var fromPrepay = Math.Min(unpaid - fromSched, Math.Max(prepay, 0.0));
-            prepay -= fromPrepay;
-            var fromRecov = Math.Min(unpaid - fromSched - fromPrepay, Math.Max(recov, 0.0));
-            recov -= fromRecov;
-            var paid = fromSched + fromPrepay + fromRecov;
+            var paid = TakeFromPrincipal(unpaid, ref sched, ref prepay, ref recov);
             if (paid <= 0) continue;
             ec.PayExpense(periodCf.CashflowDate, paid, -paid);
             _headShortfall[name] = unpaid - paid;
@@ -979,6 +977,47 @@ public class ComposableStructure : BaseStructure
         }
 
         return (sched, prepay, recov);
+    }
+
+    /// <summary>
+    ///     Pay the named classes' unpaid interest (<see cref="TrancheCashflow.AccumInterestShortfall" />)
+    ///     from principal proceeds, senior first, ahead of the notes' principal — a CLO's Principal
+    ///     Priority of Payments clause (A) (the Class A and B interest the interest proceeds left
+    ///     unpaid) and its Controlling Class clauses. Booked as interest, a shortfall repaid. Measured on
+    ///     a deal's last Payment Date, when the collateral's final quarter of interest ran short: a
+    ///     senior class's unpaid coupon was carried past its final principal payment, never paid, and
+    ///     the residual took it.
+    /// </summary>
+    private (double Sched, double Prepay, double Recov) PayInterestFromPrincipal(IDeal deal, DynamicGroup dynGroup,
+        PeriodCashflows periodCf, double sched, double prepay, double recov)
+    {
+        var cfDate = periodCf.CashflowDate;
+        foreach (var name in deal.InterestFromPrincipal)
+        {
+            // A class in another group is paid by that group's waterfall.
+            var cls = dynGroup.ClassByName(name);
+            if (cls == null)
+                continue;
+            var unpaid = cls.DynamicTranches.Sum(t => Math.Max(0, t.GetCashflow(cfDate).AccumInterestShortfall));
+            var available = Math.Max(sched, 0.0) + Math.Max(prepay, 0.0) + Math.Max(recov, 0.0);
+            // The class takes what it can (a sub-cent share is skipped), and exactly that is drawn.
+            var paid = cls.PayInterestShortfall(cfDate, Math.Min(unpaid, available));
+            TakeFromPrincipal(paid, ref sched, ref prepay, ref recov);
+        }
+
+        return (sched, prepay, recov);
+    }
+
+    /// <summary>Draw up to <paramref name="want" /> from principal proceeds: scheduled, then unscheduled, then recoveries.</summary>
+    private static double TakeFromPrincipal(double want, ref double sched, ref double prepay, ref double recov)
+    {
+        var fromSched = Math.Min(want, Math.Max(sched, 0.0));
+        sched -= fromSched;
+        var fromPrepay = Math.Min(want - fromSched, Math.Max(prepay, 0.0));
+        prepay -= fromPrepay;
+        var fromRecov = Math.Min(want - fromSched - fromPrepay, Math.Max(recov, 0.0));
+        recov -= fromRecov;
+        return fromSched + fromPrepay + fromRecov;
     }
 
     /// <summary>
