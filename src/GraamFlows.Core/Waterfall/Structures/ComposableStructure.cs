@@ -770,6 +770,11 @@ public class ComposableStructure : BaseStructure
                     if (deal.ExpensesFromPrincipal.Count > 0)
                         (availableSchedPrin, availablePrepayPrin, availableRecovPrin) = PayExpensesFromPrincipal(
                             deal, dynGroup, adjPeriodCf, availableSchedPrin, availablePrepayPrin, availableRecovPrin);
+                    // ... and, after the notes, the carried after-interest expenses (only from the
+                    // principal the notes no longer need), before the residual.
+                    if (deal.PrincipalAfterNotes is { } afterNotes)
+                        (availableSchedPrin, availablePrepayPrin, availableRecovPrin) = PayExpensesAfterNotes(
+                            afterNotes, dynGroup, adjPeriodCf, availableSchedPrin, availablePrepayPrin, availableRecovPrin);
 
                     break;
 
@@ -899,6 +904,43 @@ public class ComposableStructure : BaseStructure
     ///     Pay expenses from available interest (and reserve if needed), returning remaining funds.
     /// </summary>
     private Dictionary<string, double> _unpaidAfterInterest = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Pay the carried unpaid amount of <paramref name="cfg" />'s after-interest expenses from the
+    ///     principal left once its notes are repaid in full — after the notes, before the residual (a
+    ///     CLO's clause paying, after the Reinvestment Period, an unpaid Subordinated Collateral
+    ///     Management Fee). Drawn from recoveries, then unscheduled, then scheduled principal, the last
+    ///     principal the residual would have received.
+    /// </summary>
+    private (double Sched, double Prepay, double Recov) PayExpensesAfterNotes(PrincipalAfterNotesConfig cfg,
+        DynamicGroup dynGroup, PeriodCashflows periodCf, double sched, double prepay, double recov)
+    {
+        if (cfg.FromDate is { } from && periodCf.CashflowDate < from)
+            return (sched, prepay, recov);
+        var notesOwed = cfg.Notes.Sum(n => dynGroup.ClassByName(n)?.Balance ?? 0.0);
+        var surplus = Math.Max(sched, 0.0) + Math.Max(prepay, 0.0) + Math.Max(recov, 0.0) - notesOwed;
+        if (surplus < 0.005)
+            return (sched, prepay, recov);
+        var byName = dynGroup.ExpenseClasses.SelectMany(dc => dc.DynamicTranches)
+            .ToDictionary(e => e.Tranche.TrancheName, StringComparer.OrdinalIgnoreCase);
+        foreach (var name in cfg.Expenses)
+        {
+            if (!byName.TryGetValue(name, out var ec) || !_unpaidAfterInterest.TryGetValue(name, out var unpaid) ||
+                unpaid < 0.005 || surplus < 0.005)
+                continue;
+            var pay = Math.Min(unpaid, surplus);
+            surplus -= pay;
+            var left = pay;
+            var fromRecov = Math.Min(left, Math.Max(recov, 0.0)); recov -= fromRecov; left -= fromRecov;
+            var fromPrepay = Math.Min(left, Math.Max(prepay, 0.0)); prepay -= fromPrepay; left -= fromPrepay;
+            var fromSched = Math.Min(left, Math.Max(sched, 0.0)); sched -= fromSched;
+            ec.PayExpense(periodCf.CashflowDate, pay, -pay);
+            _unpaidAfterInterest[name] = unpaid - pay;
+            periodCf.Expenses += pay;
+        }
+
+        return (sched, prepay, recov);
+    }
 
     /// <summary>This period's unpaid amount of each head-of-waterfall expense.</summary>
     private Dictionary<string, double> _headShortfall = new(StringComparer.OrdinalIgnoreCase);
