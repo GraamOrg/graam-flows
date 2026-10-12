@@ -255,6 +255,7 @@ public class CalcCollateralController : ControllerBase
             PaymentFrequency = dto.PaymentFrequency ?? 12,
             NextPaymentDate = dto.NextPaymentDate,
             MaturityDate = dto.MaturityDate,
+            RemainingTermAsOfDate = dto.RemainingTermAsOfDate,
             IsIO = dto.IsIO,
             IOTerm = dto.IOTerm,
             ForbearanceAmt = dto.ForbearanceAmt,
