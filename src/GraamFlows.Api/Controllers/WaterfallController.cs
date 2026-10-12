@@ -491,6 +491,8 @@ public class WaterfallController : ControllerBase
         deal.PrincipalAfterNotes = ExpensesAfterInterestMapper.MapPrincipalAfterNotes(
             dto.UnifiedWaterfall?.PrincipalAfterNotes, deal.ExpensesAfterInterest,
             deal.Tranches.Select(t => t.TrancheName), dto.DealName);
+        deal.InterestFromPrincipal = ExpensesAfterInterestMapper.MapInterestFromPrincipal(
+            dto.UnifiedWaterfall?.InterestFromPrincipal, deal.Tranches.Select(t => t.TrancheName), dto.DealName);
         deal.DeferrableNotes = ExpensesAfterInterestMapper.MapDeferrableNotes(
             dto.UnifiedWaterfall?.DeferrableNotes, deal.Tranches.Select(t => t.TrancheName), dto.DealName);
 

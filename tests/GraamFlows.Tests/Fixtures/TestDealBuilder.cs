@@ -33,6 +33,7 @@ public class TestDealBuilder
     private IReadOnlyList<string>? _expensesFromPrincipal;
     private PrincipalAfterNotesConfig? _principalAfterNotes;
     private IReadOnlyList<DeferrableNoteConfig>? _deferrableNotes;
+    private IReadOnlyList<string>? _interestFromPrincipal;
     private InterestDiversionConfig? _interestDiversion;
 
     public TestDealBuilder(
@@ -535,6 +536,12 @@ public class TestDealBuilder
         return this;
     }
 
+    public TestDealBuilder WithInterestFromPrincipal(params string[] names)
+    {
+        _interestFromPrincipal = names;
+        return this;
+    }
+
     public TestDealBuilder WithExpensesFromPrincipal(params string[] names)
     {
         _expensesFromPrincipal = names;
@@ -698,6 +705,8 @@ public class TestDealBuilder
             _deal.PrincipalAfterNotes = _principalAfterNotes;
         if (_deferrableNotes != null)
             _deal.DeferrableNotes = _deferrableNotes;
+        if (_interestFromPrincipal != null)
+            _deal.InterestFromPrincipal = _interestFromPrincipal;
         if (_interestDiversion != null)
             _deal.InterestDiversion = _interestDiversion;
 

@@ -635,6 +635,14 @@ public class UnifiedWaterfallDto
     public List<string>? ExpensesFromPrincipal { get; set; }
 
     /// <summary>
+    ///     Classes whose interest the interest waterfall leaves unpaid is paid from principal proceeds
+    ///     after <see cref="ExpensesFromPrincipal" />, ahead of the notes' principal — a CLO's
+    ///     Principal Priority of Payments paying the senior notes' unpaid interest (and a junior
+    ///     class's once it is the Controlling Class). Senior first.
+    /// </summary>
+    public List<string>? InterestFromPrincipal { get; set; }
+
+    /// <summary>
     ///     After-interest expenses whose carried unpaid amount is paid from principal proceeds after
     ///     the named notes and before the residual (a CLO's Principal Priority of Payments clause
     ///     paying an unpaid Subordinated Collateral Management Fee after the Reinvestment Period).
