@@ -45,6 +45,14 @@ public interface IAsset
     /// </summary>
     DateTime? MaturityDate { get; set; }
 
+    /// <summary>
+    ///     The date the asset's whole-month remaining term was counted from (its tape's as-of date), or
+    ///     null. With a stated calendar and maturity, the maturity then carries the months on that
+    ///     monthly grid since the asset's last payment, and a scheduled date in the grid month the
+    ///     maturity ends is no payment (<c>PaymentSchedule.IsPayment</c>).
+    /// </summary>
+    DateTime? RemainingTermAsOfDate { get; set; }
+
     DateTime OriginalDate { get; set; }
     double OriginalBalance { get; set; }
     double OriginalInterestRate { get; set; }

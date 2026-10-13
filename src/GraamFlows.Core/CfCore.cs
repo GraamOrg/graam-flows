@@ -108,8 +108,12 @@ public class CfCore
             for (var i = 0; i < groupAssets.Count; i++)
             {
                 if (groupAssets[i].NextPaymentDate is not { } stated) continue;
+                // With the tape's as-of date, only the asset's payments count (`PaymentSchedule.IsPayment`).
+                // Without it the schedule runs on as before: measured against a reference model, dropping
+                // only the dates past maturity, without the grid, moved the pool further from it.
+                var asOf = groupAssets[i].RemainingTermAsOfDate;
                 var counts = PaymentSchedule.PaymentRowCounts(stated, assetData.PaymentMonths[i], firstProjDate,
-                    maxPeriods, collectionCutoff);
+                    maxPeriods, collectionCutoff, asOf != null ? groupAssets[i].MaturityDate : null, asOf);
                 assetData.PaymentRowCounts[i] = counts;
                 var first = Array.FindIndex(counts, c => c > 0);
                 assetData.FirstPaymentAbsT[i] = startTime + (first >= 0 ? first : maxPeriods);
@@ -239,10 +243,19 @@ public class CfCore
                     int? maturityRow = statedCalendar
                         ? assetData.OriginalDate[i] + assetData.OriginalAmortizationTerm[i] - startTime
                         : null;
+                    // ... and the months of hazard its maturity carries, on the grid its remaining term
+                    // is counted on, when the tape's as-of date is given.
+                    int? stubMonths = statedCalendar && groupAssets[i].RemainingTermAsOfDate is { } asOf &&
+                                      groupAssets[i].MaturityDate is { } maturity
+                        ? PaymentSchedule.MaturityStubMonths(groupAssets[i].NextPaymentDate!.Value,
+                            assetData.PaymentMonths[i], firstProjDate, maturity, asOf)
+                        : null;
                     PaymentSchedule.Concentrate(smmTime[i], startTime, assetData.FirstPaymentAbsT[i],
-                        assetData.PaymentMonths[i], statedCalendar, assetData.PaymentRowCounts[i], maturityRow);
+                        assetData.PaymentMonths[i], statedCalendar, assetData.PaymentRowCounts[i], maturityRow,
+                        stubMonths);
                     PaymentSchedule.Concentrate(mdrTime[i], startTime, assetData.FirstPaymentAbsT[i],
-                        assetData.PaymentMonths[i], statedCalendar, assetData.PaymentRowCounts[i], maturityRow);
+                        assetData.PaymentMonths[i], statedCalendar, assetData.PaymentRowCounts[i], maturityRow,
+                        stubMonths);
                 }
             }
 

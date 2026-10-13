@@ -126,15 +126,19 @@ public static class PaymentSchedule
     ///     another — its payment rows are not simply every third row, and a row can collect two.
     ///     Measured against a reference model's asset-level export: placing the first payment and
     ///     stepping a period at a time put such payments a Collection Period early.
+    ///     Only the asset's payments count (<see cref="IsPayment" />): counted past its maturity, a
+    ///     scheduled date gave the maturity row a payment period the loan never had.
     /// </summary>
     public static int[] PaymentRowCounts(DateTime stated, int monthsBetween, DateTime firstProjDate, int maxPeriods,
-        Func<DateTime, DateTime>? cutoff)
+        Func<DateTime, DateTime>? cutoff, DateTime? maturity = null, DateTime? asOf = null)
     {
         var counts = new int[Math.Max(maxPeriods, 0)];
         var startT = DateUtil.CalcAbsT(firstProjDate);
         for (var k = 0; k < 12 * 100; k++)
         {
             var date = PaymentDate(stated, Math.Max(monthsBetween, 1), firstProjDate, k);
+            if (maturity is { } mat && !IsPayment(date, mat, asOf))
+                continue;
             var row = RowCollecting(date, firstProjDate, maxPeriods, cutoff) - startT;
             if (row >= maxPeriods)
                 break;
@@ -142,6 +146,59 @@ public static class PaymentSchedule
         }
 
         return counts;
+    }
+
+    /// <summary>
+    ///     The months of hazard a stated-calendar asset's maturity carries when it is not a scheduled
+    ///     payment date: the months, on the monthly grid its remaining term is counted on (from
+    ///     <paramref name="asOf" />), between its last scheduled payment and its maturity. Measured
+    ///     against a reference model's asset-level export: a tape's whole-month remaining term is the
+    ///     months from its as-of date to the maturity, rounded up, for every asset; and the maturity's
+    ///     own default is exactly those grid months — a month-end payer maturing on the 4th, past the
+    ///     grid's 3rd, takes a second month in the row that also collects its month-end payment; one
+    ///     maturing on the 3rd, none. 0 when the maturity is a payment date; null when no payment
+    ///     precedes it in the projection.
+    /// </summary>
+    public static int? MaturityStubMonths(DateTime stated, int monthsBetween, DateTime firstProjDate,
+        DateTime maturity, DateTime asOf)
+    {
+        DateTime? last = null;
+        for (var k = 0; k < 12 * 100; k++)
+        {
+            var date = PaymentDate(stated, Math.Max(monthsBetween, 1), firstProjDate, k);
+            if (date.Date >= maturity.Date)
+            {
+                if (date.Date == maturity.Date)
+                    return 0;
+                break;
+            }
+
+            if (IsPayment(date, maturity, asOf))
+                last = date;
+        }
+
+        return last is { } l ? GridMonths(asOf, maturity) - GridMonths(asOf, l) : null;
+    }
+
+    /// <summary>
+    ///     Whether a scheduled date is one of the asset's payments: on or before its maturity, and —
+    ///     when its term's grid is known (<paramref name="asOf" />) — not in the grid month its
+    ///     maturity ends, where the maturity replaces it (a maturity that IS a scheduled date is a
+    ///     payment). Measured against a reference model's asset-level export: a quarterly loan paying
+    ///     on the 6th and maturing on the 18th of the same month paid nothing on the 6th — its last
+    ///     quarter's coupon and three months' default came with the maturity, a row later.
+    /// </summary>
+    public static bool IsPayment(DateTime date, DateTime maturity, DateTime? asOf) =>
+        date.Date == maturity.Date ||
+        (date.Date < maturity.Date && (asOf is not { } a || GridMonths(a, date) < GridMonths(a, maturity)));
+
+    /// <summary>Whole months from <paramref name="asOf" /> to <paramref name="date" />, rounded up.</summary>
+    private static int GridMonths(DateTime asOf, DateTime date)
+    {
+        var m = 0;
+        while (asOf.Date.AddMonths(m) < date.Date)
+            m++;
+        return m;
     }
 
     /// <summary>True when absolute period <paramref name="absT" /> is one of the asset's payment rows.</summary>
@@ -164,7 +221,8 @@ public static class PaymentSchedule
     ///     since the start, as before. A monthly asset is concentrated only with a stated calendar.
     /// </summary>
     public static void Concentrate(double[] hazard, int startAbsT, int firstPayAbsT, int monthsBetween,
-        bool statedCalendar = false, int[]? paymentRows = null, int? maturityRow = null)
+        bool statedCalendar = false, int[]? paymentRows = null, int? maturityRow = null,
+        int? maturityStubMonths = null)
     {
         if (hazard == null || (monthsBetween <= 1 && !statedCalendar))
             return;
@@ -184,7 +242,10 @@ public static class PaymentSchedule
                 survive *= 1.0 - h[p]; // a stated calendar's first payment recomputes it (below)
                 // A loan maturing between payment dates prepays or defaults on its maturity, over the
                 // months since its last payment — not never: a reference model's pool defaulted
-                // ~3% more than ours through the years its loans matured.
+                // ~3% more than ours through the years its loans matured. Counted on its term's
+                // monthly grid when known (`maturityStubMonths`), else the rows since that payment.
+                if (maturityRow == p && maturityStubMonths is { } stub)
+                    survive = Survival(h, p, stub);
                 hazard[p] = maturityRow == p && !first ? 1.0 - survive : 0.0;
                 if (maturityRow == p && !first)
                     survive = 1.0;
@@ -199,9 +260,10 @@ public static class PaymentSchedule
                 // reference model's per-loan defaults: a quarterly loan's payment slipping a row took
                 // 3 months' hazard where ours took 4 (then 2); a monthly row with two payments, 2.
                 var payments = paymentRows != null && p < paymentRows.Length ? Math.Max(paymentRows[p], 1) : 1;
-                survive = 1.0;
-                for (var j = 0; j < payments * Math.Max(monthsBetween, 1); j++)
-                    survive *= 1.0 - (p - j >= 0 ? h[p - j] : h[p]);
+                survive = Survival(h, p, payments * Math.Max(monthsBetween, 1));
+                // The row that also collects the loan's maturity: the months from its last payment to it.
+                if (maturityRow == p && maturityStubMonths is { } stub)
+                    survive *= Survival(h, p, stub);
             }
             else
             {
@@ -212,5 +274,14 @@ public static class PaymentSchedule
             hazard[p] = 1.0 - survive;
             survive = 1.0;
         }
+    }
+
+    /// <summary>Survival over <paramref name="months" /> months ending at row <paramref name="p" /> (rows before the projection take row p's).</summary>
+    private static double Survival(double[] h, int p, int months)
+    {
+        var survive = 1.0;
+        for (var j = 0; j < months; j++)
+            survive *= 1.0 - (p - j >= 0 ? h[p - j] : h[p]);
+        return survive;
     }
 }
