@@ -113,6 +113,14 @@ public class AssetDto
     /// </summary>
     public DateTime? MaturityDate { get; set; }
 
+    /// <summary>
+    ///     The date the tape's whole-month remaining term was counted from (its as-of date). With a
+    ///     stated calendar and maturity, the maturity carries the months on that monthly grid since the
+    ///     asset's last payment, and a scheduled date in the grid month it ends is no payment. Null:
+    ///     the rows since its last payment, every scheduled date paid.
+    /// </summary>
+    public DateTime? RemainingTermAsOfDate { get; set; }
+
     // ARM-specific fields
     public int InitialAdjustmentPeriod { get; set; }
     public int AdjustmentPeriod { get; set; }
