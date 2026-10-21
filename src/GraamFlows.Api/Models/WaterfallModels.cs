@@ -532,7 +532,7 @@ public class TriggerConditionDto
 
 /// <summary>
 ///     Payment structure node (mirrors IPayable XML format).
-///     Supported types: SEQ, PRORATA, SINGLE, SHIFTI, ACCRETE, CSCAP, FIXED, FORCE_PAYDOWN
+///     Supported types: SEQ, PRORATA, SINGLE, SHIFTI, ACCRETE, CSCAP, FIXED, FORCE_PAYDOWN, PAC
 /// </summary>
 public class PayableStructureDto
 {
@@ -559,7 +559,14 @@ public class PayableStructureDto
 
     // FORCE_PAYDOWN fields
     public PayableStructureDto? Forced { get; set; } // Tranche forced to pay down
-    public PayableStructureDto? Support { get; set; } // Receives remainder
+    public PayableStructureDto? Support { get; set; } // Receives remainder (FORCE_PAYDOWN, PAC)
+
+    // PAC (planned amortization) fields. The Senior class is paid down to the balance the
+    // ScheduleVariable states for the period, the rest goes to Support, and once Support is
+    // retired the remainder returns to Senior without regard to its schedule — a CMBS A-AB /
+    // A-SB class, or a classic PAC/companion pair.
+    public string? ScheduleVariable { get; set; } // Scheduled variable holding the planned balance
+    public PayableStructureDto? Senior { get; set; } // The scheduled class
 }
 
 // ============== Unified Waterfall Models ==============

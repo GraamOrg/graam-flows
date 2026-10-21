@@ -258,6 +258,7 @@ public class CalcCollateralController : ControllerBase
             RemainingTermAsOfDate = dto.RemainingTermAsOfDate,
             IsIO = dto.IsIO,
             IOTerm = dto.IOTerm,
+            BalloonAmortizationTerm = dto.BalloonAmortizationTerm,
             ForbearanceAmt = dto.ForbearanceAmt,
             StepDatesList = dto.StepDatesList,
             StepRatesList = dto.StepRatesList
