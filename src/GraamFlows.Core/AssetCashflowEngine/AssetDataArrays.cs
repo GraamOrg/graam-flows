@@ -39,6 +39,7 @@ public class AssetDataArrays
         AdjustmentCap = new double[AssetCount];
 
         IOTerm = new int[AssetCount];
+        BalloonAmortizationTerm = new int[AssetCount];
         ForbearanceAmt = new double[AssetCount];
 
         StepDatesCount = new int[AssetCount];
@@ -87,6 +88,7 @@ public class AssetDataArrays
             AdjustmentCap[i] = asset.AdjustmentCap ?? 100.0;
 
             IOTerm[i] = asset.IOTerm ?? 0;
+            BalloonAmortizationTerm[i] = asset.BalloonAmortizationTerm ?? 0;
             ForbearanceAmt[i] = asset.ForbearanceAmt ?? 0;
 
             // Parse and flatten step dates/rates
@@ -159,6 +161,12 @@ public class AssetDataArrays
 
     // IO and forbearance
     public int[] IOTerm { get; }
+
+    /// <summary>
+    ///     A balloon loan's amortization schedule in months (0 = amortize over the term). See
+    ///     <see cref="IAsset.BalloonAmortizationTerm" />.
+    /// </summary>
+    public int[] BalloonAmortizationTerm { get; }
     public double[] ForbearanceAmt { get; }
 
     // Step rates - flattened arrays with counts

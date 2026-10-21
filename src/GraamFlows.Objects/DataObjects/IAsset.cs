@@ -75,6 +75,14 @@ public interface IAsset
     double? AdjustmentCap { get; set; }
     bool IsIO { get; set; }
     int? IOTerm { get; set; }
+
+    /// <summary>
+    ///     The amortization schedule, in months from the first amortizing payment, that a BALLOON
+    ///     loan's level payment is computed over when it is longer than the loan's term to maturity
+    ///     (a 10-year commercial mortgage on a 30-year schedule). Null or 0: the payment amortizes
+    ///     over the term, as before.
+    /// </summary>
+    int? BalloonAmortizationTerm { get; set; }
     double? ForbearanceAmt { get; set; }
     string StepDatesList { get; set; }
     string StepRatesList { get; set; }

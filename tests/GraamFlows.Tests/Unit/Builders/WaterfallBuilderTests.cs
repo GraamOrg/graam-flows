@@ -146,6 +146,45 @@ public class WaterfallBuilderTests
     }
 
     [Fact]
+    public void BuildStructureDsl_Pac()
+    {
+        var structure = new PayableStructureDto
+        {
+            Type = "PAC",
+            ScheduleVariable = "AAB_ScheduledBalance",
+            Senior = new PayableStructureDto { Type = "SINGLE", Tranche = "AAB" },
+            Support = new PayableStructureDto
+            {
+                Type = "SEQ",
+                Children = new List<PayableStructureDto>
+                {
+                    new() { Type = "SINGLE", Tranche = "A1" },
+                    new() { Type = "SINGLE", Tranche = "A2" }
+                }
+            }
+        };
+
+        var dsl = WaterfallBuilder.BuildStructureDsl(structure);
+
+        dsl.Should().Be("PAC('AAB_ScheduledBalance', SINGLE('AAB'), SEQ(SINGLE('A1'), SINGLE('A2')))");
+    }
+
+    [Fact]
+    public void BuildStructureDsl_Pac_WithoutSchedule_Throws()
+    {
+        var structure = new PayableStructureDto
+        {
+            Type = "PAC",
+            Senior = new PayableStructureDto { Type = "SINGLE", Tranche = "AAB" },
+            Support = new PayableStructureDto { Type = "SINGLE", Tranche = "A1" }
+        };
+
+        var act = () => WaterfallBuilder.BuildStructureDsl(structure);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*scheduleVariable*");
+    }
+
+    [Fact]
     public void BuildStructureDsl_Accrete()
     {
         var structure = new PayableStructureDto { Type = "ACCRETE", Tranche = "OC" };
