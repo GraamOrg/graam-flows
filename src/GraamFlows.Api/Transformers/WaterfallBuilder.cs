@@ -160,6 +160,8 @@ public static class WaterfallBuilder
                 return BuildFixedDsl(structure);
             case "FORCE_PAYDOWN":
                 return BuildForcePaydownDsl(structure);
+            case "PAC":
+                return BuildPacDsl(structure);
             default:
                 throw new ArgumentException($"Unknown structure type: {structure.Type}");
         }
@@ -269,5 +271,22 @@ public static class WaterfallBuilder
         var support = structure.Support != null ? BuildStructureDsl(structure.Support) : "SINGLE('')";
 
         return $"FORCE_PAYDOWN({forced}, {support})";
+    }
+
+    /// <summary>
+    ///     Builds PAC DSL: PAC('scheduleVariable', senior, support). The schedule is a balance,
+    ///     not an amount, so a PAC without one has nothing to amortize toward and is rejected
+    ///     rather than paid as a plain sequential pair.
+    /// </summary>
+    private static string BuildPacDsl(PayableStructureDto structure)
+    {
+        if (string.IsNullOrWhiteSpace(structure.ScheduleVariable))
+            throw new ArgumentException("A PAC structure requires a scheduleVariable (the planned balance).");
+        if (structure.Senior == null || structure.Support == null)
+            throw new ArgumentException("A PAC structure requires both a senior and a support payable.");
+
+        var senior = BuildStructureDsl(structure.Senior);
+        var support = BuildStructureDsl(structure.Support);
+        return $"PAC('{structure.ScheduleVariable}', {senior}, {support})";
     }
 }
