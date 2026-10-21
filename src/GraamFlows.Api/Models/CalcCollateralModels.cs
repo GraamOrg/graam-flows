@@ -135,6 +135,11 @@ public class AssetDto
     public bool IsIO { get; set; }
     public int? IOTerm { get; set; }
 
+    // A balloon loan's amortization schedule (months) when it is longer than the term to
+    // maturity — the level payment is computed over it and the remaining balance repays at
+    // maturity. Absent: the payment amortizes over the term.
+    public int? BalloonAmortizationTerm { get; set; }
+
     // Forbearance
     public double? ForbearanceAmt { get; set; }
 

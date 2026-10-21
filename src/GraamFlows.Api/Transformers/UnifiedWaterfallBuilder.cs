@@ -525,8 +525,9 @@ public static class UnifiedWaterfallBuilder
         // Handle FIXED primary/overflow
         if (structure.Overflow != null) ExtractTranchesRecursive(structure.Overflow, tranches);
 
-        // Handle FORCE_PAYDOWN forced/support
+        // Handle FORCE_PAYDOWN forced/support (and PAC senior/support — senior first)
         if (structure.Forced != null) ExtractTranchesRecursive(structure.Forced, tranches);
+        if (structure.Senior != null) ExtractTranchesRecursive(structure.Senior, tranches);
         if (structure.Support != null) ExtractTranchesRecursive(structure.Support, tranches);
     }
 

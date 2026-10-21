@@ -41,6 +41,8 @@ public class Asset : IAsset
 
     [Database("IO_Term")] public int? IOTerm { get; set; }
 
+    public int? BalloonAmortizationTerm { get; set; }
+
     [Database("Arm_Init_Adj_Period")] public int InitialAdjustmentPeriod { get; set; }
 
     [Database("Arm_Adjustment_Period")] public int AdjustmentPeriod { get; set; }

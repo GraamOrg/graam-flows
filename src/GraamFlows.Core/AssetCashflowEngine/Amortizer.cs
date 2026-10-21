@@ -112,6 +112,7 @@ public static class Amortizer
         var rawLifeAdjustmentFloor = assetData.LifeAdjustmentFloor;
         var rawAdjustmentCap = assetData.AdjustmentCap;
         var rawIOTerm = assetData.IOTerm;
+        var rawBalloonAmortTerm = assetData.BalloonAmortizationTerm;
         var rawForbearanceAmt = assetData.ForbearanceAmt;
         var rawStepDatesCount = assetData.StepDatesCount;
         var rawStepDatesList = assetData.StepDatesList;
@@ -147,6 +148,9 @@ public static class Amortizer
             var cashflowBalance = balance;
             var cashflowPrevBalance = balance;
             var ioTerm = rawIOTerm[assetIndex];
+            // A balloon loan amortizes on a schedule longer than its term; its level payment is
+            // computed over that schedule and the remainder repays at maturity (age >= term).
+            var balloonAmortTerm = rawBalloonAmortTerm[assetIndex];
             var serviceFee = rawServiceFee[assetIndex] / rateDivisor;
             // Principal-repayment style (0 = Amortizing, 1 = Bullet, 2 = PIK).
             var amortType = rawAmortizationType[assetIndex];
@@ -252,8 +256,13 @@ public static class Amortizer
                 // models no negative-amortization product, so a zero original
                 // balance is a misconfiguration; fall back to the current balance.
                 var amortBalance = origBalance > 0 ? origBalance : balance;
-                scheduledPayment = Math.Round(
-                    AmortizingPayment(amortBalance, rate, RemainingPeriods(term, monthsPerPeriod)) * 100.0) / 100.0;
+                scheduledPayment = balloonAmortTerm > 0
+                    // On its own schedule, from the CURRENT balance over the amortizing months
+                    // still to run (those already paid since the IO period ended are gone).
+                    ? Math.Round(AmortizingPayment(balance, rate,
+                        RemainingPeriods(balloonAmortTerm - Math.Max(0, age - ioTerm), monthsPerPeriod)) * 100.0) / 100.0
+                    : Math.Round(
+                        AmortizingPayment(amortBalance, rate, RemainingPeriods(term, monthsPerPeriod)) * 100.0) / 100.0;
             }
 
             for (var absT = startTime; absT <= endTime; absT++)
@@ -368,9 +377,12 @@ public static class Amortizer
                         {
                             principal = 0;
                             if (age == ioTerm)
+                                // The IO period ends: amortize over the months to maturity — or, for a
+                                // balloon loan, over its own (longer) schedule, leaving a balloon.
                                 scheduledPayment = Math.Round(
                                     AmortizingPayment(cashflowBalance, rate,
-                                        RemainingPeriods(term - age, monthsPerPeriod)) * 100.0) / 100.0;
+                                        RemainingPeriods(balloonAmortTerm > 0 ? balloonAmortTerm : term - age,
+                                            monthsPerPeriod)) * 100.0) / 100.0;
                         }
                     }
                     else if (isPik)
