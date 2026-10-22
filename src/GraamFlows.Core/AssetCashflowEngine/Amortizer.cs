@@ -52,6 +52,13 @@ public static class Amortizer
     /// purchase and is not Interest Proceeds (a CLO's Principal Financed Accrued Interest), so it is
     /// not projected: a period that straddles the date earns only its days after it. Null: interest
     /// accrues from the start of period 0.</param>
+    /// <param name="interestReserve">Hold the CMBS interest reserve on the Actual/360 assets: one
+    /// day's net interest is withheld from each such asset's January payment (except in a leap
+    /// year) and its February payment, and everything withheld is paid out with March's (or with
+    /// the group's last period, if that comes first). The net interest a pooling and servicing
+    /// agreement distributes is then that of a 30-day month in January, February and March, as
+    /// its 30/360-equivalent Net Mortgage Rate says. Periods are placed by
+    /// <paramref name="firstProjDate" />, so it is required with this.</param>
     public static CashflowResultArrays GenerateCashflows(
         AssetDataArrays assetData,
         int startTime,
@@ -72,9 +79,13 @@ public static class Amortizer
         int monthsPerPeriod = 1,
         double[]? actual360Fractions = null,
         DateTime? firstProjDate = null,
-        DateTime? interestAccrualStart = null)
+        DateTime? interestAccrualStart = null,
+        bool interestReserve = false)
     {
         if (monthsPerPeriod < 1) monthsPerPeriod = 1;
+        if (interestReserve && firstProjDate == null && assetData.Actual360.Any(a => a))
+            throw new ArgumentException("The interest reserve places its months by the first projection date.",
+                nameof(firstProjDate));
         if (actual360Fractions == null && assetData.Actual360.Any(a => a))
             throw new ArgumentException(
                 "An asset accrues Actual/360 but no per-period day fractions were supplied.",
@@ -93,6 +104,8 @@ public static class Amortizer
 
         var maxPeriods = Math.Min(endTime - startTime + 1, 720);
         var results = new CashflowResultArrays(maxPeriods);
+        // Net interest withheld into the interest reserve, by period (null: no reserve).
+        var reserveDeposits = interestReserve ? new double[maxPeriods] : null;
 
         // Local references to input arrays for faster access
         var rawOriginalDate = assetData.OriginalDate;
@@ -511,7 +524,13 @@ public static class Amortizer
                 // of the delinquent P&I a servicer would have to advance. Neither feeds
                 // cash. #4481 §1.3 makes advancing a real timing overlay on the default
                 // pipeline, which needs the liquidation pipeline (§2) to exist first.
-                var periodServiceFee = (beginBalance + forbearanceAmt) * serviceFee;
+                // The servicing fee accrues on the loan's own basis: an Actual/360 loan's fee
+                // strip earns the period's actual days, like its coupon. Taken at 1/12 while the
+                // coupon earned days/360, the net rate of a 31-day month was overstated by
+                // fee / 30 (and understated in February).
+                var periodServiceFee = (beginBalance + forbearanceAmt) * (accruesActual360
+                    ? rawServiceFee[assetIndex] / 100.0 * actual360Fractions![period]
+                    : serviceFee);
                 unadvPrincipal = schedPrinMdr * del * (1 - delAdvPrin);
                 unadvInterest = (interest - periodServiceFee) * del * (1 - delAdvInt);
 
@@ -752,6 +771,16 @@ public static class Amortizer
                     }
                 }
 
+                // The interest reserve (see the parameter): a day of this payment's net interest is
+                // withheld; the servicing fee is paid in full.
+                if (reserveDeposits != null && accruesActual360 && netInterest > 0 && WithholdsInterestReserve(rowTo))
+                {
+                    var withheld = netInterest / (actual360Fractions![period] * 360.0);
+                    interest -= withheld;
+                    netInterest -= withheld;
+                    reserveDeposits[period] += withheld;
+                }
+
                 // Aggregate results into period arrays
                 resultBeginBalance[period] += beginBalance;
                 resultBalance[period] += balance;
@@ -791,8 +820,40 @@ public static class Amortizer
             }
         }
 
+        if (reserveDeposits != null)
+            ReleaseInterestReserve(reserveDeposits, results, firstProjDate!.Value);
+
         results.ComputeNumberOfPeriods();
         return results;
+    }
+
+    /// <summary>
+    ///     Whether the payment in the period dated <paramref name="periodDate" /> funds the interest
+    ///     reserve: January's, except in a leap year, and February's. They pay the 31 days of December
+    ///     and January; withholding a day from each (from January's alone in a leap year) leaves the
+    ///     reserve the days March's payment needs to pay 30 for February's 28 (29).
+    /// </summary>
+    public static bool WithholdsInterestReserve(DateTime periodDate) =>
+        periodDate.Month == 2 || (periodDate.Month == 1 && !DateTime.IsLeapYear(periodDate.Year));
+
+    /// <summary>
+    ///     Pay the reserve out: what was withheld is added back to the interest of the next March
+    ///     period, or of the group's last period (its final distribution) if that comes first.
+    /// </summary>
+    private static void ReleaseInterestReserve(double[] deposits, CashflowResultArrays results,
+        DateTime firstProjDate)
+    {
+        var last = Array.FindLastIndex(results.BeginBalance, b => b > 0);
+        double held = 0;
+        for (var p = 0; p <= last; p++)
+        {
+            held += deposits[p];
+            if (held <= 0 || (firstProjDate.AddMonths(p).Month != 3 && p != last))
+                continue;
+            results.Interest[p] += held;
+            results.NetInterest[p] += held;
+            held = 0;
+        }
     }
 
     /// <summary>
