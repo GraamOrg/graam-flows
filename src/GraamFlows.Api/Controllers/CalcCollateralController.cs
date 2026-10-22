@@ -113,7 +113,8 @@ public class CalcCollateralController : ControllerBase
                 assumpFunc,
                 rateProvider,
                 collectionCutoff: CollectionCutoff(request),
-                interestAccrualStart: request.InterestAccrualStartDate
+                interestAccrualStart: request.InterestAccrualStartDate,
+                interestReserve: request.InterestReserve
             );
 
             // Convert to response
