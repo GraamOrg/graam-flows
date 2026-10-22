@@ -77,7 +77,8 @@ public class CfCore
         Func<string, DateTime> redempDateFunc,
         Func<IAsset, IAssetAssumptions> assumpFunc, IRateProvider rateProvider, int threads = 1,
         bool displayAssetCf = false, int poolAgeOffset = 0, int wam = 0,
-        Func<DateTime, DateTime>? collectionCutoff = null, DateTime? interestAccrualStart = null)
+        Func<DateTime, DateTime>? collectionCutoff = null, DateTime? interestAccrualStart = null,
+        bool interestReserve = false)
     {
         var groupedAssets = assets.GroupBy(asset => asset.GroupNum);
         var dealCashflows = new CollateralCashflows(displayAssetCf);
@@ -284,7 +285,8 @@ public class CfCore
                     ? AccrualBasisParser.Actual360Fractions(firstProjDate, maxPeriods)
                     : null,
                 firstProjDate: firstProjDate,
-                interestAccrualStart: interestAccrualStart);
+                interestAccrualStart: interestAccrualStart,
+                interestReserve: interestReserve);
 
             // Convert results to PeriodCashflows and add to deal cashflows
             var periodCashflows = results.ToPeriodCashflows(firstProjDate, groupNum);

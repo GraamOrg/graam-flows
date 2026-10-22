@@ -23,6 +23,15 @@ public class CalcCollateralRequest
     ///     since this date. Null: interest accrues from the start of the first projection period.
     /// </summary>
     public DateTime? InterestAccrualStartDate { get; set; }
+
+    /// <summary>
+    ///     Hold a CMBS trust's interest reserve on the Actual/360 loans: one day's net interest is
+    ///     withheld from each one's January (except in a leap year) and February payments and paid
+    ///     out with March's, so the pool's net interest is a 30-day month's in all three, as the
+    ///     30/360-equivalent Net Mortgage Rate the pass-through rates are set on. Default false:
+    ///     other Actual/360 collateral (a CLO's loans) pays the actual days every month.
+    /// </summary>
+    public bool InterestReserve { get; set; }
     public AssumptionsDto Assumptions { get; set; } = new();
 
     /// <summary>
