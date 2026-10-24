@@ -6,7 +6,12 @@ public enum PrepaymentTypeEnum
     PercentCPR,
     SMM,
     PSA,
-    ABS  // Auto ABS - annual prepay rate as percentage of original balance
+    ABS, // Auto ABS - annual prepay rate as percentage of original balance
+
+    // CMBS: an annual CPR that each asset pays only from the month its call protection ends - the
+    // latest of its lockout, defeasance, yield-maintenance and prepayment-premium end dates
+    // (IAsset). An asset that states none of them prepays from the first period.
+    CPY
 }
 
 public enum DefaultTypeEnum

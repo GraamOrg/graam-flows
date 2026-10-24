@@ -191,6 +191,10 @@ public class CfCore
                         BuildAssumptionArray(aa?.Prepayment, maxPeriods, startTime, false),
                     _ => BuildAssumptionArray(aa?.Prepayment, maxPeriods, startTime, true)
                 };
+                // CPY: the CPR row, held at zero until the asset's call protection ends. Before the
+                // payment calendar below concentrates it, as a per-asset CPR vector would be.
+                if (prepaymentType == Objects.TypeEnum.PrepaymentTypeEnum.CPY)
+                    CallProtection.HoldUntilOpen(smmTime[i], groupAssets[i], startTime);
                 // Default: MDR is a direct monthly hazard (no de-annualization,
                 // harmony #1226); CDR de-annualizes the annual rate as before.
                 // ORIGMDR is a monthly rate on the ORIGINAL balance — also
