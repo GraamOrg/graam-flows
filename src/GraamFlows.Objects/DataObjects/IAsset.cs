@@ -53,6 +53,24 @@ public interface IAsset
     /// </summary>
     DateTime? RemainingTermAsOfDate { get; set; }
 
+    /// <summary>
+    ///     The asset's call protection: the dates its lockout, defeasance, yield-maintenance and
+    ///     prepayment-premium periods end, each null when the asset has no such period. Read only under
+    ///     <see cref="PrepaymentTypeEnum.CPY" />, where the asset prepays from the month the latest of
+    ///     them falls in. The first three are a CMBS loan's SEC Reg AB II asset-level fields; defeasance
+    ///     has no Reg AB II field and is stated by the prospectus's prepayment provision.
+    /// </summary>
+    DateTime? LockoutEndDate { get; set; }
+
+    /// <inheritdoc cref="LockoutEndDate" />
+    DateTime? DefeasanceEndDate { get; set; }
+
+    /// <inheritdoc cref="LockoutEndDate" />
+    DateTime? YieldMaintenanceEndDate { get; set; }
+
+    /// <inheritdoc cref="LockoutEndDate" />
+    DateTime? PrepaymentPremiumEndDate { get; set; }
+
     DateTime OriginalDate { get; set; }
     double OriginalBalance { get; set; }
     double OriginalInterestRate { get; set; }

@@ -130,6 +130,25 @@ public class AssetDto
     /// </summary>
     public DateTime? RemainingTermAsOfDate { get; set; }
 
+    /// <summary>
+    ///     The date the asset's prepayment lockout ends. With its siblings below, the asset's call
+    ///     protection: under <c>prepaymentType</c> "CPY" the asset prepays from the month the LATEST of
+    ///     the four falls in, and from the first period when it states none. Ignored otherwise.
+    /// </summary>
+    public DateTime? LockoutEndDate { get; set; }
+
+    /// <summary>The date the asset's defeasance period ends (see <see cref="LockoutEndDate" />).</summary>
+    public DateTime? DefeasanceEndDate { get; set; }
+
+    /// <summary>The date the asset's yield-maintenance period ends (see <see cref="LockoutEndDate" />).</summary>
+    public DateTime? YieldMaintenanceEndDate { get; set; }
+
+    /// <summary>
+    ///     The date the asset's prepayment-premium (fixed penalty) period ends (see
+    ///     <see cref="LockoutEndDate" />).
+    /// </summary>
+    public DateTime? PrepaymentPremiumEndDate { get; set; }
+
     // ARM-specific fields
     public int InitialAdjustmentPeriod { get; set; }
     public int AdjustmentPeriod { get; set; }
@@ -215,6 +234,35 @@ public class CalcCollateralResponse
     ///     index or an assumed one reads <see cref="MarketRateResolutionDto.IndexSource" />.
     /// </summary>
     public MarketRateResolutionDto? MarketRateResolution { get; set; }
+
+    /// <summary>
+    ///     The prepayment convention the run applied. Present on every successful response, so a
+    ///     consumer reads which convention ran instead of inferring it from the speeds; under CPY it
+    ///     also says which assets had no call-protection date and so prepaid from the first period.
+    /// </summary>
+    public PrepaymentResolutionDto? PrepaymentResolution { get; set; }
+}
+
+public class PrepaymentResolutionDto
+{
+    /// <summary>The convention applied: "CPR", "ABS", "SMM" or "CPY".</summary>
+    public string PrepaymentType { get; set; } = "CPR";
+
+    /// <summary>Under CPY, the assets that stated at least one call-protection end date. Null otherwise.</summary>
+    public int? AssetsWithCallProtectionDates { get; set; }
+
+    /// <summary>
+    ///     Under CPY, the assets that stated none and so prepaid from the first period. Null otherwise.
+    /// </summary>
+    public int? AssetsWithoutCallProtectionDates { get; set; }
+
+    /// <summary>
+    ///     The ids of the first <see cref="MaxListedAssets" /> of
+    ///     <see cref="AssetsWithoutCallProtectionDates" />.
+    /// </summary>
+    public List<string> AssetIdsWithoutCallProtectionDates { get; set; } = new();
+
+    public const int MaxListedAssets = 20;
 }
 
 public class PeriodCashflowDto
