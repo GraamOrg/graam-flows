@@ -113,7 +113,8 @@ public static class AssumptionValidation
             return $"assumptions.prepaymentType = \"{assumptions.PrepaymentType}\" is not a recognized prepayment " +
                    "convention, so the engine cannot tell what assumptions.cpr means. Use \"CPR\" (an annual " +
                    "percentage of the current balance), \"ABS\" (a percentage of the original balance per month), " +
-                   "or \"SMM\" (a direct monthly hazard). Omit the field to get CPR.";
+                   "\"SMM\" (a direct monthly hazard) or \"CPY\" (CPR from the month each asset's call " +
+                   "protection ends). Omit the field to get CPR.";
 
         var defaultType = RecognizeDefaultType(assumptions.DefaultType);
         if (defaultType == null)
@@ -141,6 +142,14 @@ public static class AssumptionValidation
         // its scalar.
         var hasArrays = fields.Any(f => f.Vector != null);
         var hasVectorStrs = !hasArrays && fields.Any(f => !string.IsNullOrEmpty(f.VectorStr));
+
+        // The PolyPaths tier builds CPR assumptions whatever the declared type, so CPY sent with
+        // those strings would run as plain CPR from the first period - the exact answer CPY exists
+        // to replace. Refused rather than answered.
+        if (prepaymentType == PrepaymentConvention.Cpy && hasVectorStrs)
+            return "assumptions.prepaymentType = \"CPY\" cannot be combined with the PolyPaths vector strings " +
+                   "(cprVectorStr, cdrVectorStr, ...): that path runs CPR. Send the scalar or the per-period " +
+                   "arrays (cprVector, cdrVector, ...) instead.";
 
         var errors = new List<Problem>();
         var anchorAbsT = DateUtil.CalcAbsT(request!.ProjectionDate);
@@ -341,6 +350,9 @@ public static class AssumptionValidation
         PrepaymentConvention.Abs =>
             "With prepaymentType \"ABS\", cpr is a percentage of the ORIGINAL balance prepaying each month, " +
             "between 0 and 100 (1.5 means 1.5% of the original balance per month).",
+        PrepaymentConvention.Cpy =>
+            "With prepaymentType \"CPY\", cpr is an annual CPR between 0 and 100 (6 means 6%), applied to each " +
+            "asset from the month its call protection ends.",
         _ =>
             "CPR is an annual percentage between 0 and 100 (6 means 6% CPR).",
     };
@@ -370,7 +382,7 @@ public static class AssumptionValidation
     private readonly record struct RateField(
         string Name, double Scalar, double[]? Vector, string? VectorStr, string Units, double Max);
 
-    private enum PrepaymentConvention { Cpr, Abs, Smm }
+    private enum PrepaymentConvention { Cpr, Abs, Smm, Cpy }
 
     private enum DefaultConvention { Cdr, Mdr, OrigMdr }
 
@@ -401,6 +413,8 @@ public static class AssumptionValidation
             return PrepaymentConvention.Abs;
         if (string.Equals(value, "SMM", StringComparison.OrdinalIgnoreCase))
             return PrepaymentConvention.Smm;
+        if (string.Equals(value, "CPY", StringComparison.OrdinalIgnoreCase))
+            return PrepaymentConvention.Cpy;
         return null;
     }
 

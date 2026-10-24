@@ -2,6 +2,7 @@
 using GraamFlows.Api.Models;
 using GraamFlows.Api.Transformers;
 using GraamFlows.Api.Validation;
+using GraamFlows.AssetCashflowEngine;
 using GraamFlows.Assumptions;
 using GraamFlows.Domain;
 using GraamFlows.Objects.DataObjects;
@@ -124,6 +125,8 @@ public class CalcCollateralController : ControllerBase
             // response, not only the degraded ones: "the index was assumed" has to be readable
             // from the answer, and a consumer cannot read a field that is only sometimes there.
             response.MarketRateResolution = marketRates.Describe();
+            response.PrepaymentResolution = DescribePrepayment(
+                AssumptionsFactory.ParsePrepaymentType(request.Assumptions.PrepaymentType), assets);
 
             stopwatch.Stop();
             _logger.LogInformation("CalcCollateral completed: {CashflowCount} cashflows, {TotalPeriods} periods, elapsed {ElapsedMs}ms",
@@ -159,6 +162,25 @@ public class CalcCollateralController : ControllerBase
             return new ConstantRateProvider(MarketRateResolver.AssumedFlatRate);
 
         return new CurveRateProvider(projectionDate, marketRates.Curves);
+    }
+
+    /// <summary>
+    ///     The prepayment convention the run applied, and under CPY which assets it could not hold to
+    ///     their call protection (they stated no end date, so they prepaid from the first period).
+    /// </summary>
+    internal static PrepaymentResolutionDto DescribePrepayment(PrepaymentTypeEnum type, IList<IAsset> assets)
+    {
+        var resolution = new PrepaymentResolutionDto { PrepaymentType = type.ToString() };
+        if (type != PrepaymentTypeEnum.CPY)
+            return resolution;
+        var without = assets.Where(a => CallProtection.OpenDate(a) == null).ToList();
+        resolution.AssetsWithCallProtectionDates = assets.Count - without.Count;
+        resolution.AssetsWithoutCallProtectionDates = without.Count;
+        resolution.AssetIdsWithoutCallProtectionDates = without
+            .Take(PrepaymentResolutionDto.MaxListedAssets)
+            .Select(a => a.AssetId ?? a.AssetName)
+            .ToList();
+        return resolution;
     }
 
     /// <summary>
@@ -257,6 +279,10 @@ public class CalcCollateralController : ControllerBase
             NextPaymentDate = dto.NextPaymentDate,
             MaturityDate = dto.MaturityDate,
             RemainingTermAsOfDate = dto.RemainingTermAsOfDate,
+            LockoutEndDate = dto.LockoutEndDate,
+            DefeasanceEndDate = dto.DefeasanceEndDate,
+            YieldMaintenanceEndDate = dto.YieldMaintenanceEndDate,
+            PrepaymentPremiumEndDate = dto.PrepaymentPremiumEndDate,
             IsIO = dto.IsIO,
             IOTerm = dto.IOTerm,
             BalloonAmortizationTerm = dto.BalloonAmortizationTerm,

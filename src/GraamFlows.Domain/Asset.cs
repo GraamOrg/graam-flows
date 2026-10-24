@@ -69,6 +69,10 @@ public class Asset : IAsset
     public int? FirstPaymentAbsT { get; set; }
     public DateTime? MaturityDate { get; set; }
     public DateTime? RemainingTermAsOfDate { get; set; }
+    public DateTime? LockoutEndDate { get; set; }
+    public DateTime? DefeasanceEndDate { get; set; }
+    public DateTime? YieldMaintenanceEndDate { get; set; }
+    public DateTime? PrepaymentPremiumEndDate { get; set; }
 
     [Database("Step_Dates_List")] public string StepDatesList { get; set; }
 
