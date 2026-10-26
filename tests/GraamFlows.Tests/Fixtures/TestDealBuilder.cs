@@ -95,6 +95,20 @@ public class TestDealBuilder
     }
 
     /// <summary>
+    ///     Day count for every tranche added SO FAR (each is added at "30/360", Bond Basis).
+    /// </summary>
+    public TestDealBuilder WithDayCount(string dayCount)
+    {
+        if (_deal.Tranches.Count == 0)
+            throw new InvalidOperationException(
+                "WithDayCount applies to the tranches added so far — call it AFTER WithTranche.");
+
+        foreach (var t in _deal.Tranches.OfType<Tranche>())
+            t.DayCount = dayCount;
+        return this;
+    }
+
+    /// <summary>
     /// Set the first-period collateral policy and, optionally, an explicit accrual-start
     /// boundary. Leaving both unset is the default the engine has always had.
     /// </summary>

@@ -51,6 +51,11 @@ public static class CalendarFactory
             case "30/360":
             case "30360us":
                 return new Thirty360Us();
+            case "thirty360sia":
+            case "30/360sia":
+            case "30/360 sia":
+            case "30360sia":
+                return new Thirty360Sia();
             case "thirty360e":
             case "30/360e":
             case "30360e":
