@@ -402,6 +402,11 @@ public class TrancheDto
     public int PayFrequency { get; set; } = 12;
     public int PayDelay { get; set; } = 0;
     public int PayDay { get; set; } = 25;
+    /// <summary>
+    /// The note's day count: "30/360" (Bond Basis, the default), "30/360 SIA" (US securities: the
+    /// last day of February is day 30 — a first period from a February 28 closing to March 15
+    /// is 15 days, not Bond Basis's 17), "Actual/360", "Actual/365", "Actual/Actual", "30/360E".
+    /// </summary>
     public string DayCount { get; set; } = "30/360";
     public string BusinessDayConvention { get; set; } = "Following";
     public string CashflowType { get; set; } = "PI"; // PI, IO, PO
