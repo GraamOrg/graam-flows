@@ -168,6 +168,19 @@ public class AssetDto
     // maturity. Absent: the payment amortizes over the term.
     public int? BalloonAmortizationTerm { get; set; }
 
+    /// <summary>
+    ///     The asset's own scheduled payments, one amount per monthly collection period: element 0
+    ///     (period 1) is the first projection row. For a pool whose balance is its receivables'
+    ///     scheduled payments discounted at a stated rate, sent with that rate as the coupon and the
+    ///     discounted value as the current balance. Each period pays interest on the beginning
+    ///     balance and the rest of the payment as principal; a payment below the interest (a month
+    ///     with nothing due) accretes the shortfall into the balance. Prepayments and defaults scale
+    ///     the remaining payments pro rata; the last payment also repays any balance left. Not
+    ///     combinable with a less-than-monthly <see cref="PaymentFrequency" />, a stated payment or
+    ///     maturity date, IO, ARM or a balloon schedule. Absent (or empty): the level payment.
+    /// </summary>
+    public double[]? ScheduledPayments { get; set; }
+
     // Forbearance
     public double? ForbearanceAmt { get; set; }
 

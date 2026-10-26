@@ -92,6 +92,11 @@ public class CfCore
             var endTime = DateUtil.CalcAbsT(endDate);
             var maxPeriods = Math.Min(endTime - startTime + 1, 720);
 
+            // A stated payment schedule replaces the level payment and its calendar; refuse the
+            // features it would only half-honour before anything reads them.
+            foreach (var a in groupAssets)
+                StatedPayments.Validate(a);
+
             // An asset's payment rows (PaymentSchedule), placed before the arrays read them: every
             // less-than-monthly asset, and a monthly one that states its next payment date (it is
             // paid the interest accrued to that date, so its payment row has to be known).

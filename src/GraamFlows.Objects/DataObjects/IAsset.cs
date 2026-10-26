@@ -101,6 +101,17 @@ public interface IAsset
     ///     over the term, as before.
     /// </summary>
     int? BalloonAmortizationTerm { get; set; }
+
+    /// <summary>
+    ///     The asset's own scheduled payments, one per monthly collection period counted from the
+    ///     projection start (element 0 is the first projection row), or null. When stated they replace
+    ///     the level payment: each period's interest is the coupon on the beginning balance, its
+    ///     scheduled principal is the stated payment less that interest, and a payment below the
+    ///     interest (a month with no payment due) accretes the shortfall into the balance. Prepayments
+    ///     and defaults scale every later payment pro rata, and the asset repays whatever is left with
+    ///     its last stated payment (<c>StatedPayments</c>).
+    /// </summary>
+    double[]? ScheduledPayments { get; set; }
     double? ForbearanceAmt { get; set; }
     string StepDatesList { get; set; }
     string StepRatesList { get; set; }
