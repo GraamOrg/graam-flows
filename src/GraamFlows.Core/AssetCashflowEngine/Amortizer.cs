@@ -96,6 +96,9 @@ public static class Amortizer
         if (monthsPerPeriod != 1 && assetData.PaymentMonths.Any(m => m > 1))
             throw new NotSupportedException(
                 "A less-than-monthly asset's payment calendar is defined on monthly projection periods only.");
+        if (monthsPerPeriod != 1 && assetData.ScheduledPayments.Any(s => s != null))
+            throw new NotSupportedException(
+                "A stated payment schedule is defined on monthly projection periods only.");
 
         // Per-period rate divisor. Monthly is annualPct / 1200 (= /100 /12);
         // a longer period accrues over more months, so divide by 1200/mpp.
@@ -180,6 +183,9 @@ public static class Amortizer
                 ? (p >= 0 && p < payRows.Length ? payRows[p] : 0)
                 : (t >= firstPayAbsT && (t - firstPayAbsT) % payEvery == 0 ? 1 : 0);
             double accruedInterest = 0, accruedNetInterest = 0, accruedServiceFee = 0;
+            // The asset's own scheduled payments by projection row (StatedPayments), or null: they
+            // replace the level payment, and the asset ends with the last of them.
+            var statedPayments = assetData.ScheduledPayments[assetIndex];
             // Pay-date accrual: the asset states its next payment date, so each payment pays the
             // interest accrued to that DATE. `unpaid` holds the accrual not yet paid, by span.
             var statedNextPayment = assetData.NextPaymentDate[assetIndex];
@@ -304,8 +310,11 @@ public static class Amortizer
                 var forbRecovMaturity = forbRecovMaturityTime[assetIndex][period];
                 var forbRecovDefault = forbRecovDefaultTime[assetIndex][period];
 
+                // Interest the period's stated payment fell short of, accreted into the balance.
+                double accretion = 0;
+
                 // FRM cashflow generation
-                if (age > term)
+                if (statedPayments == null ? age > term : period >= statedPayments.Length)
                 {
                     hasCashflow = false;
                 }
@@ -418,6 +427,31 @@ public static class Amortizer
                             hasCashflow = false;
                         }
                     }
+                    else if (statedPayments != null)
+                    {
+                        // A stated schedule: the period pays its stated amount, interest first. A
+                        // payment below the interest (nothing due this month) pays what it can as
+                        // interest and accretes the rest into the balance, where a level payment's
+                        // shortfall is clamped away below. The last stated payment repays whatever
+                        // balance is left.
+                        var owed = cashflowBalance + interestPaid;
+                        var payment = period >= statedPayments.Length - 1
+                            ? owed
+                            : Math.Min(statedPayments[period], owed);
+                        var cashInterest = Math.Min(payment, interestPaid);
+                        accretion = interestPaid - cashInterest;
+                        principal = payment - cashInterest;
+                        interestPaid = cashInterest;
+
+                        cashflowPrevBalance = cashflowBalance;
+                        cashflowBalance += accretion - principal;
+
+                        if (cashflowBalance <= 0 || period >= statedPayments.Length - 1)
+                        {
+                            cashflowBalance = 0;
+                            hasCashflow = false;
+                        }
+                    }
                     else
                     {
                         // Bullet forces an interest-only scheduled payment until
@@ -460,6 +494,12 @@ public static class Amortizer
                     ? schedBal / cashflowPrevBalance
                     : 1.0;
                 if (double.IsNaN(dqFactor) || double.IsInfinity(dqFactor)) dqFactor = 1.0;
+
+                // A stated schedule's accreted interest joins the balance BEFORE the period's
+                // prepayments and defaults are taken, so they take their share of it too: the
+                // performing balance stays the same fraction of the contractual one, and every later
+                // stated payment is scaled by exactly the survival (dqFactor above).
+                schedBal += accretion * dqFactor;
 
                 var interest = interestPaid * dqFactor;
                 var schedPrin = principal * dqFactor;
@@ -629,7 +669,8 @@ public static class Amortizer
                 {
                     resultWALA[period] = (prevBeginBal * resultWALA[period] + beginBalance * age) /
                                          (prevBeginBal + beginBalance);
-                    resultWAM[period] = (prevBeginBal * resultWAM[period] + beginBalance * (term - age)) /
+                    var remainingTerm = statedPayments != null ? statedPayments.Length - 1 - period : term - age;
+                    resultWAM[period] = (prevBeginBal * resultWAM[period] + beginBalance * remainingTerm) /
                                         (prevBeginBal + beginBalance);
                 }
 
