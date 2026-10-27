@@ -30,6 +30,7 @@ public class AssetDataArrays
         MaturityDate = new DateTime?[AssetCount];
         PaymentRowCounts = new int[AssetCount][];
         ScheduledPayments = new double[AssetCount][];
+        ScheduledPrincipal = new double[AssetCount];
 
         InitialAdjustmentPeriod = new int[AssetCount];
         AdjustmentPeriod = new int[AssetCount];
@@ -80,6 +81,7 @@ public class AssetDataArrays
             NextPaymentDate[i] = asset.NextPaymentDate;
             MaturityDate[i] = asset.MaturityDate;
             ScheduledPayments[i] = StatedPayments.Of(asset);
+            ScheduledPrincipal[i] = asset.ScheduledPrincipal is > 0 ? asset.ScheduledPrincipal.Value : 0.0;
 
             InitialAdjustmentPeriod[i] = asset.InitialAdjustmentPeriod;
             AdjustmentPeriod[i] = asset.AdjustmentPeriod;
@@ -157,6 +159,12 @@ public class AssetDataArrays
     ///     or null for an asset that amortizes on its level payment.
     /// </summary>
     public double[]?[] ScheduledPayments { get; }
+
+    /// <summary>
+    ///     Per asset, the fixed principal it pays each period (<see cref="IAsset.ScheduledPrincipal" />),
+    ///     or 0 for an asset on its level payment.
+    /// </summary>
+    public double[] ScheduledPrincipal { get; }
 
     // ARM data
     public int[] InitialAdjustmentPeriod { get; }
