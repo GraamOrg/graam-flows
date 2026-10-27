@@ -181,6 +181,14 @@ public class AssetDto
     /// </summary>
     public double[]? ScheduledPayments { get; set; }
 
+    /// <summary>
+    ///     A fixed amount of principal the asset pays every monthly period (<c>IAsset.ScheduledPrincipal</c>):
+    ///     interest on the balance plus this principal, unchanged by prepayments, the rest at maturity.
+    ///     Wins over <see cref="DebtService" />. Not combinable with <see cref="ScheduledPayments" />,
+    ///     PIK or a bullet. Absent: the level payment.
+    /// </summary>
+    public double? ScheduledPrincipal { get; set; }
+
     // Forbearance
     public double? ForbearanceAmt { get; set; }
 
@@ -254,6 +262,13 @@ public class CalcCollateralResponse
     ///     also says which assets had no call-protection date and so prepaid from the first period.
     /// </summary>
     public PrepaymentResolutionDto? PrepaymentResolution { get; set; }
+
+    /// <summary>
+    ///     The assets that paid a stated principal amount (<see cref="AssetDto.ScheduledPrincipal" />).
+    ///     Present on every successful response, so a caller that sent the field reads whether it ran
+    ///     (an engine that predates it ignores the field and answers without this list).
+    /// </summary>
+    public List<string> ScheduledPrincipalAssetIds { get; set; } = new();
 }
 
 public class PrepaymentResolutionDto
