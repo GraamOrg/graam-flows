@@ -106,6 +106,26 @@ public class CalcCollateralController : ControllerBase
             // flat rate. Fixed-rate loans ignore the provider entirely.
             var rateProvider = BuildRateProvider(marketRates, request.ProjectionDate);
 
+            // Severity in dollars: the stated loss becomes each period's severity fraction, which
+            // needs that period's defaulted principal across the pool first. Defaults do not depend
+            // on severity, so a first run at zero severity finds them.
+            var severityResolution = new SeverityResolutionDto();
+            if (AssumptionsFactory.IsLossAmount(request.Assumptions.SeverityType))
+            {
+                var stated = assumps.Assumptions.Severity;
+                var zero = new ConstVector(anchorAbsT, 0.0);
+                var firstPass = CfCore.GenerateAssetCashflows(assets, request.ProjectionDate, null,
+                    a => WithSeverity(assumpFunc(a), zero), rateProvider,
+                    collectionCutoff: CollectionCutoff(request),
+                    interestAccrualStart: request.InterestAccrualStartDate,
+                    interestReserve: request.InterestReserve);
+                var (severity, resolution) = LossAmountSeverity(
+                    stated, firstPass.PeriodCashflows, request.ProjectionDate, anchorAbsT);
+                severityResolution = resolution;
+                var lossAssumpFunc = assumpFunc;
+                assumpFunc = a => WithSeverity(lossAssumpFunc(a), severity);
+            }
+
             // Generate cashflows
             var collateralCashflows = CfCore.GenerateAssetCashflows(
                 assets,
@@ -132,6 +152,7 @@ public class CalcCollateralController : ControllerBase
             {
                 DelinquencyType = AssumptionsFactory.ParseDelinquencyType(request.Assumptions.DelinquencyType).ToString()
             };
+            response.SeverityResolution = severityResolution;
             response.ScheduledPrincipalAssetIds = assets
                 .Where(a => a.ScheduledPrincipal is > 0)
                 .Select(a => a.AssetId ?? a.AssetName)
@@ -205,6 +226,59 @@ public class CalcCollateralController : ControllerBase
             .ToList();
         return resolution;
     }
+
+    /// <summary>
+    ///     The per-period severity (percent) that books <paramref name="statedLoss" /> dollars each
+    ///     period against that period's pool defaulted principal: <c>sev_t = L_t / D_t</c>, the same
+    ///     for every asset, so each asset's loss is pro rata to what it defaulted. A loss above
+    ///     <c>D_t</c> is capped at it, and the excess - all of <c>L_t</c> in a period with no
+    ///     defaults - is reported, not carried forward: carrying it would invent a loss timing the
+    ///     caller never stated.
+    /// </summary>
+    internal static (IAnchorableVector Severity, SeverityResolutionDto Resolution) LossAmountSeverity(
+        IAnchorableVector statedLoss, IEnumerable<PeriodCashflows> firstPass, DateTime projectionDate, int anchorAbsT)
+    {
+        var defaulted = new Dictionary<int, double>();
+        foreach (var cf in firstPass)
+        {
+            var row = DateUtil.CalcAbsT(cf.CashflowDate) - anchorAbsT;
+            defaulted[row] = defaulted.GetValueOrDefault(row) + cf.DefaultedPrincipal;
+        }
+
+        var rows = defaulted.Count == 0 ? 0 : defaulted.Keys.Max() + 1;
+        var severityPct = new double[rows];
+        var resolution = new SeverityResolutionDto { SeverityType = "LossAmount", LossRequested = 0, LossBooked = 0 };
+        for (var row = 0; row < rows; row++)
+        {
+            var loss = statedLoss.ValueAt(row, anchorAbsT + row);
+            var defaults = defaulted.GetValueOrDefault(row);
+            var booked = Math.Min(loss, defaults);
+            severityPct[row] = defaults > 0 ? booked / defaults * 100.0 : 0.0;
+            resolution.LossRequested += loss;
+            resolution.LossBooked += booked;
+            if (loss - booked > 0.005)
+                resolution.UnbookedByPeriod.Add(new UnbookedLossDto
+                {
+                    // Numbered from 1, as the response's cashflow periods are.
+                    Period = row + 1,
+                    CashflowDate = projectionDate.AddMonths(row),
+                    Amount = loss - booked,
+                });
+        }
+
+        return (new ArrayVector(anchorAbsT, severityPct), resolution);
+    }
+
+    /// <summary>The same assumptions with <paramref name="severity" /> in place of their own.</summary>
+    private static IAssetAssumptions WithSeverity(IAssetAssumptions aa, IAnchorableVector severity) =>
+        new AssetAssumptions(
+            aa.PrepaymentType, aa.Prepayment,
+            aa.DefaultType, aa.DefaultRate, severity,
+            aa.DelinqRateType, aa.DelinqRate, aa.DelinqAdvPctPrin, aa.DelinqAdvPctInt,
+            aa.ForbearanceRecoveryPrepay, aa.ForbearanceRecoveryDefault, aa.ForbearanceRecoveryMaturity)
+        {
+            RecoveryLag = aa.RecoveryLag,
+        };
 
     /// <summary>
     /// Build an <see cref="IAssetAssumptions"/> for one asset by merging the
