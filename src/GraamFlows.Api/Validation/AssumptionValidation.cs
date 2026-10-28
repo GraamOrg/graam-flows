@@ -139,6 +139,27 @@ public static class AssumptionValidation
                    "(a percentage of the current balance) or \"PctOrigBal\" (a percentage of the original balance). " +
                    "Omit the field to get PctCurrBal.";
 
+        var severityType = assumptions.SeverityType?.Trim();
+        var lossAmount = string.Equals(severityType, "LossAmount", StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(severityType) && !lossAmount &&
+            !string.Equals(severityType, "Pct", StringComparison.OrdinalIgnoreCase))
+            return $"assumptions.severityType = \"{assumptions.SeverityType}\" is not a recognized severity " +
+                   "convention, so the engine cannot tell what assumptions.severity means. Use \"Pct\" (the " +
+                   "percentage of a defaulted balance that is lost) or \"LossAmount\" (the pool's loss in dollars " +
+                   "for each period). Omit the field to get Pct.";
+
+        // A stated dollar loss is the pool's; spreading it pro rata to defaults and then letting a
+        // per-asset percentage override part of it has no defined meaning (v1).
+        if (lossAmount && request!.AssetAssumptions != null &&
+            request.AssetAssumptions.Any(kv => kv.Value?.Severity != null || kv.Value?.SeverityVector is { Length: > 0 }))
+            return "assumptions.severityType = \"LossAmount\" cannot be combined with per-asset severities " +
+                   "(assetAssumptions[*].severity): the dollar loss is the pool's, spread over each period's " +
+                   "defaulted principal. Send the per-asset severities as percentages with severityType \"Pct\", " +
+                   "or drop them.";
+
+        // The pool's current balance bounds a one-period dollar loss: a larger amount is a units mistake.
+        var poolBalance = request!.Assets?.Where(a => a != null).Sum(a => a.CurrentBalance) ?? 0.0;
+
         var cprUnits = CprUnits(prepaymentType.Value);
         var cdrUnits = CdrUnits(defaultType.Value);
 
@@ -147,7 +168,10 @@ public static class AssumptionValidation
             new RateField("cpr", assumptions.Cpr, assumptions.CprVector, assumptions.CprVectorStr, cprUnits,
                 prepaymentType == PrepaymentConvention.Psa ? PsaMax : RateMax),
             new RateField("cdr", assumptions.Cdr, assumptions.CdrVector, assumptions.CdrVectorStr, cdrUnits, RateMax),
-            new RateField("severity", assumptions.Severity, assumptions.SeverityVector, assumptions.SeverityVectorStr, SeverityUnits, SeverityMax),
+            lossAmount
+                ? new RateField("severity", assumptions.Severity, assumptions.SeverityVector, assumptions.SeverityVectorStr,
+                    LossAmountUnits(poolBalance), poolBalance, LossAmountOverHint, LossAmountNegativeHint)
+                : new RateField("severity", assumptions.Severity, assumptions.SeverityVector, assumptions.SeverityVectorStr, SeverityUnits, SeverityMax),
             new RateField("delinquency", assumptions.Delinquency, assumptions.DelinquencyVector, assumptions.DelinquencyVectorStr, DelinquencyUnits, RateMax),
             new RateField("advancing", assumptions.Advancing, assumptions.AdvancingVector, assumptions.AdvancingVectorStr, AdvancingUnits, RateMax),
         };
@@ -167,6 +191,10 @@ public static class AssumptionValidation
             return $"assumptions.prepaymentType = \"{assumptions.PrepaymentType!.Trim()}\" cannot be combined " +
                    "with the PolyPaths vector strings (cprVectorStr, cdrVectorStr, ...): that path runs CPR. " +
                    "Send the scalar or the per-period arrays (cprVector, cdrVector, ...) instead.";
+        if (hasVectorStrs && lossAmount)
+            return "assumptions.severityType = \"LossAmount\" cannot be combined with the PolyPaths vector " +
+                   "strings (cprVectorStr, cdrVectorStr, ...): that path reads severity as a percentage. Send the " +
+                   "scalar or the per-period arrays (cprVector, cdrVector, severityVector, ...) instead.";
         if (hasVectorStrs && onOriginal)
             return "assumptions.delinquencyType = \"PctOrigBal\" cannot be combined with the PolyPaths vector " +
                    "strings (cprVectorStr, cdrVectorStr, ...): that path runs delinquency on the current balance. " +
@@ -295,10 +323,10 @@ public static class AssumptionValidation
             return new Problem($"{path} must be a finite number; got {Format(value)}. {field.Units}", null);
 
         if (value < 0.0)
-            return new Problem($"{path} = {Format(value)} is out of range. {field.Units}", NegativeHint);
+            return new Problem($"{path} = {Format(value)} is out of range. {field.Units}", field.NegativeHint ?? NegativeHint);
 
         if (value > field.Max)
-            return new Problem($"{path} = {Format(value)} is out of range. {field.Units}", UnitsMistakeHint);
+            return new Problem($"{path} = {Format(value)} is out of range. {field.Units}", field.OverHint ?? UnitsMistakeHint);
 
         return null;
     }
@@ -408,7 +436,19 @@ public static class AssumptionValidation
     private static string Format(double value) => value.ToString("R", CultureInfo.InvariantCulture);
 
     private readonly record struct RateField(
-        string Name, double Scalar, double[]? Vector, string? VectorStr, string Units, double Max);
+        string Name, double Scalar, double[]? Vector, string? VectorStr, string Units, double Max,
+        string? OverHint = null, string? NegativeHint = null);
+
+    private static string LossAmountUnits(double poolBalance) =>
+        "With severityType \"LossAmount\", severity is the pool's loss in DOLLARS for that period (250000 " +
+        "means a $250,000 loss), between 0 and the pool's current balance " +
+        $"({poolBalance.ToString("N0", CultureInfo.InvariantCulture)}).";
+
+    private const string LossAmountOverHint =
+        "A one-period loss above the whole pool's balance is usually a units mistake - a cumulative loss, or a " +
+        "number in cents.";
+
+    private const string LossAmountNegativeHint = "A loss in dollars cannot be negative.";
 
     private enum PrepaymentConvention { Cpr, Abs, Smm, Cpy, Psa }
 

@@ -222,6 +222,12 @@ public class AssumptionsDto
     // DelinqBalance and what the delinquency triggers read; delinquency carries no cash.
     public string? DelinquencyType { get; set; }
 
+    // Severity convention: "Pct" (default; severity is the % of a defaulted balance that is lost)
+    // or "LossAmount" (severity / severityVector is the POOL's loss in dollars for that period,
+    // spread over the period's defaulted principal pro rata and capped at it). Loss that has no
+    // defaults to land on is not carried forward; severityResolution reports it.
+    public string? SeverityType { get; set; }
+
     // Weighted average remaining term (months) — used for ABS-to-SMM amortization adjustment.
     public int Wam { get; set; } = 0;
 
@@ -276,11 +282,43 @@ public class CalcCollateralResponse
     public DelinquencyResolutionDto? DelinquencyResolution { get; set; }
 
     /// <summary>
+    ///     The severity convention the run applied, and under LossAmount how much of the stated
+    ///     dollar loss was booked. Present on every successful response.
+    /// </summary>
+    public SeverityResolutionDto? SeverityResolution { get; set; }
+
+    /// <summary>
     ///     The assets that paid a stated principal amount (<see cref="AssetDto.ScheduledPrincipal" />).
     ///     Present on every successful response, so a caller that sent the field reads whether it ran
     ///     (an engine that predates it ignores the field and answers without this list).
     /// </summary>
     public List<string> ScheduledPrincipalAssetIds { get; set; } = new();
+}
+
+public class SeverityResolutionDto
+{
+    /// <summary>The convention applied: "Pct" or "LossAmount".</summary>
+    public string SeverityType { get; set; } = "Pct";
+
+    /// <summary>Under LossAmount, the dollar loss the request stated, summed over the run. Null otherwise.</summary>
+    public double? LossRequested { get; set; }
+
+    /// <summary>Under LossAmount, the dollar loss the run booked against defaults. Null otherwise.</summary>
+    public double? LossBooked { get; set; }
+
+    /// <summary>
+    ///     Under LossAmount, each period whose stated loss exceeded that period's defaulted principal
+    ///     (all of it, when nothing defaulted), with the amount that was not booked. Empty otherwise.
+    /// </summary>
+    public List<UnbookedLossDto> UnbookedByPeriod { get; set; } = new();
+}
+
+public class UnbookedLossDto
+{
+    /// <summary>The projection period, numbered from 1; with several groups, key on the date.</summary>
+    public int Period { get; set; }
+    public DateTime CashflowDate { get; set; }
+    public double Amount { get; set; }
 }
 
 public class DelinquencyResolutionDto
