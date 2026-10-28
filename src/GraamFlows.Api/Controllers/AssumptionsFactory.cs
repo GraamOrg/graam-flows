@@ -19,6 +19,11 @@ internal static class AssumptionsFactory
 {
     internal static DealLevelAssumptions CreateAssumptions(DateTime projectionDate, int anchorAbsT, AssumptionsDto dto)
     {
+        // The delinquency basis is the caller's, whatever the prepayment convention. It used to be
+        // derived (ABS -> % of original), but nothing read it, so every run that carried DQ ran on
+        // the current balance - which is therefore the default.
+        var delinqType = ParseDelinquencyType(dto.DelinquencyType);
+
         // Priority 1: Per-period arrays (e.g., cdrVector: [10.4, 9.8, 8.2, ...])
         var hasArrays = dto.CprVector != null || dto.CdrVector != null ||
                         dto.SeverityVector != null || dto.DelinquencyVector != null ||
@@ -44,9 +49,6 @@ internal static class AssumptionsFactory
 
             var prepayType = ParsePrepaymentType(dto.PrepaymentType);
             var defaultType = ParseDefaultType(dto.DefaultType);
-            var delinqType = prepayType == PrepaymentTypeEnum.ABS
-                ? DelinqRateTypeEnum.PctOrigBal
-                : DelinqRateTypeEnum.PctCurrBal;
 
             var assetAssumps = new AssetAssumptions(prepayType, vpr,
                 defaultType, cdr, sev,
@@ -57,8 +59,9 @@ internal static class AssumptionsFactory
             };
         }
 
-        // Priority 2: PolyPaths format strings (legacy). These run CPR/CDR whatever type is
-        // declared; AssumptionValidation refuses any other type here before it reaches this point.
+        // Priority 2: PolyPaths format strings (legacy). These run CPR/CDR on the current balance
+        // whatever is declared; AssumptionValidation refuses any other type here before it reaches
+        // this point.
         var hasVectorStrs = !string.IsNullOrEmpty(dto.CprVectorStr) ||
                             !string.IsNullOrEmpty(dto.CdrVectorStr) ||
                             !string.IsNullOrEmpty(dto.SeverityVectorStr) ||
@@ -83,7 +86,7 @@ internal static class AssumptionsFactory
             return DealLevelAssumptions.CreateAbsAssumptions(
                 projectionDate, anchorAbsT,
                 dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, 0, dto.Wam,
-                ParseDefaultType(dto.DefaultType));
+                ParseDefaultType(dto.DefaultType), delinqType);
         }
 
         var scalarPrepayType = ParsePrepaymentType(dto.PrepaymentType);
@@ -98,13 +101,14 @@ internal static class AssumptionsFactory
             scalarPrepayType == PrepaymentTypeEnum.CPY ||
             scalarPrepayType == PrepaymentTypeEnum.PSA ||
             scalarDefaultType == DefaultTypeEnum.MDR ||
-            scalarDefaultType == DefaultTypeEnum.ORIGMDR)
+            scalarDefaultType == DefaultTypeEnum.ORIGMDR ||
+            delinqType == DelinqRateTypeEnum.PctOrigBal)
         {
             var assetAssumps = new AssetAssumptions(
                 scalarPrepayType, new ConstVector(anchorAbsT, dto.Cpr),
                 scalarDefaultType, new ConstVector(anchorAbsT, dto.Cdr),
                 new ConstVector(anchorAbsT, dto.Severity),
-                DelinqRateTypeEnum.PctCurrBal, new ConstVector(anchorAbsT, dto.Delinquency),
+                delinqType, new ConstVector(anchorAbsT, dto.Delinquency),
                 new ConstVector(anchorAbsT, dto.Advancing), new ConstVector(anchorAbsT, dto.Advancing));
             return new DealLevelAssumptions(projectionDate, assetAssumps);
         }
@@ -141,6 +145,15 @@ internal static class AssumptionsFactory
         if (string.Equals(value, "ORIGMDR", StringComparison.OrdinalIgnoreCase))
             return DefaultTypeEnum.ORIGMDR;
         return DefaultTypeEnum.CDR;
+    }
+
+    /// <summary>See <see cref="ParsePrepaymentType"/> for why the trim is paired.</summary>
+    internal static DelinqRateTypeEnum ParseDelinquencyType(string? delinquencyType)
+    {
+        var value = delinquencyType?.Trim();
+        if (string.Equals(value, "PctOrigBal", StringComparison.OrdinalIgnoreCase))
+            return DelinqRateTypeEnum.PctOrigBal;
+        return DelinqRateTypeEnum.PctCurrBal;
     }
 
 }

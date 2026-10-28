@@ -128,6 +128,10 @@ public class CalcCollateralController : ControllerBase
             response.PrepaymentResolution = DescribePrepayment(
                 AssumptionsFactory.ParsePrepaymentType(request.Assumptions.PrepaymentType), assets,
                 request.ProjectionDate);
+            response.DelinquencyResolution = new DelinquencyResolutionDto
+            {
+                DelinquencyType = AssumptionsFactory.ParseDelinquencyType(request.Assumptions.DelinquencyType).ToString()
+            };
             response.ScheduledPrincipalAssetIds = assets
                 .Where(a => a.ScheduledPrincipal is > 0)
                 .Select(a => a.AssetId ?? a.AssetName)

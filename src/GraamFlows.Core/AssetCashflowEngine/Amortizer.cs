@@ -80,7 +80,8 @@ public static class Amortizer
         double[]? actual360Fractions = null,
         DateTime? firstProjDate = null,
         DateTime? interestAccrualStart = null,
-        bool interestReserve = false)
+        bool interestReserve = false,
+        bool[]? delinqOnOriginal = null)
     {
         if (monthsPerPeriod < 1) monthsPerPeriod = 1;
         if (interestReserve && firstProjDate == null && assetData.Actual360.Any(a => a))
@@ -622,6 +623,17 @@ public static class Amortizer
                 // affect the tie-out.
                 if (balance < 0) balance = 0;
                 var dqBal = balance * del;
+                // % of original balance (DelinqRateTypeEnum.PctOrigBal): the delinquent dollars are
+                // del x the original balance, capped at what is left. The P&I disclosure lines read
+                // the effective share of the current balance, so they agree with DelinqBalance. Cash
+                // is untouched either way (#4481 §1.1 above).
+                if (delinqOnOriginal?[assetIndex] == true)
+                {
+                    dqBal = Math.Min(del * (origBalance > 0 ? origBalance : balance), balance);
+                    del = balance > 0 ? dqBal / balance : 0.0;
+                    unadvPrincipal = schedPrinMdr * del * (1 - delAdvPrin);
+                    unadvInterest = (interest - periodServiceFee) * del * (1 - delAdvInt);
+                }
 
                 // Cleanup near maturity
                 double cleanup = 0;

@@ -130,6 +130,15 @@ public static class AssumptionValidation
                    "percentage of the current balance), \"MDR\" (a direct monthly hazard), or \"ORIGMDR\" (a " +
                    "direct monthly hazard on the original balance). Omit the field to get CDR.";
 
+        var delinquencyType = assumptions.DelinquencyType?.Trim();
+        var onOriginal = string.Equals(delinquencyType, "PctOrigBal", StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(delinquencyType) && !onOriginal &&
+            !string.Equals(delinquencyType, "PctCurrBal", StringComparison.OrdinalIgnoreCase))
+            return $"assumptions.delinquencyType = \"{assumptions.DelinquencyType}\" is not a recognized delinquency " +
+                   "basis, so the engine cannot tell what assumptions.delinquency is a share of. Use \"PctCurrBal\" " +
+                   "(a percentage of the current balance) or \"PctOrigBal\" (a percentage of the original balance). " +
+                   "Omit the field to get PctCurrBal.";
+
         var cprUnits = CprUnits(prepaymentType.Value);
         var cdrUnits = CdrUnits(defaultType.Value);
 
@@ -157,6 +166,10 @@ public static class AssumptionValidation
         if (hasVectorStrs && prepaymentType != PrepaymentConvention.Cpr)
             return $"assumptions.prepaymentType = \"{assumptions.PrepaymentType!.Trim()}\" cannot be combined " +
                    "with the PolyPaths vector strings (cprVectorStr, cdrVectorStr, ...): that path runs CPR. " +
+                   "Send the scalar or the per-period arrays (cprVector, cdrVector, ...) instead.";
+        if (hasVectorStrs && onOriginal)
+            return "assumptions.delinquencyType = \"PctOrigBal\" cannot be combined with the PolyPaths vector " +
+                   "strings (cprVectorStr, cdrVectorStr, ...): that path runs delinquency on the current balance. " +
                    "Send the scalar or the per-period arrays (cprVector, cdrVector, ...) instead.";
         if (hasVectorStrs && defaultType != DefaultConvention.Cdr)
             return $"assumptions.defaultType = \"{assumptions.DefaultType!.Trim()}\" cannot be combined " +
