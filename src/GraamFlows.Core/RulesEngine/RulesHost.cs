@@ -447,6 +447,11 @@ namespace GraamFlows.RulesEngine
             return new EnhancementCapStructure(shiftAmt, seniors, subs);
         }
 
+        private TargetBalanceStructure TARGET(string targetVar, IPayable seniors, IPayable subs)
+        {
+            return new TargetBalanceStructure(DynamicGroup, targetVar, seniors, subs);
+        }
+
         private SequentialStructure SEQ(params IPayable[] payables)
         {
             return new SequentialStructure(payables);

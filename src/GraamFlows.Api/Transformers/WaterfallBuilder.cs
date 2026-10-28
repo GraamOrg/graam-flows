@@ -156,6 +156,8 @@ public static class WaterfallBuilder
                 return BuildAccreteDsl(structure);
             case "CSCAP":
                 return BuildCscapDsl(structure);
+            case "TARGET":
+                return BuildTargetDsl(structure);
             case "FIXED":
                 return BuildFixedDsl(structure);
             case "FORCE_PAYDOWN":
@@ -231,6 +233,19 @@ public static class WaterfallBuilder
     /// <summary>
     ///     Builds CSCAP DSL: CSCAP('variable', primary, cap) or CSCAP(0.055, primary, cap)
     /// </summary>
+    /// <summary>
+    ///     Builds TARGET DSL: TARGET('variable', primary, cap) — the primary leg paid down to the
+    ///     variable's balance, the rest to the cap leg.
+    /// </summary>
+    private static string BuildTargetDsl(PayableStructureDto structure)
+    {
+        if (string.IsNullOrEmpty(structure.TargetVariable))
+            throw new ArgumentException("TARGET structure requires targetVariable");
+        var primary = structure.Primary != null ? BuildStructureDsl(structure.Primary) : "SINGLE('')";
+        var cap = structure.Cap != null ? BuildStructureDsl(structure.Cap) : "SINGLE('')";
+        return $"TARGET('{structure.TargetVariable}', {primary}, {cap})";
+    }
+
     private static string BuildCscapDsl(PayableStructureDto structure)
     {
         string capParam;
