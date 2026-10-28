@@ -45,6 +45,8 @@ public class Asset : IAsset
 
     public double[]? ScheduledPayments { get; set; }
 
+    public double? ScheduledPrincipal { get; set; }
+
     [Database("Arm_Init_Adj_Period")] public int InitialAdjustmentPeriod { get; set; }
 
     [Database("Arm_Adjustment_Period")] public int AdjustmentPeriod { get; set; }

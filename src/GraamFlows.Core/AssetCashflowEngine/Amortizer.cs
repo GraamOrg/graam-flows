@@ -227,6 +227,8 @@ public static class Amortizer
                 : rawOriginalInterestRate[assetIndex];
             var rate = annRatePct / rateDivisor;
             var debtService = rawDebtService[assetIndex];
+            // A stated principal amount (IAsset.ScheduledPrincipal) replaces the level payment.
+            var fixedPrincipal = assetData.ScheduledPrincipal[assetIndex];
             var adjustmentPeriod = rawAdjustmentPeriod[assetIndex];
             var initialAdjustmentPeriod = rawInitialAdjustmentPeriod[assetIndex];
             var currentAdjustmentPeriod = -1;
@@ -312,6 +314,8 @@ public static class Amortizer
 
                 // Interest the period's stated payment fell short of, accreted into the balance.
                 double accretion = 0;
+                // This period paid the asset's stated principal amount (not its maturity balloon).
+                var paysFixedPrincipal = false;
 
                 // FRM cashflow generation
                 if (statedPayments == null ? age > term : period >= statedPayments.Length)
@@ -470,6 +474,12 @@ public static class Amortizer
                         // a normal amortizing payment (payment > interest) the Max
                         // is a no-op, so well-formed loans are unaffected.
                         principal = Math.Min(Math.Max(actualPayment - interestPaid, 0), cashflowBalance);
+                        if (fixedPrincipal > 0 && age < term)
+                        {
+                            // Interest on the balance and the stated principal, not a level payment.
+                            principal = Math.Min(fixedPrincipal, cashflowBalance);
+                            paysFixedPrincipal = true;
+                        }
 
                         cashflowPrevBalance = cashflowBalance;
                         cashflowBalance -= principal;
@@ -503,6 +513,10 @@ public static class Amortizer
 
                 var interest = interestPaid * dqFactor;
                 var schedPrin = principal * dqFactor;
+                // A stated principal amount is the loan's own dollar figure: a prepayment that lowered
+                // the performing balance does not lower it, so it is not scaled by survival.
+                if (paysFixedPrincipal)
+                    schedPrin = Math.Min(fixedPrincipal, schedBal);
 
                 // PIK: the period coupon is not paid in cash — it is capitalized
                 // into the balance. Zero the cash interest and remember the accrued
