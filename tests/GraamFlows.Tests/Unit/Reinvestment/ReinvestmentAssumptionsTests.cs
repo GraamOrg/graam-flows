@@ -187,4 +187,17 @@ public class ReinvestmentAssumptionsTests
         Run(request).ReinvestmentAssumptionResolution.Should().BeNull(
             "there is no bought collateral to disclose a basis for");
     }
+
+    [Fact]
+    public void A_Dollar_Loss_Is_Refused_For_Reinvested_Collateral()
+    {
+        // A dollar loss is the posted pool's, spread over its defaults; it has no meaning for
+        // cohorts bought later, and read as a percentage it would be a nonsense severity.
+        var request = Request(new AssumptionsDto { Cpr = 10, Cdr = 2, Severity = 50_000, SeverityType = "LossAmount" });
+
+        var result = new WaterfallController(NullLogger<WaterfallController>.Instance).Execute(request).Result;
+
+        result.Should().BeOfType<BadRequestObjectResult>().Subject.Value!.ToString()
+            .Should().Contain("LossAmount").And.Contain("reinvest");
+    }
 }
