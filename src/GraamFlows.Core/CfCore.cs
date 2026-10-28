@@ -186,14 +186,18 @@ public class CfCore
                 var defaultType = aa?.DefaultType ?? Objects.TypeEnum.DefaultTypeEnum.CDR;
 
                 // Prepay: ABS uses the time-varying ABS→SMM conversion; SMM is a
-                // direct monthly hazard (no de-annualization, harmony #1226);
-                // CPR/PercentCPR/PSA de-annualize the annual rate as before.
+                // direct monthly hazard (no de-annualization, harmony #1226); PSA is a
+                // speed on the standard ramp, read at each asset's own age;
+                // CPR/PercentCPR de-annualize the annual rate as before.
                 smmTime[i] = prepaymentType switch
                 {
                     Objects.TypeEnum.PrepaymentTypeEnum.ABS =>
                         BuildAbsAssumptionArray(aa?.Prepayment, maxPeriods, startTime, poolAgeOffset, wam),
                     Objects.TypeEnum.PrepaymentTypeEnum.SMM =>
                         BuildAssumptionArray(aa?.Prepayment, maxPeriods, startTime, false),
+                    Objects.TypeEnum.PrepaymentTypeEnum.PSA =>
+                        PsaRamp.MonthlyHazards(aa?.Prepayment, maxPeriods, startTime,
+                            PsaRamp.FirstRowAge(groupAssets[i], startTime)),
                     _ => BuildAssumptionArray(aa?.Prepayment, maxPeriods, startTime, true)
                 };
                 // CPY: the CPR row, held at zero until the asset's call protection ends. Before the
@@ -1009,10 +1013,14 @@ public class CfCore
         var prepayType = aa?.PrepaymentType ?? PrepaymentTypeEnum.CPR;
         var defaultType = aa?.DefaultType ?? DefaultTypeEnum.CDR;
 
-        // SMM is already-monthly; CPR/PSA/ABS de-annualize (ABS not fully
-        // supported for reinvested collateral in v1 — treated CPR-style).
-        var smmRow = BuildAssumptionArray(aa?.Prepayment, periods, startAbsT,
-            prepayType != PrepaymentTypeEnum.SMM);
+        // SMM is already-monthly; CPR/ABS de-annualize (ABS not fully
+        // supported for reinvested collateral in v1 — treated CPR-style). PSA
+        // ramps from the cohort's purchase: every cohort asset is age 1 in its
+        // first row.
+        var smmRow = prepayType == PrepaymentTypeEnum.PSA
+            ? PsaRamp.MonthlyHazards(aa?.Prepayment, periods, startAbsT, 1)
+            : BuildAssumptionArray(aa?.Prepayment, periods, startAbsT,
+                prepayType != PrepaymentTypeEnum.SMM);
         // MDR/ORIGMDR are already-monthly; CDR de-annualizes (ORIGMDR treated as
         // a current-balance hazard for reinvested collateral in v1).
         var mdrRow = BuildAssumptionArray(aa?.DefaultRate, periods, startAbsT,
