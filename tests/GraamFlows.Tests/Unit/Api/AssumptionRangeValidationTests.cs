@@ -287,13 +287,13 @@ public class AssumptionRangeValidationTests
     public void Calculate_UnknownPrepaymentType_IsRejectedRatherThanSilentlyModelledAsCpr()
     {
         var assumptions = Sane();
-        assumptions.PrepaymentType = "PSA";
+        assumptions.PrepaymentType = "PercentCPR";
 
         var message = RejectionMessage(Calculate(Request(assumptions)),
-            because: "ParsePrepaymentType falls back to CPR for ANY unrecognized string, so a PSA speed used to "
-                     + "be silently modelled as a CPR — a wrong answer with no error at all");
+            because: "ParsePrepaymentType falls back to CPR for ANY unrecognized string, so a PercentCPR speed "
+                     + "used to be silently modelled as a CPR — a wrong answer with no error at all");
 
-        message.Should().Contain("prepaymentType").And.Contain("PSA");
+        message.Should().Contain("prepaymentType").And.Contain("PercentCPR");
         message.Should().Contain("CPR").And.Contain("ABS").And.Contain("SMM",
             because: "a rejection must list the conventions the engine does model");
     }
