@@ -31,6 +31,18 @@ public static class StatedPayments
     /// </summary>
     public static void Validate(IAsset asset)
     {
+        if (asset.ScheduledPrincipal is > 0)
+        {
+            var with = Of(asset) != null ? "scheduled payments"
+                : asset.AmortizationType == AmortizationType.Pik ? "a PIK coupon"
+                : asset.AmortizationType == AmortizationType.Bullet ? "a bullet repayment"
+                : null;
+            if (with != null)
+                throw new ArgumentException(
+                    $"Asset {asset.AssetId}: a stated principal amount cannot be combined with {with}.",
+                    nameof(IAsset.ScheduledPrincipal));
+        }
+
         if (Of(asset) is not { } payments)
             return;
 

@@ -112,6 +112,16 @@ public interface IAsset
     ///     its last stated payment (<c>StatedPayments</c>).
     /// </summary>
     double[]? ScheduledPayments { get; set; }
+
+    /// <summary>
+    ///     A fixed amount of principal the asset pays every monthly period, or null. Some commercial
+    ///     mortgages amortize by a stated dollar amount instead of a level payment: interest on the
+    ///     balance plus the same principal every month, and the balance left at maturity balloons.
+    ///     It is the loan's contractual figure, so a prepayment does not change it (a curtailed loan
+    ///     keeps paying the same principal). When stated it wins over <see cref="DebtService" />, which
+    ///     a caller may still send for an engine that predates this field.
+    /// </summary>
+    double? ScheduledPrincipal { get; set; }
     double? ForbearanceAmt { get; set; }
     string StepDatesList { get; set; }
     string StepRatesList { get; set; }
