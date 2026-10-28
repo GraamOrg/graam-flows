@@ -143,13 +143,17 @@ public static class AssumptionValidation
         var hasArrays = fields.Any(f => f.Vector != null);
         var hasVectorStrs = !hasArrays && fields.Any(f => !string.IsNullOrEmpty(f.VectorStr));
 
-        // The PolyPaths tier builds CPR assumptions whatever the declared type, so CPY sent with
-        // those strings would run as plain CPR from the first period - the exact answer CPY exists
-        // to replace. Refused rather than answered.
-        if (prepaymentType == PrepaymentConvention.Cpy && hasVectorStrs)
-            return "assumptions.prepaymentType = \"CPY\" cannot be combined with the PolyPaths vector strings " +
-                   "(cprVectorStr, cdrVectorStr, ...): that path runs CPR. Send the scalar or the per-period " +
-                   "arrays (cprVector, cdrVector, ...) instead.";
+        // The PolyPaths tier builds CPR/CDR assumptions whatever the declared types, so any other
+        // type sent with those strings would run as CPR or CDR - CPY from the first period, SMM 0.5
+        // as an annual 0.5% CPR, and so on. Refused rather than answered.
+        if (hasVectorStrs && prepaymentType != PrepaymentConvention.Cpr)
+            return $"assumptions.prepaymentType = \"{assumptions.PrepaymentType!.Trim()}\" cannot be combined " +
+                   "with the PolyPaths vector strings (cprVectorStr, cdrVectorStr, ...): that path runs CPR. " +
+                   "Send the scalar or the per-period arrays (cprVector, cdrVector, ...) instead.";
+        if (hasVectorStrs && defaultType != DefaultConvention.Cdr)
+            return $"assumptions.defaultType = \"{assumptions.DefaultType!.Trim()}\" cannot be combined " +
+                   "with the PolyPaths vector strings (cprVectorStr, cdrVectorStr, ...): that path runs CDR. " +
+                   "Send the scalar or the per-period arrays (cprVector, cdrVector, ...) instead.";
 
         var errors = new List<Problem>();
         var anchorAbsT = DateUtil.CalcAbsT(request!.ProjectionDate);
