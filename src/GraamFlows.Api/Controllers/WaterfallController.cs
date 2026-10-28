@@ -591,6 +591,13 @@ public class WaterfallController : ControllerBase
         if (request.Deal?.Tranches == null || request.Deal.Tranches.Count == 0)
             return "Deal has no tranches.";
 
+        // `assumptions` here only projects reinvested cohorts. A dollar loss is a pool-level amount
+        // spread over the posted pool's defaults; it has no meaning for collateral bought later.
+        if (AssumptionsFactory.IsLossAmount(request.Assumptions?.SeverityType))
+            return "assumptions.severityType = \"LossAmount\" is not supported on /api/waterfall: its assumptions " +
+                   "project reinvested collateral, and a pool's dollar loss cannot be spread over cohorts bought " +
+                   "later. Send severity as a percentage (severityType \"Pct\") for reinvestment.";
+
         for (var i = 0; i < request.CollateralCashflows.Count; i++)
         {
             var cf = request.CollateralCashflows[i];

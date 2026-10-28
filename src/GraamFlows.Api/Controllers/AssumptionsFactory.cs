@@ -147,6 +147,13 @@ internal static class AssumptionsFactory
         return DefaultTypeEnum.CDR;
     }
 
+    /// <summary>
+    ///     Whether severity is stated as the pool's dollar loss per period. See
+    ///     <see cref="ParsePrepaymentType"/> for why the trim is paired.
+    /// </summary>
+    internal static bool IsLossAmount(string? severityType) =>
+        string.Equals(severityType?.Trim(), "LossAmount", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>See <see cref="ParsePrepaymentType"/> for why the trim is paired.</summary>
     internal static DelinqRateTypeEnum ParseDelinquencyType(string? delinquencyType)
     {
