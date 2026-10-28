@@ -92,10 +92,11 @@ internal static class AssumptionsFactory
         // Direct-monthly hazards (SMM/MDR) can't flow through the CPR/CDR
         // CreateConstAssumptions helper without being de-annualized, so build
         // the AssetAssumptions explicitly when either mode is requested. CPY
-        // de-annualizes like CPR but must keep its own type, which the helper
-        // would overwrite with CPR.
+        // de-annualizes like CPR and PSA ramps to a CPR, but each must keep its
+        // own type, which the helper would overwrite with CPR.
         if (scalarPrepayType == PrepaymentTypeEnum.SMM ||
             scalarPrepayType == PrepaymentTypeEnum.CPY ||
+            scalarPrepayType == PrepaymentTypeEnum.PSA ||
             scalarDefaultType == DefaultTypeEnum.MDR ||
             scalarDefaultType == DefaultTypeEnum.ORIGMDR)
         {
@@ -126,6 +127,8 @@ internal static class AssumptionsFactory
             return PrepaymentTypeEnum.SMM;
         if (string.Equals(value, "CPY", StringComparison.OrdinalIgnoreCase))
             return PrepaymentTypeEnum.CPY;
+        if (string.Equals(value, "PSA", StringComparison.OrdinalIgnoreCase))
+            return PrepaymentTypeEnum.PSA;
         return PrepaymentTypeEnum.CPR;
     }
 

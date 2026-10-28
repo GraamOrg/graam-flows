@@ -273,7 +273,7 @@ public class CalcCollateralResponse
 
 public class PrepaymentResolutionDto
 {
-    /// <summary>The convention applied: "CPR", "ABS", "SMM" or "CPY".</summary>
+    /// <summary>The convention applied: "CPR", "ABS", "SMM", "CPY" or "PSA".</summary>
     public string PrepaymentType { get; set; } = "CPR";
 
     /// <summary>Under CPY, the assets that stated at least one call-protection end date. Null otherwise.</summary>
@@ -289,6 +289,20 @@ public class PrepaymentResolutionDto
     ///     <see cref="AssetsWithoutCallProtectionDates" />.
     /// </summary>
     public List<string> AssetIdsWithoutCallProtectionDates { get; set; } = new();
+
+    /// <summary>
+    ///     Under PSA, the assets whose ramp age was read from their origination date. Null otherwise.
+    /// </summary>
+    public int? AssetsAgedFromOriginalDate { get; set; }
+
+    /// <summary>
+    ///     Under PSA, the assets with no origination date, or one after the projection date, so their
+    ///     ramp started at age 1. Null otherwise.
+    /// </summary>
+    public int? AssetsWithoutOriginalDate { get; set; }
+
+    /// <summary>The ids of the first <see cref="MaxListedAssets" /> of <see cref="AssetsWithoutOriginalDate" />.</summary>
+    public List<string> AssetIdsWithoutOriginalDate { get; set; } = new();
 
     public const int MaxListedAssets = 20;
 }

@@ -126,7 +126,8 @@ public class CalcCollateralController : ControllerBase
             // from the answer, and a consumer cannot read a field that is only sometimes there.
             response.MarketRateResolution = marketRates.Describe();
             response.PrepaymentResolution = DescribePrepayment(
-                AssumptionsFactory.ParsePrepaymentType(request.Assumptions.PrepaymentType), assets);
+                AssumptionsFactory.ParsePrepaymentType(request.Assumptions.PrepaymentType), assets,
+                request.ProjectionDate);
             response.ScheduledPrincipalAssetIds = assets
                 .Where(a => a.ScheduledPrincipal is > 0)
                 .Select(a => a.AssetId ?? a.AssetName)
@@ -169,12 +170,26 @@ public class CalcCollateralController : ControllerBase
     }
 
     /// <summary>
-    ///     The prepayment convention the run applied, and under CPY which assets it could not hold to
-    ///     their call protection (they stated no end date, so they prepaid from the first period).
+    ///     The prepayment convention the run applied; under CPY which assets it could not hold to their
+    ///     call protection (they stated no end date, so they prepaid from the first period), and under
+    ///     PSA which assets it could not age (no origination date, so their ramp started at age 1).
     /// </summary>
-    internal static PrepaymentResolutionDto DescribePrepayment(PrepaymentTypeEnum type, IList<IAsset> assets)
+    internal static PrepaymentResolutionDto DescribePrepayment(PrepaymentTypeEnum type, IList<IAsset> assets,
+        DateTime projectionDate)
     {
         var resolution = new PrepaymentResolutionDto { PrepaymentType = type.ToString() };
+        if (type == PrepaymentTypeEnum.PSA)
+        {
+            var startTime = DateUtil.CalcAbsT(projectionDate);
+            var unaged = assets.Where(a => !PsaRamp.HasOriginalDate(a, startTime)).ToList();
+            resolution.AssetsAgedFromOriginalDate = assets.Count - unaged.Count;
+            resolution.AssetsWithoutOriginalDate = unaged.Count;
+            resolution.AssetIdsWithoutOriginalDate = unaged
+                .Take(PrepaymentResolutionDto.MaxListedAssets)
+                .Select(a => a.AssetId ?? a.AssetName)
+                .ToList();
+            return resolution;
+        }
         if (type != PrepaymentTypeEnum.CPY)
             return resolution;
         var without = assets.Where(a => CallProtection.OpenDate(a) == null).ToList();
