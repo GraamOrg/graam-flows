@@ -61,6 +61,12 @@ public static class AssumptionValidation
     /// </summary>
     private const double SeverityMax = 200.0;
 
+    /// <summary>
+    /// A PSA speed is not a share of a balance: 300 PSA is an ordinary assumption. The cap is a
+    /// generous units-mistake guard, not a modelling limit.
+    /// </summary>
+    private const double PsaMax = 5000.0;
+
     /// <summary>How many problems to spell out before summarizing the rest.</summary>
     private const int MaxReportedErrors = 6;
 
@@ -113,8 +119,9 @@ public static class AssumptionValidation
             return $"assumptions.prepaymentType = \"{assumptions.PrepaymentType}\" is not a recognized prepayment " +
                    "convention, so the engine cannot tell what assumptions.cpr means. Use \"CPR\" (an annual " +
                    "percentage of the current balance), \"ABS\" (a percentage of the original balance per month), " +
-                   "\"SMM\" (a direct monthly hazard) or \"CPY\" (CPR from the month each asset's call " +
-                   "protection ends). Omit the field to get CPR.";
+                   "\"SMM\" (a direct monthly hazard), \"CPY\" (CPR from the month each asset's call " +
+                   "protection ends) or \"PSA\" (a speed on the standard ramp, 100 = 6% CPR from month 30). " +
+                   "Omit the field to get CPR.";
 
         var defaultType = RecognizeDefaultType(assumptions.DefaultType);
         if (defaultType == null)
@@ -128,7 +135,8 @@ public static class AssumptionValidation
 
         var fields = new[]
         {
-            new RateField("cpr", assumptions.Cpr, assumptions.CprVector, assumptions.CprVectorStr, cprUnits, RateMax),
+            new RateField("cpr", assumptions.Cpr, assumptions.CprVector, assumptions.CprVectorStr, cprUnits,
+                prepaymentType == PrepaymentConvention.Psa ? PsaMax : RateMax),
             new RateField("cdr", assumptions.Cdr, assumptions.CdrVector, assumptions.CdrVectorStr, cdrUnits, RateMax),
             new RateField("severity", assumptions.Severity, assumptions.SeverityVector, assumptions.SeverityVectorStr, SeverityUnits, SeverityMax),
             new RateField("delinquency", assumptions.Delinquency, assumptions.DelinquencyVector, assumptions.DelinquencyVectorStr, DelinquencyUnits, RateMax),
@@ -357,6 +365,9 @@ public static class AssumptionValidation
         PrepaymentConvention.Cpy =>
             "With prepaymentType \"CPY\", cpr is an annual CPR between 0 and 100 (6 means 6%), applied to each " +
             "asset from the month its call protection ends.",
+        PrepaymentConvention.Psa =>
+            "With prepaymentType \"PSA\", cpr is a PSA speed between 0 and 5000: PSA is a speed, 100 = the " +
+            "standard ramp to 6% CPR at month 30 (300 means 300 PSA).",
         _ =>
             "CPR is an annual percentage between 0 and 100 (6 means 6% CPR).",
     };
@@ -386,7 +397,7 @@ public static class AssumptionValidation
     private readonly record struct RateField(
         string Name, double Scalar, double[]? Vector, string? VectorStr, string Units, double Max);
 
-    private enum PrepaymentConvention { Cpr, Abs, Smm, Cpy }
+    private enum PrepaymentConvention { Cpr, Abs, Smm, Cpy, Psa }
 
     private enum DefaultConvention { Cdr, Mdr, OrigMdr }
 
@@ -419,6 +430,8 @@ public static class AssumptionValidation
             return PrepaymentConvention.Smm;
         if (string.Equals(value, "CPY", StringComparison.OrdinalIgnoreCase))
             return PrepaymentConvention.Cpy;
+        if (string.Equals(value, "PSA", StringComparison.OrdinalIgnoreCase))
+            return PrepaymentConvention.Psa;
         return null;
     }
 
