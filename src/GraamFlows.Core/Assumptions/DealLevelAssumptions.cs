@@ -128,7 +128,7 @@ public class DealLevelAssumptions : IAssumptionMill
     {
         var assetAssumps = new AssetAssumptions(PrepaymentTypeEnum.CPR, new ConstVector(anchorAbsT, vpr),
             DefaultTypeEnum.CDR, new ConstVector(anchorAbsT, cdr), new ConstVector(anchorAbsT, sev),
-            DelinqRateTypeEnum.PctOrigBal, new ConstVector(anchorAbsT, delinq),
+            DelinqRateTypeEnum.PctCurrBal, new ConstVector(anchorAbsT, delinq),
             new ConstVector(anchorAbsT, 100.0), new ConstVector(anchorAbsT, 100.0));
         return new DealLevelAssumptions(settleDate, assetAssumps);
     }
@@ -214,13 +214,18 @@ public class DealLevelAssumptions : IAssumptionMill
     ///     What <paramref name="cdr" /> means. ABS describes prepayments only, so it pairs with any
     ///     default convention; hard-coding CDR here ran ABS + MDR and ABS + ORIGMDR as CDR.
     /// </param>
+    /// <param name="delinqType">
+    ///     What <paramref name="delinq" /> is a share of. ABS describes prepayments only; the delinquency
+    ///     basis is its own choice, and the current balance unless one is stated.
+    /// </param>
     public static DealLevelAssumptions CreateAbsAssumptions(DateTime settleDate, int anchorAbsT, double abs,
         double cdr, double sev, double delinq, int poolAgeOffset, int wam,
-        DefaultTypeEnum defaultType = DefaultTypeEnum.CDR)
+        DefaultTypeEnum defaultType = DefaultTypeEnum.CDR,
+        DelinqRateTypeEnum delinqType = DelinqRateTypeEnum.PctCurrBal)
     {
         var assetAssumps = new AssetAssumptions(PrepaymentTypeEnum.ABS, new ConstVector(anchorAbsT, abs),
             defaultType, new ConstVector(anchorAbsT, cdr), new ConstVector(anchorAbsT, sev),
-            DelinqRateTypeEnum.PctOrigBal, new ConstVector(anchorAbsT, delinq),
+            delinqType, new ConstVector(anchorAbsT, delinq),
             new ConstVector(anchorAbsT, 100.0), new ConstVector(anchorAbsT, 100.0));
         return new DealLevelAssumptions(settleDate, assetAssumps)
         {

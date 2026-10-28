@@ -169,6 +169,10 @@ public class CfCore
             // amortizer keeps the same-period fast path.
             int[]? recoveryLag = null;
 
+            // Delinquency on the ORIGINAL balance (DelinqRateTypeEnum.PctOrigBal), per asset.
+            // Left null when no asset asks for it, so the amortizer keeps the current-balance path.
+            bool[]? delinqOnOriginal = null;
+
             // ORIGMDR default series (monthly fraction of ORIGINAL balance),
             // per-asset. Allocated lazily so groups with no ORIGMDR asset keep
             // the null fast-path in the amortizer. Elements stay null for
@@ -229,6 +233,11 @@ public class CfCore
                     recoveryLag[i] = assetLag;
                 }
                 delTime[i] = BuildAssumptionArray(aa?.DelinqRate, maxPeriods, startTime, false, 100.0);
+                if (aa?.DelinqRateType == Objects.TypeEnum.DelinqRateTypeEnum.PctOrigBal)
+                {
+                    delinqOnOriginal ??= new bool[assetCount];
+                    delinqOnOriginal[i] = true;
+                }
                 // Advancing is a PERCENT, like severity (:176) and delinquency (:183)
                 // above — divisor 100, not 1.0 (graam-harmony #4481 §1). The amortizer
                 // consumes these as fractions (`1 - delAdvInt`), so a divisor of 1.0
@@ -299,7 +308,8 @@ public class CfCore
                     : null,
                 firstProjDate: firstProjDate,
                 interestAccrualStart: interestAccrualStart,
-                interestReserve: interestReserve);
+                interestReserve: interestReserve,
+                delinqOnOriginal: delinqOnOriginal);
 
             // Convert results to PeriodCashflows and add to deal cashflows
             var periodCashflows = results.ToPeriodCashflows(firstProjDate, groupNum);
@@ -878,6 +888,10 @@ public class CfCore
                 // pool's: the fractions start at the cohort's first projected month.
                 actual360Fractions: assetData.Actual360.Any(a => a)
                     ? AccrualBasisParser.Actual360Fractions(firstProjDate.AddMonths(cohortStart), cohortPeriods)
+                    : null,
+                // A cohort's "original" balance is its purchase balance (BuildReinvestAsset).
+                delinqOnOriginal: reinvestAssumps?.DelinqRateType == DelinqRateTypeEnum.PctOrigBal
+                    ? Enumerable.Repeat(true, cohortAssets.Count).ToArray()
                     : null);
 
             // Accumulate the cohort's per-period vectors at the global offset.
