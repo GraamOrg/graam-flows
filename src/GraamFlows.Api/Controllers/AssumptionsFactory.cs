@@ -57,7 +57,8 @@ internal static class AssumptionsFactory
             };
         }
 
-        // Priority 2: PolyPaths format strings (legacy)
+        // Priority 2: PolyPaths format strings (legacy). These run CPR/CDR whatever type is
+        // declared; AssumptionValidation refuses any other type here before it reaches this point.
         var hasVectorStrs = !string.IsNullOrEmpty(dto.CprVectorStr) ||
                             !string.IsNullOrEmpty(dto.CdrVectorStr) ||
                             !string.IsNullOrEmpty(dto.SeverityVectorStr) ||
@@ -81,7 +82,8 @@ internal static class AssumptionsFactory
         {
             return DealLevelAssumptions.CreateAbsAssumptions(
                 projectionDate, anchorAbsT,
-                dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, 0, dto.Wam);
+                dto.Cpr, dto.Cdr, dto.Severity, dto.Delinquency, 0, dto.Wam,
+                ParseDefaultType(dto.DefaultType));
         }
 
         var scalarPrepayType = ParsePrepaymentType(dto.PrepaymentType);

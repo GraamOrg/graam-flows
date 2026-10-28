@@ -210,11 +210,16 @@ public class DealLevelAssumptions : IAssumptionMill
     /// <param name="delinq">Delinquency rate (%)</param>
     /// <param name="poolAgeOffset">Pool age offset in months (weighted average WALA) for ABS-to-SMM conversion</param>
     /// <param name="wam">Weighted average remaining term in months for amortization adjustment</param>
+    /// <param name="defaultType">
+    ///     What <paramref name="cdr" /> means. ABS describes prepayments only, so it pairs with any
+    ///     default convention; hard-coding CDR here ran ABS + MDR and ABS + ORIGMDR as CDR.
+    /// </param>
     public static DealLevelAssumptions CreateAbsAssumptions(DateTime settleDate, int anchorAbsT, double abs,
-        double cdr, double sev, double delinq, int poolAgeOffset, int wam)
+        double cdr, double sev, double delinq, int poolAgeOffset, int wam,
+        DefaultTypeEnum defaultType = DefaultTypeEnum.CDR)
     {
         var assetAssumps = new AssetAssumptions(PrepaymentTypeEnum.ABS, new ConstVector(anchorAbsT, abs),
-            DefaultTypeEnum.CDR, new ConstVector(anchorAbsT, cdr), new ConstVector(anchorAbsT, sev),
+            defaultType, new ConstVector(anchorAbsT, cdr), new ConstVector(anchorAbsT, sev),
             DelinqRateTypeEnum.PctOrigBal, new ConstVector(anchorAbsT, delinq),
             new ConstVector(anchorAbsT, 100.0), new ConstVector(anchorAbsT, 100.0));
         return new DealLevelAssumptions(settleDate, assetAssumps)
