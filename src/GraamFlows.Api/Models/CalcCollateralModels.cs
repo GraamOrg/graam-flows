@@ -217,6 +217,11 @@ public class AssumptionsDto
     // monthly hazard models (harmony #1226) use "MDR".
     public string DefaultType { get; set; } = "CDR";
 
+    // Delinquency basis: "PctCurrBal" (default; delinquency is a % of the current balance) or
+    // "PctOrigBal" (a % of the original balance, capped at the current balance). It moves only
+    // DelinqBalance and what the delinquency triggers read; delinquency carries no cash.
+    public string? DelinquencyType { get; set; }
+
     // Weighted average remaining term (months) — used for ABS-to-SMM amortization adjustment.
     public int Wam { get; set; } = 0;
 
@@ -264,11 +269,24 @@ public class CalcCollateralResponse
     public PrepaymentResolutionDto? PrepaymentResolution { get; set; }
 
     /// <summary>
+    ///     The delinquency basis the run applied. Present on every successful response; an engine
+    ///     that predates <see cref="AssumptionsDto.DelinquencyType" /> ignores the field and answers
+    ///     without this.
+    /// </summary>
+    public DelinquencyResolutionDto? DelinquencyResolution { get; set; }
+
+    /// <summary>
     ///     The assets that paid a stated principal amount (<see cref="AssetDto.ScheduledPrincipal" />).
     ///     Present on every successful response, so a caller that sent the field reads whether it ran
     ///     (an engine that predates it ignores the field and answers without this list).
     /// </summary>
     public List<string> ScheduledPrincipalAssetIds { get; set; } = new();
+}
+
+public class DelinquencyResolutionDto
+{
+    /// <summary>The basis applied: "PctCurrBal" or "PctOrigBal".</summary>
+    public string DelinquencyType { get; set; } = "PctCurrBal";
 }
 
 public class PrepaymentResolutionDto
