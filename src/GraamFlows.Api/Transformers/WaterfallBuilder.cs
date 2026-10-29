@@ -231,9 +231,6 @@ public static class WaterfallBuilder
     }
 
     /// <summary>
-    ///     Builds CSCAP DSL: CSCAP('variable', primary, cap) or CSCAP(0.055, primary, cap)
-    /// </summary>
-    /// <summary>
     ///     Builds TARGET DSL: TARGET('variable', primary, cap) — the primary leg paid down to the
     ///     variable's balance, the rest to the cap leg.
     /// </summary>
@@ -246,6 +243,9 @@ public static class WaterfallBuilder
         return $"TARGET('{structure.TargetVariable}', {primary}, {cap})";
     }
 
+    /// <summary>
+    ///     Builds CSCAP DSL: CSCAP('variable', primary, cap) or CSCAP(0.055, primary, cap)
+    /// </summary>
     private static string BuildCscapDsl(PayableStructureDto structure)
     {
         string capParam;
