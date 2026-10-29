@@ -106,7 +106,17 @@ public class EnhancementCapStructure : BasePayable
         {
             currSenBal = Seniors.Leafs().Sum(leaf => leaf.CurrentBalance(cfDate));
             currSubBal = Subs.Leafs().Sum(leaf => leaf.CurrentBalance(cfDate));
-            // re-check enhancement cap since seniors may pay subs and change initial calculation 
+            // Seniors retired: what is left is the subordinates'. Re-entering PayPayables here
+            // recomputed the same split from the same zero senior balance and never returned —
+            // a stack overflow the first period a senior leg paid off before its subordinates
+            // (nested CSCAPs paying each class down to a target balance).
+            if (currSenBal <= 0)
+            {
+                payFunc.Invoke(Subs, subPrin);
+                return;
+            }
+
+            // re-check enhancement cap since seniors may pay subs and change initial calculation
             expectedSupport = CalcExpectedEnhancement(cfDate, subPrin);
             if (expectedSupport > enhanceCap && currSenBal > 0 && currSubBal >= subPrin)
             {
@@ -189,7 +199,13 @@ public class EnhancementCapStructure : BasePayable
         seniors.ExceptWith(subs);
         var seniorBal = seniors.Sum(c => c.CurrentBalance(cfDate)) - prin;
         var subBal = subs.Sum(c => c.CurrentBalance(cfDate));
+        // Nothing left after this payment (the last senior dollar, subordinates already retired):
+        // no support to exceed. 0/0 here was a NaN principal for the senior leg.
+        if (seniorBal + subBal <= 0)
+            return 0;
         var cs = 1 - seniorBal / (seniorBal + subBal);
+        if (double.IsNaN(cs) || double.IsInfinity(cs))
+            return 0;
 
         var ceCap = GetSeniorEnhancementCap(cfDate);
         if (cs < ceCap)

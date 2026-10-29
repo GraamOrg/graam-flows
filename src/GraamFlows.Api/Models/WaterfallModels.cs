@@ -339,6 +339,12 @@ public class OcTargetDto
     /// as of the end of the related collection period."
     /// </summary>
     public bool UseInitialBalance { get; set; }
+
+    /// <summary>
+    /// Optional: at or below this share of <see cref="CutoffBalance"/> (0.10 = 10%) the target OC
+    /// is the whole pool — the turbo pays the notes with all the excess.
+    /// </summary>
+    public double? FullTurboPoolPct { get; set; }
 }
 
 public class DealVariableDto
@@ -537,7 +543,7 @@ public class TriggerConditionDto
 
 /// <summary>
 ///     Payment structure node (mirrors IPayable XML format).
-///     Supported types: SEQ, PRORATA, SINGLE, SHIFTI, ACCRETE, CSCAP, FIXED, FORCE_PAYDOWN, PAC
+///     Supported types: SEQ, PRORATA, SINGLE, SHIFTI, ACCRETE, CSCAP, TARGET, FIXED, FORCE_PAYDOWN, PAC
 /// </summary>
 public class PayableStructureDto
 {
@@ -555,6 +561,9 @@ public class PayableStructureDto
     public double? CapPercent { get; set; } // Constant cap percentage
     public PayableStructureDto? Primary { get; set; } // Primary payable (seniors)
     public PayableStructureDto? Cap { get; set; } // Cap payable (subordinates that receive excess)
+
+    // TARGET (pay the primary leg down to a target balance) — uses Primary + Cap above
+    public string? TargetVariable { get; set; } // Variable holding the primary leg's target balance ($)
 
     // FIXED (Fixed Amount) fields
     public string? FixedVariable { get; set; } // Variable name for fixed dollar amount
