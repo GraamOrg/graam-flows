@@ -156,14 +156,33 @@ public class Cashflow
         });
         try
         {
-            var yield = solver.Solve(objFunction, .0000001, .10, -1, 10);
+            var yield = solver.Solve(objFunction, .0000001, .10, MinSolvedYield, MaxSolvedYield);
             return yield * 100;
         }
-        catch
+        catch (Exception ex)
         {
-            // cannot solve, probably because out of range.
-            return -100;
+            // This used to return -100, which a caller cannot tell from a real -100% yield: a
+            // residual paying 37x its face at a price of 100 was shown as yielding -100%.
+            throw new InvalidOperationException(UnsolvedYieldReason(price, objFunction), ex);
         }
+    }
+
+    // The yields YieldFromPrice searches, as rates: -100% to 1,000%.
+    private const double MinSolvedYield = -1;
+    private const double MaxSolvedYield = 10;
+
+    private string UnsolvedYieldReason(double price, SimpleRealFunction1D priceLessTarget)
+    {
+        var quoted = $"A price of {price:N3} (per 100 of the {CashFlowStream.Balance:N0} balance)";
+        var worthAtMax = priceLessTarget.Value(MaxSolvedYield) + price;
+        if (worthAtMax > price)
+            return $"{quoted} yields more than {MaxSolvedYield * 100:N0}%, the highest yield the solver searches: " +
+                   $"discounted at {MaxSolvedYield * 100:N0}% these cashflows are still worth {worthAtMax:N3}.";
+        var worthAtMin = priceLessTarget.Value(MinSolvedYield) + price;
+        if (worthAtMin < price)
+            return $"{quoted} yields less than {MinSolvedYield * 100:N0}%, the lowest yield the solver searches: " +
+                   $"discounted at {MinSolvedYield * 100:N0}% these cashflows are worth only {worthAtMin:N3}.";
+        return $"{quoted}: no yield between {MinSolvedYield * 100:N0}% and {MaxSolvedYield * 100:N0}% was solved.";
     }
 
     public double WeightedAverageLife()
