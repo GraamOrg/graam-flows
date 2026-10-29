@@ -42,10 +42,26 @@ public record OcTargetConfig
     public bool ReleaseExcessOc { get; init; }
 
     /// <summary>
+    /// When set with <see cref="CutoffPoolBalance"/>: at or below this share of the cutoff pool
+    /// (0.10 = 10%) the target OC is the whole pool, so the turbo pays the notes with all the
+    /// excess. Deals that stop targeting OC near the end say so ("… the Pool Balance … is less
+    /// than or equal to 10% of the Cutoff Date Pool Balance, the lesser of the Note Balance and
+    /// all remaining Available Funds").
+    /// </summary>
+    public double? FullTurboPoolPct { get; init; }
+
+    /// <summary>The cutoff pool balance <see cref="FullTurboPoolPct"/> is a share of.</summary>
+    public double? CutoffPoolBalance { get; init; }
+
+    /// <summary>
     /// Calculate target OC given a pool balance.
     /// </summary>
     public double CalculateTargetOc(double poolBalance)
     {
+        if (FullTurboPoolPct is > 0 && CutoffPoolBalance is > 0
+            && poolBalance <= FullTurboPoolPct.Value * CutoffPoolBalance.Value)
+            return poolBalance;
+
         var targetPoolBalance = UseInitialBalance ? InitialPoolBalance!.Value : poolBalance;
 
         return FormulaType?.ToLowerInvariant() switch
