@@ -20,7 +20,7 @@ public class TestDealBuilder
     private readonly DateTime _projectionDate;
     private readonly DateTime _firstPayDate;
     private readonly List<(string Name, double Balance, double Coupon, int SubOrder)> _tranches = new();
-    private readonly List<string> _payRuleFormulas = new();
+    private readonly List<(string Name, string Formula, string Group)> _payRuleFormulas = new();
     private List<string>? _executionOrder;
     private string _interestTreatment = "Collateral";
     private double _balanceAtIssuance;
@@ -133,7 +133,7 @@ public class TestDealBuilder
 
     public TestDealBuilder WithTranche(string name, double balance, double couponPct,
         int subOrder = 0, string cashflowType = "PI", string trancheType = "Offered",
-        string couponType = "Fixed")
+        string couponType = "Fixed", string groupNum = "1", string? couponFormula = null)
     {
         _tranches.Add((name, balance, couponPct, subOrder));
         _balanceAtIssuance += balance;
@@ -144,7 +144,8 @@ public class TestDealBuilder
             DealName = _deal.DealName,
             OriginalBalance = balance,
             Factor = 1.0,
-            CouponType = couponType,
+            CouponType = couponFormula != null ? "Formula" : couponType,
+            CouponFormula = couponFormula,
             FixedCoupon = couponPct,
             TrancheType = trancheType,
             CashflowType = cashflowType,
@@ -168,7 +169,7 @@ public class TestDealBuilder
             ClassGroupName = name,
             SubordinationOrder = subOrder,
             PayFrom = "Sequential",
-            GroupNum = "1"
+            GroupNum = groupNum
         });
 
         return this;
@@ -593,9 +594,9 @@ public class TestDealBuilder
         return this;
     }
 
-    public TestDealBuilder WithPayRule(string name, string formula)
+    public TestDealBuilder WithPayRule(string name, string formula, string group = "GROUP_1")
     {
-        _payRuleFormulas.Add($"{name}|{formula}");
+        _payRuleFormulas.Add((name, formula, group));
         return this;
     }
 
@@ -727,13 +728,13 @@ public class TestDealBuilder
         // Add pay rules
         for (var i = 0; i < _payRuleFormulas.Count; i++)
         {
-            var parts = _payRuleFormulas[i].Split('|', 2);
+            var (ruleName, formula, group) = _payRuleFormulas[i];
             _deal.PayRules.Add(new PayRule
             {
                 DealName = _deal.DealName,
-                RuleName = parts[0],
-                ClassGroupName = "GROUP_1",
-                Formula = parts[1],
+                RuleName = ruleName,
+                ClassGroupName = group,
+                Formula = formula,
                 RuleExecutionOrder = i
             });
         }

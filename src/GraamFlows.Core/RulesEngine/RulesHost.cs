@@ -66,6 +66,10 @@ namespace GraamFlows.RulesEngine
         public double oc_pct;
         public double collat_wac;
         public double collat_net_wac;
+        // The tranche's own group's WAC / net WAC, always; collat_* blend every group when the group
+        // shares a class with another (DynamicGroup.GroupWac).
+        public double group_wac;
+        public double group_net_wac;
         public double libor_1m => _rateProvider.GetRate(MarketDataInstEnum.Libor1M, _cfDate);
         public double libor_3m => _rateProvider.GetRate(MarketDataInstEnum.Libor3M, _cfDate);
         public double libor_6m => _rateProvider.GetRate(MarketDataInstEnum.Libor6M, _cfDate);
@@ -117,6 +121,8 @@ namespace GraamFlows.RulesEngine
             curr_year = periodCf.CashflowDate.Year;
             oc_amt = periodCf.Balance - dynGroup.Balance(); // assets minus liabilities
             oc_pct = dynGroup.Balance() / periodCf.Balance;
+            group_wac = dynGroup.GroupWac;
+            group_net_wac = dynGroup.GroupNetWac;
                 
             /*// backwards compatibility
             if (dynGroup.GetType().GetMethods().Contains("CollateralWac"))
@@ -144,6 +150,8 @@ namespace GraamFlows.RulesEngine
             curr_year = _cfDate.Year;
             collat_wac = tranche.DynamicGroup.CollateralWac;
             collat_net_wac = tranche.DynamicGroup.CollateralNetWac;
+            group_wac = tranche.DynamicGroup.GroupWac;
+            group_net_wac = tranche.DynamicGroup.GroupNetWac;
             _dynamicTranche.IsInterest = false;
         }
 
