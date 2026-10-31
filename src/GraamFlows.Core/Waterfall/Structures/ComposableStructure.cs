@@ -136,8 +136,18 @@ public class ComposableStructure : BaseStructure
                     triggerMap.Add(periodCf.GroupNum, triggerList);
                 }
 
-                dynGroup.CollateralWac = collatWac;
-                dynGroup.CollateralNetWac = collatNetWac;
+                dynGroup.GroupWac = periodCf.BeginBalance > 0
+                    ? periodCf.Interest / periodCf.BeginBalance * 1200
+                    : 0;
+                dynGroup.GroupNetWac = periodCf.BeginBalance > 0
+                    ? periodCf.NetInterest / periodCf.BeginBalance * 1200
+                    : 0;
+                // A group that shares no class with another (no group "0" structure) is its own
+                // deal: its classes are paid only from its own collateral, so `collat_*` is that
+                // collateral's rate. A group holding a shared class keeps the whole deal's blend
+                // (GSMS 2017-GS8's Asset Group 2). With one group the two are the same number.
+                dynGroup.CollateralWac = dynGroup.HasCrossedGroups ? collatWac : dynGroup.GroupWac;
+                dynGroup.CollateralNetWac = dynGroup.HasCrossedGroups ? collatNetWac : dynGroup.GroupNetWac;
                 dynGroup.BeginCollatBalance = periodCf.BeginBalance;
 
                 var triggers = triggerMap[dynGroup.GroupNum];

@@ -49,6 +49,16 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     public DynamicFundsAccount? FundsAccount { get; private set; }
     public double CollateralWac { get; set; }
     public double CollateralNetWac { get; set; }
+
+    /// <summary>
+    ///     This group's own collateral WAC and net WAC for the period. <see cref="CollateralWac" />
+    ///     and <see cref="CollateralNetWac" /> are these when the group shares no class with another
+    ///     (<see cref="HasCrossedGroups" /> false), and the whole deal's blend when it does. Blended,
+    ///     a CMBS loan-specific certificate paid from one subordinate companion loan at 14% beside a
+    ///     pool at 6.5% (WFCM 2025-5C7) earned the blend on both sides.
+    /// </summary>
+    public double GroupWac { get; set; }
+    public double GroupNetWac { get; set; }
     public double BeginCollatBalance { get; set; }
     public bool HasCrossedGroups { get; private set; }
 
