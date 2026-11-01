@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using GraamFlows.Tests.Fixtures;
 using GraamFlows.Tests.Helpers;
 using GraamFlows.Waterfall.Structures.PayableStructures;
@@ -198,5 +198,32 @@ public class ProrataStructureTests
         leafs.Should().HaveCount(2);
         leafs.Should().Contain(childA);
         leafs.Should().Contain(childB);
+    }
+
+    [Fact]
+    public void PaySp_AFewDollarsOverEveryBalance_PaysThemOffWithoutLosingCash()
+    {
+        // BANK 2017-BNK4: the loans sum $3 more than the classes, so the final paydown carries $3
+        // nobody is owed.
+        var childA = TestPayableBuilder.Mock(balance: 60_000_000, name: "A");
+        var childB = TestPayableBuilder.Mock(balance: 30_128_190.07, name: "B");
+        var prorata = TestPayableBuilder.Prorata(childA, childB);
+
+        prorata.PaySp(null, _testDate, 90_128_193.07, () => { });
+
+        childA.Balance.Should().Be(0);
+        childB.Balance.Should().Be(0);
+    }
+
+    [Fact]
+    public void PaySp_MoreThanTheToleranceOverEveryBalance_StillThrows()
+    {
+        var childA = TestPayableBuilder.Mock(balance: 1_000, name: "A");
+        var childB = TestPayableBuilder.Mock(balance: 1_000, name: "B");
+        var prorata = TestPayableBuilder.Prorata(childA, childB);
+
+        var act = () => prorata.PaySp(null, _testDate, 2_000 + ProrataStructure.SurplusTolerance + 1, () => { });
+
+        act.Should().Throw<GraamFlows.Util.PrincipalDistributionException>();
     }
 }
