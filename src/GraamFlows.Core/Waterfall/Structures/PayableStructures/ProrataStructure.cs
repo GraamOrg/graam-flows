@@ -9,6 +9,13 @@ public class ProrataStructure : BasePayable
 {
     private readonly IList<IPayable> _payables;
 
+    /// <summary>
+    ///     Principal the step may be left holding once every class it can pay is paid: rounding
+    ///     between the collateral and the classes, not a structure that loses cash (the same $100
+    ///     SequentialStructure allows).
+    /// </summary>
+    public const double SurplusTolerance = 100;
+
     public ProrataStructure(IList<IPayable> payables)
     {
         _payables = payables;
@@ -131,9 +138,13 @@ public class ProrataStructure : BasePayable
                 PayPayables(parent, _payables, cfDate, remPrin, pay, payRuleExec, true);
             else if (parent != null && parent.CurrentBalance(cfDate) >= remPrin)
                 pay.Invoke(parent, remPrin);
-            else
+            else if (remPrin > SurplusTolerance)
                 Exceptions.PrincipalDistributionException(this, cfDate,
                     $"Paying Prorata {prin} but only paid {amtPaid}. Cause lost cashflow of {prin - amtPaid}");
+            // Else: a few dollars more principal than the classes owe, with nowhere left to go — the
+            // residual's, as SequentialStructure treats it. BANK 2017-BNK4's loans sum $3 over its
+            // classes ($1,008,188,845 against $1,008,188,842: per-loan rounding in the filing), and
+            // the deal's final paydown threw here and priced nothing.
         }
     }
 
