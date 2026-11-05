@@ -1,5 +1,7 @@
+﻿using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using GraamFlows.Objects.DataObjects;
@@ -14,22 +16,53 @@ public static class RulesBuilder
 {
     private static readonly Regex RuleNameRegex = new("[^0-9a-zA-Z]+");
 
+    // Every assembly loaded into AssemblyLoadContext.Default stays for the life of the process:
+    // the default context is not collectible. Compiling and loading a fresh RulesHost on every
+    // /api/Waterfall request therefore grew the process by one assembly (plus its Roslyn
+    // compilation) per request, without bound. The generated code is a pure function of the deal's
+    // formulas, so identical code is compiled and loaded once and every later request reuses it.
+    private static readonly ConcurrentDictionary<string, Lazy<Assembly>> CompiledByCode = new();
+
+    private static readonly Lazy<IReadOnlyList<MetadataReference>> References = new(BuildReferences);
+
     public static Assembly CompileRules(IDeal deal)
     {
         if (deal.EncodedRules != null)
         {
             var array = Decode(deal.EncodedRules);
-            var assem = AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(array));
-            return assem;
+            return LoadOnce("bin:" + Hash(array), () => AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(array)));
         }
 
         var code = BuildCode(deal);
-        var ms = BuildAssembly(code);
-
-        ms.Seek(0, SeekOrigin.Begin);
-        var assembly = AssemblyLoadContext.Default.LoadFromStream(ms);
-        return assembly;
+        return LoadOnce("src:" + Hash(Encoding.UTF8.GetBytes(code)), () =>
+        {
+            var ms = BuildAssembly(code);
+            ms.Seek(0, SeekOrigin.Begin);
+            return AssemblyLoadContext.Default.LoadFromStream(ms);
+        });
     }
+
+    /// <summary>Number of distinct rule assemblies loaded into this process (for diagnostics/tests).</summary>
+    public static int LoadedRuleAssemblyCount => CompiledByCode.Count;
+
+    private static Assembly LoadOnce(string key, Func<Assembly> load)
+    {
+        var lazy = CompiledByCode.GetOrAdd(key,
+            _ => new Lazy<Assembly>(load, LazyThreadSafetyMode.ExecutionAndPublication));
+        try
+        {
+            return lazy.Value;
+        }
+        catch
+        {
+            // A compile error must not be cached: drop the faulted entry so the error is raised
+            // (and the request retried) the same way it always was.
+            CompiledByCode.TryRemove(new KeyValuePair<string, Lazy<Assembly>>(key, lazy));
+            throw;
+        }
+    }
+
+    private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
     public static string Encode(byte[] rules)
     {
@@ -121,6 +154,37 @@ public static class RulesBuilder
         var syntaxTree = CSharpSyntaxTree.ParseText(code);
         var assemblyName = Path.GetRandomFileName();
 
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            new[] { syntaxTree },
+            References.Value,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var ms = new MemoryStream();
+
+        var result = compilation.Emit(ms);
+        if (!result.Success)
+        {
+            var failures = result.Diagnostics.Where(diagnostic =>
+                diagnostic.IsWarningAsError ||
+                diagnostic.Severity == DiagnosticSeverity.Error);
+
+            var message = new StringBuilder("CSharpCompilation error: ");
+            foreach (var diagnostic in failures)
+            {
+                if (message.Length > 0)
+                    message.Append(", ");
+                message.Append($"{diagnostic.Id}: {diagnostic.GetMessage()}");
+            }
+
+            throw new Exception(message.ToString());
+        }
+
+        return ms;
+    }
+
+
+    private static IReadOnlyList<MetadataReference> BuildReferences()
+    {
         var references = new List<MetadataReference>();
 
         // Add references from the current assembly's dependencies
@@ -165,34 +229,8 @@ public static class RulesBuilder
                 references.Add(MetadataReference.CreateFromFile(netstandard));
         }
 
-        var compilation = CSharpCompilation.Create(
-            assemblyName,
-            new[] { syntaxTree },
-            references.Distinct(),
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-        var ms = new MemoryStream();
-
-        var result = compilation.Emit(ms);
-        if (!result.Success)
-        {
-            var failures = result.Diagnostics.Where(diagnostic =>
-                diagnostic.IsWarningAsError ||
-                diagnostic.Severity == DiagnosticSeverity.Error);
-
-            var message = new StringBuilder("CSharpCompilation error: ");
-            foreach (var diagnostic in failures)
-            {
-                if (message.Length > 0)
-                    message.Append(", ");
-                message.Append($"{diagnostic.Id}: {diagnostic.GetMessage()}");
-            }
-
-            throw new Exception(message.ToString());
-        }
-
-        return ms;
+        return references.Distinct().ToList();
     }
-
 
     public static string GetRuleName(IPayRule payRule)
     {
