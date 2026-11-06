@@ -53,8 +53,9 @@ internal static class CardProgram
         Action = TriggerAction.EarlyAmortization
     };
 
+    /// <param name="freeze">a test's choice. No real program's value is stated or implied here.</param>
     public static RevolvingProgram Program(RecoveryBucket bucket = RecoveryBucket.Finance, int? actionLag = 0,
-        IReadOnlyList<TriggerTest>? triggers = null)
+        IReadOnlyList<TriggerTest>? triggers = null, PrincipalFreeze freeze = PrincipalFreeze.FrozenPercent)
     {
         return new RevolvingProgram
         {
@@ -62,6 +63,7 @@ internal static class CardProgram
             RecoveryBucket = bucket,
             PoolMeasure = PoolMeasure.PeriodStart,
             ActionLag = actionLag,
+            PrincipalFreeze = freeze,
             FinanceSteps = FinanceSteps,
             PrincipalSteps = PrincipalSteps,
             Triggers = triggers ?? Array.Empty<TriggerTest>()

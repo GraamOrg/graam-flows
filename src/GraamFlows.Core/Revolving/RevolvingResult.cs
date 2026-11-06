@@ -29,6 +29,10 @@ public sealed record SeriesPeriod
     public double FloatingPct { get; init; }
     public double PrincipalPct { get; init; }
     public double FinanceAllocation { get; init; }
+
+    /// <summary>What group reallocation gave the series. Null if the program does not reallocate.</summary>
+    public double? ReallocatedFinance { get; init; }
+
     public double PrincipalAllocation { get; init; }
     public double InvestorDefault { get; init; }
     public double InvestedAmount { get; init; }

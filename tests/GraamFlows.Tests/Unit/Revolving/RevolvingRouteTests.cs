@@ -22,6 +22,7 @@ public class RevolvingRouteTests
                 RecoveryBucket = "FINANCE",
                 PoolMeasure = "PERIOD_START",
                 ActionLag = 0,
+                PrincipalFreeze = "FROZEN_PERCENT",
                 FinanceSteps = new List<RevolvingStepDto>
                 {
                     new() { Verb = "PAY_INTEREST", Class = "A" },
@@ -148,6 +149,64 @@ public class RevolvingRouteTests
         var parse = () => JsonSerializer.Deserialize<RevolvingDriversDto>("""{"yield": {"quarterly": 2.0}}""", Options);
 
         parse.Should().Throw<JsonException>().WithMessage("*quarterly*");
+    }
+
+    [Fact]
+    public void AProgramWithNoPrincipalFreezeIsRefusedByName()
+    {
+        Error(Request(r => r.Program.PrincipalFreeze = null))
+            .Should().Contain("Example card trust").And.Contain("principalFreeze");
+    }
+
+    [Fact]
+    public void AnUnknownPrincipalFreezeIsRefusedByName()
+    {
+        Error(Request(r => r.Program.PrincipalFreeze = "FROZEN_POOL")).Should().Contain("FROZEN_POOL");
+    }
+
+    [Fact]
+    public void TheFreezeChangesPrincipalThroughTheRoute()
+    {
+        void Shrinking(RevolvingRequest r)
+        {
+            r.Drivers!.HoldPool = false;
+            r.Drivers.NewReceivablesRate = new RevolvingDriverDto { Values = new[] { 35.0 } };
+        }
+
+        var percent = Ok(Request(Shrinking)).Series["S"].Periods;
+        var numerator = Ok(Request(r =>
+        {
+            Shrinking(r);
+            r.Program.PrincipalFreeze = "FROZEN_NUMERATOR";
+        })).Series["S"].Periods;
+
+        // Revolving through October, frozen from November, and only the numerator follows the pool.
+        percent[4].PrincipalPct.Should().Be(percent[3].PrincipalPct);
+        numerator[3].PrincipalPct.Should().Be(percent[3].PrincipalPct);
+        numerator[4].PrincipalPct.Should().BeGreaterThan(numerator[3].PrincipalPct);
+    }
+
+    [Fact]
+    public void GroupReallocationRunsThroughTheRoute()
+    {
+        var response = Ok(Request(r =>
+            r.Program.GroupSteps = new List<RevolvingStepDto> { new() { Verb = "REALLOCATE_GROUP_FINANCE" } }));
+
+        response.Series["S"].Periods[0].ReallocatedFinance.Should().BeApproximately(
+            response.Series["S"].Periods[0].FinanceAllocation, 1e-6);
+    }
+
+    [Fact]
+    public void WithNoGroupStepsTheRouteReportsNoReallocation()
+    {
+        Ok(Request()).Series["S"].Periods[0].ReallocatedFinance.Should().BeNull();
+    }
+
+    [Fact]
+    public void AnUnknownGroupVerbIsRefusedByName()
+    {
+        Error(Request(r => r.Program.GroupSteps = new List<RevolvingStepDto> { new() { Verb = "POOL_EVERYTHING" } }))
+            .Should().Contain("POOL_EVERYTHING");
     }
 
     [Fact]
