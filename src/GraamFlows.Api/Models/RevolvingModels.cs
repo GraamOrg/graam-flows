@@ -110,6 +110,10 @@ public class RevolvingSeriesDto
     public double[]? ControlledAmount { get; set; }
 
     public DateTime? FirstPayDate { get; set; }
+
+    /// <summary>The day the series closed: the first distribution's interest runs from here.</summary>
+    public DateTime? ClosingDate { get; set; }
+
     public double? RequiredReserve { get; set; }
 
     /// <summary>Where the series stands at the statement date.</summary>

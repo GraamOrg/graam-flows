@@ -202,8 +202,7 @@ public class GroupFinanceReallocationTests
     {
         var month = Month(RunSeptember(Reallocating()), "2026-1");
 
-        // Its 7.2796% base rate is not asserted: 2026-1 closed on September 22, and that first
-        // month's printed rate does not come from any whole day count tried.
+        // Its 7.2796% base rate comes from its closing date: see FirstPeriodTests.
         Math.Round(month.PortfolioYieldPct, 4).Should().Be(31.6945);
     }
 
