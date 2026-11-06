@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
+using GraamFlows.Objects.DataObjects;
 using GraamFlows.Objects.TypeEnum;
 
 namespace GraamFlows.Api.Models;
@@ -419,6 +420,10 @@ public class TrancheDto
     public string TrancheType { get; set; } = "Offered"; // Offered, Residual, Notional
     public string? ClassReference { get; set; }
 
+    /// <summary>A CMBS vertical interest, as the stored deal marks it (see ProrataStructure).</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("_verticalInterest")]
+    public bool VerticalInterest { get; set; }
+
     // #3691: for a class-cut IO strip (TrancheType="Notional"), the funded bond whose
     // amortization its notional tracks (e.g. A-1AX -> A-1A). Distinct from ClassReference
     // (class-GROUP membership); this becomes the DealStructure's ExchangableTranche.
@@ -454,7 +459,7 @@ public class TrancheDto
 public class ReserveAccountConfigDto
 {
     /// <summary>Target reserve as percentage of base balance (e.g., 0.01 = 1.00%)</summary>
-    public double TargetPct { get; set; }
+    public double? TargetPct { get; set; }
 
     /// <summary>Base for target calculation: "CutoffPoolBalance" or "CurrentPoolBalance"</summary>
     public string? TargetBase { get; set; }
@@ -464,6 +469,36 @@ public class ReserveAccountConfigDto
 
     /// <summary>If true, reserve balance cannot exceed aggregate note principal</summary>
     public bool? CapAtNoteBalance { get; set; }
+
+    /// <summary>
+    ///     The domain config, or null when this one states no target. One mapping because
+    ///     `BuildDeal` exists twice, in `WaterfallController` and the CLI's `WaterfallRunner`,
+    ///     and this field once reached only the CLI: the HTTP path ran every reserve on the
+    ///     no-config default while the request looked obeyed.
+    ///
+    ///     A percentage with no balance to take it of, or no percentage, is not a target of
+    ///     zero: read as one, it would release the whole reserve in the first period. The
+    ///     engine's default, the funded balance, is what such a request has always run on.
+    /// </summary>
+    public ReserveAccountConfig? ToConfig(double? balanceAtIssuance)
+    {
+        if (TargetPct is not { } targetPct)
+            return null;
+
+        // "PoolBalance" is the same base under the name a CDI script gives it.
+        var targetBase = TargetBase is "PoolBalance" ? "CurrentPoolBalance" : TargetBase ?? "CutoffPoolBalance";
+        var cutoff = CutoffPoolBalance is > 0 ? CutoffPoolBalance.Value : balanceAtIssuance ?? 0;
+        if (targetBase == "CutoffPoolBalance" && cutoff <= 0)
+            return null;
+
+        return new ReserveAccountConfig
+        {
+            TargetPct = targetPct,
+            TargetBase = targetBase,
+            CutoffPoolBalance = cutoff,
+            CapAtNoteBalance = CapAtNoteBalance ?? true
+        };
+    }
 }
 
 public class DealStructureDto
@@ -596,9 +631,11 @@ public class UnifiedWaterfallDto
 
     /// <summary>
     /// Explicit execution order for ComposableStructure.
-    /// If not provided, order is inferred from Steps array.
+    /// If not provided, the engine runs its default order; it does not read one from Steps,
+    /// except that RESERVE_DEPOSIT is in it only when Steps declares one.
+    /// A name the engine has no step for does nothing.
     /// Example: ["EXPENSE", "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED",
-    ///           "PRINCIPAL_RECOVERY", "RESERVE", "WRITEDOWN", "EXCESS"]
+    ///           "PRINCIPAL_RECOVERY", "WRITEDOWN", "RESERVE_DEPOSIT", "EXCESS"]
     /// </summary>
     public List<string>? ExecutionOrder { get; set; }
 
