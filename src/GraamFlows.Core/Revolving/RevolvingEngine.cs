@@ -71,9 +71,11 @@ public static class RevolvingEngine
                 MoveByDate(s, dates);
             }
 
-            var live = _series.Where(s => !s.PaidInFull).ToList();
+            var live = _series.Where(s => Delinked ? !s.Retired : !s.PaidInFull).ToList();
+            foreach (var s in live)
+                s.Numerator = Delinked ? s.PriorNumerator ?? s.AdjustedInvested : s.AdjustedInvested;
             var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure, _program.PrincipalFreeze!.Value,
-                    live.Select(s => new SeriesClaim(s.Config.Name, s.AdjustedInvested, s.Phase,
+                    live.Select(s => new SeriesClaim(s.Config.Name, s.Numerator, s.Phase,
                         s.FrozenPrincipalPct, s.FrozenNumerator)).ToList())
                 .ToDictionary(a => a.Series);
 
@@ -95,29 +97,41 @@ public static class RevolvingEngine
                 allocatedPrincipal += open.Principal;
             }
 
-            var cashIn = pool.FinanceCash + pool.PrincipalCash + earnings + openingAccounts;
+            var accountEarnings = month.AccountEarnings;
+            var cashIn = pool.FinanceCash + pool.PrincipalCash + earnings + openingAccounts + accountEarnings;
 
-            var running = _series.Where(s => RunsWaterfall(s, dates)).ToList();
+            var running = Delinked ? live : _series.Where(s => RunsWaterfall(s, dates)).ToList();
             var shared = new SharedCash();
-            foreach (var step in _program.GroupSteps)
-                switch (step.Verb)
-                {
-                    case WaterfallVerb.ReallocateGroupFinance:
-                        GroupFinanceReallocation.Apply(running);
-                        break;
-                    default:
-                        throw new InvalidOperationException($"{step.Verb} does not run across a group.");
-                }
+            NoteMonth? notes = null;
+            var segregated = 0.0;
+            if (Delinked)
+            {
+                segregated = SegregatedFinance(live, earnings, pool.FinanceCash - allocatedFinance);
+                allocatedFinance += segregated;
+                notes = RunNotes(live, opened, allocations, accountEarnings + segregated, dates);
+            }
+            else
+            {
+                foreach (var step in _program.GroupSteps)
+                    switch (step.Verb)
+                    {
+                        case WaterfallVerb.ReallocateGroupFinance:
+                            GroupFinanceReallocation.Apply(running);
+                            break;
+                        default:
+                            throw new InvalidOperationException($"{step.Verb} does not run across a group.");
+                    }
 
-            RunFinance(running, shared);
-            foreach (var s in running)
-                RevolvingWaterfall.WriteDownUncovered(s);
-            RunPrincipal(running, shared, dates);
+                RunFinance(running, shared);
+                foreach (var s in running)
+                    RevolvingWaterfall.WriteDownUncovered(s);
+                RunPrincipal(running, shared, dates);
+            }
 
             var transferorFinance = pool.FinanceCash - allocatedFinance + _series.Sum(s => s.TransferorFinance)
-                                    + shared.Excess.Values.Sum();
+                                    + shared.Excess.Values.Sum() + (notes?.Excess ?? 0.0);
             var transferorPrincipal = pool.PrincipalCash - allocatedPrincipal + _series.Sum(s => s.TransferorPrincipal)
-                                      + shared.Principal.Values.Sum();
+                                      + shared.Principal.Values.Sum() + (notes?.TransferorPrincipal ?? 0.0);
 
             foreach (var s in _series)
             {
@@ -125,8 +139,12 @@ public static class RevolvingEngine
                 transferorPrincipal += SweepCents(s, dates, s.Principal, "principal", v => s.Principal = v);
             }
 
+            var notePeriod = notes == null
+                ? null
+                : ClosedNotes(notes, opened, allocations, accountEarnings, segregated, month.InterestAccountEarnings, dates);
+
             foreach (var s in _series)
-                CloseSeries(s, opened[s], allocations.GetValueOrDefault(s.Config.Name), readings[s], dates);
+                CloseSeries(s, opened[s], allocations.GetValueOrDefault(s.Config.Name), readings[s], dates, notePeriod);
 
             var cashOut = transferorFinance + transferorPrincipal
                           + _series.Sum(s => s.Classes.Sum(c => c.InterestPaid + c.PrincipalPaid)
@@ -143,7 +161,8 @@ public static class RevolvingEngine
                 TransferorPrincipal = transferorPrincipal,
                 CashIn = cashIn,
                 CashOut = cashOut,
-                ReportingTests = ReportingTests(pool, invested)
+                ReportingTests = ReportingTests(pool, invested),
+                Notes = notePeriod
             });
             _pool = pool.Ending;
         }
@@ -168,14 +187,17 @@ public static class RevolvingEngine
                 FinanceCollections = actual.FinanceCollections,
                 Recoveries = actual.Recoveries,
                 ChargeOffs = actual.ChargeOffs,
-                Dilution = actual.Dilution
+                Dilution = actual.Dilution,
+                AllocationBalance = actual.AllocationBalance
             }, bucket);
             return new ProgramPeriod
             {
                 Dates = replayedDates,
                 Pool = pool,
                 LedgerBreak = actual.Ending is { } ending ? pool.Ending - ending : null,
-                RollBreak = actual.Beginning is { } beginning ? beginning - _pool : null
+                RollBreak = actual.Beginning is { } beginning ? beginning - _pool : null,
+                InterestAccountEarnings = actual.InterestAccountEarnings,
+                PrincipalAccountEarnings = actual.PrincipalAccountEarnings
             };
         }
 
@@ -219,15 +241,19 @@ public static class RevolvingEngine
 
             var closing = ClosingInThisPeriod(s, dates);
             s.InterestDays = closing is { } from ? (dates.DistributionDate - from).Days : dates.AccrualDays;
-            foreach (var c in s.Classes)
+
+            // A tranche is allocated collections from the month it is issued, and owes nothing
+            // until its first payment month, when its whole first period falls due at once.
+            var accrues = !Delinked || RunsWaterfall(s, dates);
+            foreach (var c in s.Classes.Where(_ => accrues))
                 AccrueInterest(c, dates, closing);
             foreach (var fee in s.Config.Fees)
-                s.AccrueFee(fee, adjusted);
+                s.AccrueFee(fee, Delinked ? s.Numerator : adjusted);
 
             var earnings = s.Funding.Earnings(EarningsRatePct(dates.Period));
             var finance = pool.FinanceCash * allocation.FloatingPct;
             var principal = pool.PrincipalCash * allocation.PrincipalPct;
-            var investorDefault = pool.ChargeOffs * allocation.FloatingPct;
+            var investorDefault = pool.DefaultAmount * allocation.FloatingPct;
             AllocateDefault(s, investorDefault, invested);
 
             if (s.Phase == SeriesPhase.EarlyAmortization && s.Funding.Balance > 0)
@@ -249,7 +275,7 @@ public static class RevolvingEngine
             s.Reserve -= surplus;
             s.ReserveRelease = surplus;
 
-            if (RunsWaterfall(s, dates))
+            if (Delinked || RunsWaterfall(s, dates))
             {
                 s.Finance = finance + earnings + surplus + s.CarriedFinance;
                 s.InvestorFinance = finance + s.CarriedFinance;
@@ -267,6 +293,91 @@ public static class RevolvingEngine
             }
 
             return new MonthOpen(invested, finance, principal, investorDefault, earnings);
+        }
+
+        private bool Delinked => _program.Delinked != null;
+
+        /// <summary>
+        ///     Interest on what the funding accounts held at the close of the month before, less what
+        ///     they earned, from finance that would otherwise be the transferor's. It starts by itself
+        ///     in the second month of deposits, and a tranche paid off has none.
+        /// </summary>
+        private double SegregatedFinance(List<SeriesRun> live, double earned, double transferorFinance)
+        {
+            if (_program.Delinked is not { SegregatedFinance: true })
+                return 0.0;
+
+            var carry = live.Sum(s => s.PriorFunding * s.Classes[0].RatePct / 100.0 / 12.0) - earned;
+            return Math.Min(Math.Max(0.0, carry), Math.Max(0.0, transferorFinance));
+        }
+
+        /// <summary>A note series' month: one finance bucket, one principal bucket, class by class.</summary>
+        private NoteMonth RunNotes(List<SeriesRun> live, Dictionary<SeriesRun, MonthOpen> opened,
+            Dictionary<string, SeriesAllocation> allocations, double addedFinance, RevolvingPeriodDates dates)
+        {
+            var notes = new NoteMonth(_program.Delinked!, live);
+            Subordination.Measure(notes, s => s.OpeningAdjusted);
+            foreach (var s in live)
+            {
+                notes.Finance += s.Finance;
+                notes.Principal += s.Principal;
+                if (s.ClassKey != notes.SeniorClass)
+                    notes.JuniorPrincipalLeft += opened[s].Principal;
+                s.Finance = 0.0;
+                s.Principal = 0.0;
+            }
+
+            notes.Finance += addedFinance;
+            NoteWaterfall.RunFinance(notes, _program.FinanceSteps);
+
+            var uncovered = live.Sum(s => s.Classes[0].DefaultDue);
+            foreach (var s in live)
+                s.Classes[0].DefaultDue = 0.0;
+            Subordination.AllocateCharges(notes, uncovered);
+
+            NoteWaterfall.RunPrincipal(notes, _program.PrincipalSteps, dates.DistributionDate);
+            return notes;
+        }
+
+        private NotePeriod ClosedNotes(NoteMonth notes, Dictionary<SeriesRun, MonthOpen> opened,
+            Dictionary<string, SeriesAllocation> allocations, double earnings, double segregated,
+            double interestAccountEarnings, RevolvingPeriodDates dates)
+        {
+            // A required amount stands on the month's opening adjusted amount, and a tranche paid
+            // this month no longer requires any.
+            Subordination.Measure(notes, s => s.Retired ? 0.0 : s.OpeningAdjusted);
+
+            var numerator = notes.Tranches.Sum(s => s.Numerator);
+            var frozen = notes.Tranches.Sum(s => s.Phase == SeriesPhase.Revolving
+                ? s.Numerator
+                : s.FrozenNumerator ?? s.Numerator);
+            var finance = notes.Tranches.Sum(s => opened[s].Finance);
+            var investorDefault = notes.Tranches.Sum(s => opened[s].InvestorDefault);
+            var financeYield = RevolvingMetrics.FinanceYieldPct(finance + interestAccountEarnings, numerator, dates);
+            var netLoss = RevolvingMetrics.MonthlyAnnualizedPct(investorDefault, numerator);
+            var coupon = RevolvingMetrics.WeightedCouponPct(notes.Tranches.SelectMany(s => s.Classes));
+            var servicing = RevolvingMetrics.FeePct(notes.Tranches);
+            return new NotePeriod
+            {
+                Numerator = numerator,
+                PrincipalNumerator = frozen,
+                FinanceAllocation = finance,
+                PrincipalAllocation = notes.Tranches.Sum(s => opened[s].Principal),
+                InvestorDefault = investorDefault,
+                FeesPaid = notes.Tranches.Sum(s => s.FeesPaid),
+                InterestPaid = notes.Tranches.Sum(s => s.Classes[0].InterestPaid),
+                AccountEarnings = earnings,
+                SegregatedFinance = segregated,
+                ExcessDollars = notes.Excess,
+                UncoveredDefault = notes.UncoveredDefault,
+                PrincipalReallocated = notes.PrincipalReallocated,
+                FinanceYieldPct = financeYield,
+                NetLossPct = netLoss,
+                PortfolioYieldPct = financeYield - netLoss,
+                CouponPct = coupon,
+                BaseRatePct = coupon + servicing,
+                ExcessSpreadPct = financeYield - netLoss - coupon - servicing
+            };
         }
 
         /// <summary>The series' closing date, in the one month its interest runs from there.</summary>
@@ -434,7 +545,7 @@ public static class RevolvingEngine
         }
 
         private void CloseSeries(SeriesRun s, MonthOpen open, SeriesAllocation allocation,
-            IReadOnlyList<TriggerReading> readings, RevolvingPeriodDates dates)
+            IReadOnlyList<TriggerReading> readings, RevolvingPeriodDates dates, NotePeriod? notes)
         {
             if (s.Phase == SeriesPhase.Accumulating)
                 s.Funding.CloseMonth(s.ControlledThisMonth, s.FundingRoom);
@@ -450,6 +561,14 @@ public static class RevolvingEngine
             // trust to the 4 decimals printed.
             var baseRatePct = RevolvingMetrics.BaseRatePct(s.Classes.Sum(c => c.InterestAccrued), open.Invested, s.InterestDays)
                               + RevolvingMetrics.BaseRatePct(s.FeesAccrued, open.Invested, dates.AccrualDays);
+
+            // A note series' tests read the whole series, so every tranche reads the same months.
+            if (notes != null)
+            {
+                yieldPct = notes.PortfolioYieldPct;
+                baseRatePct = notes.BaseRatePct;
+            }
+
             if (open.Invested > 0)
             {
                 Remember(s, TriggerMetric.PortfolioYield, yieldPct);
@@ -510,14 +629,37 @@ public static class RevolvingEngine
                 BaseRatePct = baseRatePct,
                 ExcessSpreadPct = yieldPct - baseRatePct,
                 ExcessDollars = Math.Max(0.0, s.Surplus - s.ExcessIn),
-                Triggers = readings
+                Triggers = readings,
+                FrozenPrincipalPct = s.FrozenPrincipalPct * 100.0,
+                FrozenNumerator = s.FrozenNumerator,
+                Tranche = notes == null ? null : TrancheRow(s)
             });
+
+            if (notes != null)
+            {
+                s.PriorNumerator = s.OpeningAdjusted;
+                s.PriorFunding = s.OpeningFunding;
+            }
 
             TrackPhase(s, dates);
 
             if (s.Phase == SeriesPhase.Accumulating && s.Config.ExpectedDate is { } expected
                                                     && RevolvingWaterfall.OnOrAfterMonth(dates.DistributionDate, expected))
                 s.Machine.MoveTo(s.PaidInFull ? SeriesPhase.Amortizing : SeriesPhase.EarlyAmortization);
+        }
+
+        private static TranchePeriod TrancheRow(SeriesRun s)
+        {
+            return new TranchePeriod
+            {
+                Numerator = s.Numerator,
+                OpeningNominalLiquidation = s.OpeningAdjusted,
+                NextNumerator = s.OpeningAdjusted,
+                NextPriorFunding = s.OpeningFunding,
+                RequiredSubordination = new Dictionary<string, double>(s.Required),
+                UsageThisMonth = new Dictionary<string, double>(s.UsageThisMonth),
+                Usage = new Dictionary<string, double>(s.Usage)
+            };
         }
 
         private void TrackPhase(SeriesRun s, RevolvingPeriodDates dates)
@@ -575,6 +717,9 @@ public static class RevolvingEngine
             var disclosures = new List<string>();
             if (_run.FundingEarningsRate == null || _run.FundingEarningsRate.Count == 0)
                 disclosures.Add("No funding account earnings rate was supplied, so funding accounts earned 0.");
+
+            if (Delinked && _run.ActualPeriods.All(a => a is { InterestAccountEarnings: 0, PrincipalAccountEarnings: 0 }))
+                disclosures.Add("No account earnings were supplied, so cash waiting in the funding accounts earned 0.");
 
             if (_run.Drivers is { } drivers)
             {

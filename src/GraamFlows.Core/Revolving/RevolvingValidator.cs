@@ -14,8 +14,13 @@ internal static class RevolvingValidator
 
         ValidateRun(run);
         ValidateSteps(program.Name, "group", program.GroupSteps, WaterfallVerbs.RunsOnGroup);
-        ValidateSteps(program.Name, "finance", program.FinanceSteps, WaterfallVerbs.RunsOnFinance);
-        ValidateSteps(program.Name, "principal", program.PrincipalSteps, WaterfallVerbs.RunsOnPrincipal);
+        var delinked = program.Delinked != null;
+        ValidateSteps(program.Name, "finance", program.FinanceSteps,
+            verb => WaterfallVerbs.RunsOnFinance(verb) && !(delinked && verb == WaterfallVerb.ReallocatePrincipal));
+        ValidateSteps(program.Name, "principal", program.PrincipalSteps,
+            verb => WaterfallVerbs.RunsOnPrincipal(verb) || (delinked && verb == WaterfallVerb.ReallocatePrincipal));
+        if (program.Delinked is { } notes)
+            ValidateNotes(program.Name, notes);
         foreach (var test in program.Triggers)
             ValidateTrigger(program, test);
 
@@ -119,13 +124,10 @@ internal static class RevolvingValidator
         foreach (var key in series.FundedClasses)
             RequireClass(series, keys, key, "fundedClasses");
 
-        foreach (var step in program.FinanceSteps.Concat(program.PrincipalSteps))
-        {
-            if (step.Class != null)
-                RequireClass(series, keys, step.Class, step.Verb.ToString());
-            foreach (var key in (step.From ?? Array.Empty<string>()).Concat(step.WhenPaid ?? Array.Empty<string>()))
-                RequireClass(series, keys, key, step.Verb.ToString());
-        }
+        if (program.Delinked is { } notes)
+            ValidateTranche(notes, series, keys);
+        else
+            ValidateStepClasses(program, series, keys);
 
         if (series.AccumulationStart != null || series.Phase == SeriesPhase.Accumulating)
         {
@@ -153,6 +155,41 @@ internal static class RevolvingValidator
 
         if (series.Phase != SeriesPhase.Revolving)
             RequireFrozenValue(program, series);
+    }
+
+    private static void ValidateStepClasses(RevolvingProgram program, RevolvingSeries series, HashSet<string> keys)
+    {
+        foreach (var step in program.FinanceSteps.Concat(program.PrincipalSteps))
+        {
+            if (step.Class != null)
+                RequireClass(series, keys, step.Class, step.Verb.ToString());
+            foreach (var key in (step.From ?? Array.Empty<string>()).Concat(step.WhenPaid ?? Array.Empty<string>()))
+                RequireClass(series, keys, key, step.Verb.ToString());
+        }
+    }
+
+    /// <summary>A step on a note series names a class of the whole series, so it is checked there.</summary>
+    private static void ValidateNotes(string program, DelinkedNotes notes)
+    {
+        if (notes.ClassOrder.Count == 0 || notes.ClassOrder.Distinct().Count() != notes.ClassOrder.Count)
+            throw new RevolvingConfigException($"Program '{program}': delinked.classOrder must name distinct classes.");
+    }
+
+    private static void ValidateTranche(DelinkedNotes notes, RevolvingSeries series, HashSet<string> keys)
+    {
+        if (keys.Count != 1)
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' is a tranche of a de-linked note series and must have one class.");
+
+        var key = keys.Single();
+        if (!notes.ClassOrder.Contains(key))
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' is class '{key}', which delinked.classOrder does not name.");
+
+        foreach (var junior in series.RequiredSubordination.Keys)
+            if (notes.ClassOrder.ToList().IndexOf(junior) <= notes.ClassOrder.ToList().IndexOf(key))
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' requires subordination of class '{junior}', which is not junior to it.");
     }
 
     private static void RequireFrozenValue(RevolvingProgram program, RevolvingSeries series)
