@@ -41,6 +41,7 @@ public class Tranche : ITranche
     public TrancheTypeEnum TrancheTypeEnum { get; set; }
     public MarketDataInstEnum FloaterIndexEnum { get; set; }
     public bool IsPseudo { get; set; }
+    public bool VerticalInterest { get; set; }
     public string CouponFormula { get; set; }
     public string Description { get; set; }
     public int InterestPriority { get; set; }
