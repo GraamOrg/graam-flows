@@ -26,6 +26,11 @@ public interface IPayable
     void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec);
 
     /// <summary>
+    /// A CMBS vertical interest (see ProrataStructure.PayInterest). Only a class can be one.
+    /// </summary>
+    bool IsVerticalInterest => false;
+
+    /// <summary>
     /// Pay interest through this payable structure.
     /// </summary>
     /// <param name="caller">Parent payable (null if top-level)</param>
