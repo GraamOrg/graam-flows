@@ -214,15 +214,7 @@ public class WaterfallRunner
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,
                 Deal = deal,
-                ReserveConfig = trancheDto.ReserveConfig != null
-                    ? new ReserveAccountConfig
-                    {
-                        TargetPct = trancheDto.ReserveConfig.TargetPct,
-                        TargetBase = trancheDto.ReserveConfig.TargetBase ?? "CutoffPoolBalance",
-                        CutoffPoolBalance = trancheDto.ReserveConfig.CutoffPoolBalance ?? dto.BalanceAtIssuance ?? 0,
-                        CapAtNoteBalance = trancheDto.ReserveConfig.CapAtNoteBalance ?? true
-                    }
-                    : null
+                ReserveConfig = trancheDto.ReserveConfig?.ToConfig(dto.BalanceAtIssuance)
             };
 
             deal.Tranches.Add(tranche);
