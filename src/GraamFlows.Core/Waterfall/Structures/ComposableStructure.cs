@@ -852,6 +852,12 @@ public class ComposableStructure : BaseStructure
                 case "CAP_CARRYOVER":
                     availableInterest = PayCapCarryoverStep(dynGroup, adjPeriodCf, availableInterest);
                     break;
+
+                default:
+                    throw new DealModelingException(deal.DealName,
+                        $"executionOrder names '{step}', which no step answers to. A PRINCIPAL step " +
+                        "runs as PRINCIPAL_SCHEDULED, PRINCIPAL_UNSCHEDULED or PRINCIPAL_RECOVERY, " +
+                        "by its source.");
             }
         }
 
