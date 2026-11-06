@@ -230,6 +230,23 @@ public class DelinkedNotesTests
     }
 
     [Fact]
+    public void AClosingOnTheThirtyFirstCountsFromTheThirtieth()
+    {
+        // Class A(2024-1) closed Jan 31, 2024 and first paid Feb 15: printed $2,395,833.34, 15 days.
+        var tranche = NoteProgram.Tranche("A(2024-1)", "A", 1_250_000_000.0, 4.60) with
+        {
+            ClosingDate = new DateTime(2024, 1, 31),
+            FirstPayDate = new DateTime(2024, 2, 15)
+        };
+        var month = NoteProgram.Month(9_036_900_000.0, 9_250_400_000.0, 3_000_000_000.0, 180_000_000.0,
+            15_000_000.0, 3_000_000.0, 31);
+        var result = NoteProgram.Execute(NoteProgram.Program(), new DateTime(2023, 12, 31), new[] { month },
+            new[] { tranche, NoteProgram.Tranche("rest", "A", 4_500_000_000.0, 4.7) });
+
+        Named(result, "A(2024-1)").Classes["A"][0].InterestPaid.Should().BeApproximately(2_395_833.33, FiveCents);
+    }
+
+    [Fact]
     public void RecoveriesInPrincipalLeaveTheInvestorsTheNetDefault()
     {
         var result = RunSep2026();

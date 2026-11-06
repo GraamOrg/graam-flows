@@ -410,8 +410,10 @@ public static class RevolvingEngine
             if (basis == AccrualBasis.Actual360)
                 return (dates.DistributionDate - from).Days / 360.0;
 
+            // On 30/360 a closing on the 31st counts from the 30th.
             var pay = dates.DistributionDate;
-            var days = 360 * (pay.Year - from.Year) + 30 * (pay.Month - from.Month) + (_run.DistributionDay - from.Day);
+            var days = 360 * (pay.Year - from.Year) + 30 * (pay.Month - from.Month)
+                                                    + (_run.DistributionDay - Math.Min(from.Day, 30));
             return days / 360.0;
         }
 
