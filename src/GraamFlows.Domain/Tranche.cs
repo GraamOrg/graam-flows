@@ -16,6 +16,7 @@ public class Tranche : ITranche
     }
 
     public bool IsPseudo { get; set; }
+    public bool VerticalInterest { get; set; }
 
     public IDeal Deal { get; set; }
 
