@@ -375,6 +375,10 @@ public class PeriodCashflowDto
     public double Interest { get; set; }
     public double NetInterest { get; set; }
     public double ServiceFee { get; set; }
+
+    /// <summary>Inbound only: see <see cref="GraamFlows.Objects.DataObjects.PeriodCashflows.InterestWithheld" />.</summary>
+    public double InterestWithheld { get; set; }
+
     public double DefaultedPrincipal { get; set; }
     public double RecoveryPrincipal { get; set; }
 
