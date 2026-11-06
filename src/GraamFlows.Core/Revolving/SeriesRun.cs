@@ -20,6 +20,10 @@ internal sealed class ClassRun
     public double DefaultDue { get; set; }
 
     public double BeginInvested { get; set; }
+
+    /// <summary>The outstanding amount as the month opened.</summary>
+    public double BeginOutstanding { get; set; }
+
     public double RatePct { get; set; }
     public double? IndexValue { get; set; }
     public double InterestAccrued { get; set; }
@@ -32,6 +36,8 @@ internal sealed class ClassRun
     public void OpenMonth()
     {
         BeginInvested = Invested;
+        BeginOutstanding = Outstanding;
+        RatePct = Config.Coupon;
         InterestAccrued = 0.0;
         InterestPaid = 0.0;
         PrincipalPaid = 0.0;
@@ -82,6 +88,9 @@ internal sealed class SeriesRun
         AccumulationMonths = config.AccumulationMonthsRun;
         Latches = tests.Select(t => new TriggerLatch(t, actionLag)).ToList();
         History = config.History.ToDictionary(h => h.Key, h => h.Value.ToList());
+        PriorNumerator = config.PriorNumerator;
+        PriorFunding = config.PriorFunding;
+        Usage = config.Usage.ToDictionary(u => u.Key, u => u.Value);
     }
 
     private SeriesRun(SeriesRun other)
@@ -99,6 +108,7 @@ internal sealed class SeriesRun
         Principal = other.Principal;
         Latches = other.Latches;
         History = other.History;
+        Usage = other.Usage;
     }
 
     public RevolvingSeries Config { get; }
@@ -148,12 +158,45 @@ internal sealed class SeriesRun
 
     public SeriesPhase Phase => Machine.Phase;
 
+    /// <summary>On a tranche, the note class it belongs to.</summary>
+    public string ClassKey => Classes[0].Config.Key;
+
+    /// <summary>On a tranche, its nominal liquidation amount at the close of the month before this one.</summary>
+    public double? PriorNumerator { get; set; }
+
+    /// <summary>On a tranche, its funding account at the close of the month before this one.</summary>
+    public double PriorFunding { get; set; }
+
+    /// <summary>On a tranche, what the allocator took for it this month.</summary>
+    public double Numerator { get; set; }
+
+    /// <summary>The adjusted amount as this month opened.</summary>
+    public double OpeningAdjusted { get; private set; }
+
+    /// <summary>The funding account as this month opened.</summary>
+    public double OpeningFunding { get; private set; }
+
+    /// <summary>On a tranche, each junior class's required amount.</summary>
+    public Dictionary<string, double> Required { get; } = new();
+
+    /// <summary>On a tranche, what it has used of each junior class.</summary>
+    public Dictionary<string, double> Usage { get; }
+
+    /// <summary>On a tranche, what changed in <see cref="Usage" /> this month.</summary>
+    public Dictionary<string, double> UsageThisMonth { get; } = new();
+
     public double TotalInvested => Classes.Sum(c => c.Invested);
 
     /// <summary>The allocator's numerator: invested amounts less what the account already holds.</summary>
     public double AdjustedInvested => Math.Max(0.0, TotalInvested - Funding.Balance);
 
     public bool PaidInFull => Classes.All(c => c.Invested < Cent) && Funding.Balance < Cent;
+
+    /// <summary>
+    ///     Owes nothing. A tranche written down to nothing is not retired: it gets no allocation, but
+    ///     finance can still reimburse it, and its interest still runs.
+    /// </summary>
+    public bool Retired => Classes.All(c => c.Outstanding < Cent) && Funding.Balance < Cent;
 
     public double FundingRoom => Math.Max(0.0,
         Config.FundedClasses.Sum(key => ClassFor(key).Invested) - Funding.Balance);
@@ -186,6 +229,9 @@ internal sealed class SeriesRun
 
     public void OpenMonth()
     {
+        OpeningAdjusted = AdjustedInvested;
+        OpeningFunding = Funding.Balance;
+        UsageThisMonth.Clear();
         Funding.OpenMonth();
         foreach (var c in Classes)
             c.OpenMonth();

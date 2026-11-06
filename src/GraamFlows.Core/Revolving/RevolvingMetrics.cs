@@ -23,6 +23,36 @@ public static class RevolvingMetrics
         return Annualized(interestAndFees, invested, accrualDays);
     }
 
+    /// <summary>
+    ///     A note series' printed finance yield: annualized on the days of the period's own year, so a
+    ///     leap year prints 366. Chase's yield prints this way and its net losses do not.
+    /// </summary>
+    public static double FinanceYieldPct(double finance, double numerator, RevolvingPeriodDates dates)
+    {
+        var year = DateTime.IsLeapYear(dates.PeriodEnd.Year) ? 366.0 : 365.0;
+        return numerator > 0 ? finance / numerator * year / dates.PeriodEnd.Day * 100.0 : 0.0;
+    }
+
+    /// <summary>A month's dollars over the numerator, times 12.</summary>
+    public static double MonthlyAnnualizedPct(double amount, double numerator)
+    {
+        return numerator > 0 ? amount / numerator * 1200.0 : 0.0;
+    }
+
+    /// <summary>The weighted average of class rates by outstanding amount.</summary>
+    internal static double WeightedCouponPct(IEnumerable<ClassRun> classes)
+    {
+        var rows = classes.ToList();
+        var outstanding = rows.Sum(c => c.BeginOutstanding);
+        return outstanding > 0 ? rows.Sum(c => c.BeginOutstanding * c.RatePct) / outstanding : 0.0;
+    }
+
+    /// <summary>The fee rate a note series states: the same on every tranche.</summary>
+    internal static double FeePct(IEnumerable<SeriesRun> tranches)
+    {
+        return tranches.SelectMany(t => t.Config.Fees).Select(f => f.RatePct).DefaultIfEmpty(0.0).Max();
+    }
+
     private static double Annualized(double amount, double invested, int days)
     {
         return invested > 0 ? amount / invested * 365.0 / days * 100.0 : 0.0;
