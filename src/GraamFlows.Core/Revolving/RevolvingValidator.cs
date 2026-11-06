@@ -9,7 +9,11 @@ internal static class RevolvingValidator
         if (string.IsNullOrWhiteSpace(program.Name))
             throw new RevolvingConfigException("A revolving program must state its name.");
 
+        if (program.PrincipalFreeze == null)
+            throw new RevolvingConfigException($"Program '{program.Name}' states no principalFreeze.");
+
         ValidateRun(run);
+        ValidateSteps(program.Name, "group", program.GroupSteps, WaterfallVerbs.RunsOnGroup);
         ValidateSteps(program.Name, "finance", program.FinanceSteps, WaterfallVerbs.RunsOnFinance);
         ValidateSteps(program.Name, "principal", program.PrincipalSteps, WaterfallVerbs.RunsOnPrincipal);
         foreach (var test in program.Triggers)
@@ -137,10 +141,18 @@ internal static class RevolvingValidator
             throw new RevolvingConfigException(
                 $"Series '{series.Name}' has an expectedDate but no accumulationStart, so it would never pay.");
 
-        if (series.Phase != SeriesPhase.Revolving && series.FrozenPrincipalPct == null)
-            throw new RevolvingConfigException(
-                $"Series '{series.Name}' starts in {PhaseNames.ToWire(series.Phase)} and must state its frozen "
-                + "principal percentage.");
+        if (series.Phase != SeriesPhase.Revolving)
+            RequireFrozenValue(program, series);
+    }
+
+    private static void RequireFrozenValue(RevolvingProgram program, RevolvingSeries series)
+    {
+        var starts = $"Series '{series.Name}' starts in {PhaseNames.ToWire(series.Phase)}";
+        if (program.PrincipalFreeze == PrincipalFreeze.FrozenPercent && series.FrozenPrincipalPct == null)
+            throw new RevolvingConfigException($"{starts} and must state frozenPrincipalPct.");
+
+        if (program.PrincipalFreeze == PrincipalFreeze.FrozenNumerator && series.FrozenNumerator == null)
+            throw new RevolvingConfigException($"{starts} and must state frozenNumerator.");
     }
 
     private static void RequireClass(RevolvingSeries series, HashSet<string> keys, string key, string where)

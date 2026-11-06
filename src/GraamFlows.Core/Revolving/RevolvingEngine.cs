@@ -72,8 +72,9 @@ public static class RevolvingEngine
             }
 
             var live = _series.Where(s => !s.PaidInFull).ToList();
-            var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure,
-                    live.Select(s => new SeriesClaim(s.Config.Name, s.AdjustedInvested, s.Phase, s.FrozenPrincipalPct)).ToList())
+            var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure, _program.PrincipalFreeze!.Value,
+                    live.Select(s => new SeriesClaim(s.Config.Name, s.AdjustedInvested, s.Phase,
+                        s.FrozenPrincipalPct, s.FrozenNumerator)).ToList())
                 .ToDictionary(a => a.Series);
 
             var openingAccounts = _series.Sum(s => s.Funding.Balance + s.Reserve + s.CarriedFinance);
@@ -86,6 +87,7 @@ public static class RevolvingEngine
             {
                 var allocation = allocations.GetValueOrDefault(s.Config.Name);
                 s.FrozenPrincipalPct = allocation.FrozenPrincipalPct ?? s.FrozenPrincipalPct;
+                s.FrozenNumerator = allocation.FrozenNumerator ?? s.FrozenNumerator;
                 var open = OpenSeries(s, allocation, pool, dates);
                 opened[s] = open;
                 earnings += open.Earnings;
@@ -97,6 +99,16 @@ public static class RevolvingEngine
 
             var running = _series.Where(s => RunsWaterfall(s, dates)).ToList();
             var shared = new SharedCash();
+            foreach (var step in _program.GroupSteps)
+                switch (step.Verb)
+                {
+                    case WaterfallVerb.ReallocateGroupFinance:
+                        GroupFinanceReallocation.Apply(running);
+                        break;
+                    default:
+                        throw new InvalidOperationException($"{step.Verb} does not run across a group.");
+                }
+
             RunFinance(running, shared);
             foreach (var s in running)
                 RevolvingWaterfall.WriteDownUncovered(s);
@@ -238,6 +250,7 @@ public static class RevolvingEngine
             if (RunsWaterfall(s, dates))
             {
                 s.Finance = finance + earnings + surplus + s.CarriedFinance;
+                s.InvestorFinance = finance + s.CarriedFinance;
                 s.CarriedFinance = 0.0;
                 s.Principal += principal;
             }
@@ -402,7 +415,8 @@ public static class RevolvingEngine
                 s.Funding.CloseMonth(0.0, 0.0);
 
             var yieldPct = RevolvingMetrics.PortfolioYieldPct(
-                open.Finance + open.Earnings + s.ExcessIn - open.InvestorDefault, open.Invested, dates.Days);
+                (s.ReallocatedFinance ?? open.Finance) + open.Earnings + s.ExcessIn - open.InvestorDefault,
+                open.Invested, dates.Days);
             var baseRatePct = RevolvingMetrics.BaseRatePct(
                 s.Classes.Sum(c => c.InterestAccrued) + s.FeesAccrued, open.Invested, dates.AccrualDays);
             if (open.Invested > 0)
@@ -440,6 +454,7 @@ public static class RevolvingEngine
                 FloatingPct = allocation.FloatingPct * 100.0,
                 PrincipalPct = allocation.PrincipalPct * 100.0,
                 FinanceAllocation = open.Finance,
+                ReallocatedFinance = s.ReallocatedFinance,
                 PrincipalAllocation = open.Principal,
                 InvestorDefault = open.InvestorDefault,
                 InvestedAmount = s.TotalInvested,

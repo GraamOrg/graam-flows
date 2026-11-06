@@ -15,7 +15,8 @@ public enum WaterfallVerb
     FundReserve,
     ShareExcess,
     SharePrincipal,
-    ReleaseTransferor
+    ReleaseTransferor,
+    ReallocateGroupFinance
 }
 
 public static class WaterfallVerbs
@@ -32,7 +33,8 @@ public static class WaterfallVerbs
         ["FUND_RESERVE"] = WaterfallVerb.FundReserve,
         ["SHARE_EXCESS"] = WaterfallVerb.ShareExcess,
         ["SHARE_PRINCIPAL"] = WaterfallVerb.SharePrincipal,
-        ["RELEASE_TRANSFEROR"] = WaterfallVerb.ReleaseTransferor
+        ["RELEASE_TRANSFEROR"] = WaterfallVerb.ReleaseTransferor,
+        ["REALLOCATE_GROUP_FINANCE"] = WaterfallVerb.ReallocateGroupFinance
     };
 
     public static WaterfallVerb Parse(string? verb)
@@ -46,13 +48,51 @@ public static class WaterfallVerbs
 
     public static bool RunsOnFinance(WaterfallVerb verb)
     {
-        return verb is not (WaterfallVerb.DepositPfa or WaterfallVerb.PayClass or WaterfallVerb.SharePrincipal);
+        return verb is not (WaterfallVerb.DepositPfa or WaterfallVerb.PayClass or WaterfallVerb.SharePrincipal
+            or WaterfallVerb.ReallocateGroupFinance);
     }
 
     public static bool RunsOnPrincipal(WaterfallVerb verb)
     {
         return verb is WaterfallVerb.DepositPfa or WaterfallVerb.PayClass or WaterfallVerb.SharePrincipal
             or WaterfallVerb.ReleaseTransferor;
+    }
+
+    /// <summary>Runs once a month across a group, before any series' own steps.</summary>
+    public static bool RunsOnGroup(WaterfallVerb verb)
+    {
+        return verb is WaterfallVerb.ReallocateGroupFinance;
+    }
+}
+
+/// <summary>What stays fixed in principal % once a series has left revolving.</summary>
+public enum PrincipalFreeze
+{
+    /// <summary>The percentage itself, set on the last revolving day.</summary>
+    FrozenPercent,
+
+    /// <summary>The numerator from the last revolving day, over the current pool each month.</summary>
+    FrozenNumerator
+}
+
+public static class PrincipalFreezeParser
+{
+    /// <summary>It changes principal dollars, so it has no default.</summary>
+    public static PrincipalFreeze Parse(string? program, string? freeze)
+    {
+        if (string.IsNullOrWhiteSpace(freeze))
+            throw new RevolvingConfigException(
+                $"Program '{program}' states no principalFreeze. Programs must state FROZEN_PERCENT or "
+                + "FROZEN_NUMERATOR.");
+
+        return freeze.Trim().ToUpperInvariant() switch
+        {
+            "FROZEN_PERCENT" => PrincipalFreeze.FrozenPercent,
+            "FROZEN_NUMERATOR" => PrincipalFreeze.FrozenNumerator,
+            _ => throw new RevolvingConfigException(
+                $"Program '{program}' has unknown principalFreeze '{freeze}'. Supported: FROZEN_PERCENT and "
+                + "FROZEN_NUMERATOR.")
+        };
     }
 }
 
@@ -167,6 +207,12 @@ public sealed record RevolvingProgram
     /// </summary>
     public int? ActionLag { get; init; }
 
+    /// <summary>What freezes after revolving. It is required, and null is refused.</summary>
+    public PrincipalFreeze? PrincipalFreeze { get; init; }
+
+    /// <summary>Steps that run across a group each month. Empty means there are none.</summary>
+    public IReadOnlyList<WaterfallStep> GroupSteps { get; init; } = Array.Empty<WaterfallStep>();
+
     public required IReadOnlyList<WaterfallStep> FinanceSteps { get; init; }
     public required IReadOnlyList<WaterfallStep> PrincipalSteps { get; init; }
     public IReadOnlyList<TriggerTest> Triggers { get; init; } = Array.Empty<TriggerTest>();
@@ -212,7 +258,7 @@ public sealed record RevolvingSeries
 {
     public required string Name { get; init; }
 
-    /// <summary>Sharing happens inside a group.</summary>
+    /// <summary>Sharing and group finance reallocation happen inside a group.</summary>
     public string Group { get; init; } = "";
 
     public bool PrincipalSharing { get; init; }
@@ -241,8 +287,11 @@ public sealed record RevolvingSeries
 
     public SeriesPhase Phase { get; init; } = SeriesPhase.Revolving;
 
-    /// <summary>Required from the statement once a series has left revolving.</summary>
+    /// <summary>Required from the statement once a series has left revolving, under FROZEN_PERCENT.</summary>
     public double? FrozenPrincipalPct { get; init; }
+
+    /// <summary>Required from the statement once a series has left revolving, under FROZEN_NUMERATOR.</summary>
+    public double? FrozenNumerator { get; init; }
 
     public double FundingAccount { get; init; }
     public double FundingDeficit { get; init; }

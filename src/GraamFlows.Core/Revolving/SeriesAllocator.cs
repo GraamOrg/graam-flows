@@ -28,36 +28,44 @@ public static class PoolMeasureParser
 /// <param name="Numerator">its adjusted invested amount or nominal liquidation amount.</param>
 /// <param name="Phase">its phase this month.</param>
 /// <param name="FrozenPrincipalPct">
-///     the principal share frozen at the last revolving day. Null while revolving, and on the first
-///     month after revolving, when the allocator computes it.
+///     under <see cref="PrincipalFreeze.FrozenPercent" />, the share frozen at the last revolving day.
+///     Null while revolving, and on the first month after, when the allocator computes it.
+/// </param>
+/// <param name="FrozenNumerator">
+///     under <see cref="PrincipalFreeze.FrozenNumerator" />, the numerator from the last revolving day.
+///     Null while revolving, and on the first month after, when it is this month's numerator.
 /// </param>
 public readonly record struct SeriesClaim(
     string Series,
     double Numerator,
     SeriesPhase Phase,
-    double? FrozenPrincipalPct = null);
+    double? FrozenPrincipalPct = null,
+    double? FrozenNumerator = null);
 
 /// <param name="FloatingPct">the series' share of finance collections and defaults.</param>
 /// <param name="PrincipalPct">its share of gross principal collections.</param>
-/// <param name="FrozenPrincipalPct">the value to hold from here on, null while revolving.</param>
+/// <param name="FrozenPrincipalPct">the share to hold from here on, under that freeze.</param>
+/// <param name="FrozenNumerator">the numerator to hold from here on, under that freeze.</param>
 public readonly record struct SeriesAllocation(
     string Series,
     double Numerator,
     double FloatingPct,
     double PrincipalPct,
-    double? FrozenPrincipalPct);
+    double? FrozenPrincipalPct,
+    double? FrozenNumerator = null);
 
 /// <summary>
 ///     Splits a month's collections across the series of one pool. Floating % is
 ///     <c>numerator / max(pool, sum of numerators)</c>. Principal % equals floating % while a series
-///     revolves. After that it is frozen at the numerator over the pool on the last revolving day,
-///     and it applies to gross principal collections while the transferor funds continuing new
-///     receivables. What the series do not take belongs to the transferor.
+///     revolves. After that, the program states what freezes: the percentage from the last revolving
+///     day, or that day's numerator over the current pool. Either way it applies to gross principal
+///     collections while the transferor funds continuing new receivables. What the series do not take
+///     belongs to the transferor.
 /// </summary>
 public static class SeriesAllocator
 {
     public static IReadOnlyList<SeriesAllocation> Allocate(PoolPeriod pool, PoolMeasure measure,
-        IReadOnlyList<SeriesClaim> claims)
+        PrincipalFreeze freeze, IReadOnlyList<SeriesClaim> claims)
     {
         var sumOfNumerators = claims.Sum(c => c.Numerator);
         var denominator = Math.Max(Measure(pool, measure), sumOfNumerators);
@@ -66,25 +74,39 @@ public static class SeriesAllocator
         // its monthly floating % on.
         var lastRevolvingDay = Math.Max(pool.Beginning, sumOfNumerators);
 
+        // Frozen numerators stand in for the current ones here, so the shares they make fit the pool.
+        var currentPool = Math.Max(Measure(pool, measure),
+            claims.Sum(c => c.Phase == SeriesPhase.Revolving ? c.Numerator : c.FrozenNumerator ?? c.Numerator));
+
         var allocations = new List<SeriesAllocation>(claims.Count);
         foreach (var claim in claims)
         {
             var floating = denominator > 0 ? claim.Numerator / denominator : 0.0;
-            var frozen = claim.Phase == SeriesPhase.Revolving
-                ? (double?)null
-                : claim.FrozenPrincipalPct
-                  ?? (lastRevolvingDay > 0 ? claim.Numerator / lastRevolvingDay : 0.0);
-            allocations.Add(new SeriesAllocation(
-                claim.Series, claim.Numerator, floating, frozen ?? floating, frozen));
+            if (claim.Phase == SeriesPhase.Revolving)
+            {
+                allocations.Add(new SeriesAllocation(claim.Series, claim.Numerator, floating, floating, null));
+            }
+            else if (freeze == PrincipalFreeze.FrozenPercent)
+            {
+                var frozen = claim.FrozenPrincipalPct
+                             ?? (lastRevolvingDay > 0 ? claim.Numerator / lastRevolvingDay : 0.0);
+                allocations.Add(new SeriesAllocation(claim.Series, claim.Numerator, floating, frozen, frozen));
+            }
+            else
+            {
+                var frozen = claim.FrozenNumerator ?? claim.Numerator;
+                allocations.Add(new SeriesAllocation(claim.Series, claim.Numerator, floating,
+                    currentPool > 0 ? frozen / currentPool : 0.0, null, frozen));
+            }
         }
 
         return WithinTheWholePool(allocations);
     }
 
     /// <summary>
-    ///     Frozen shares do not shrink with the pool, so on a falling pool the shares can add to more
-    ///     than the collections there are. Each then takes its proportion of the whole. The frozen
-    ///     value itself is kept, so the share recovers if the pool does.
+    ///     A frozen share does not shrink with the pool, and a frozen numerator does not fall with the
+    ///     series' balance, so the shares can add to more than the collections there are. Each then
+    ///     takes its proportion of the whole. The frozen value itself is kept.
     /// </summary>
     private static IReadOnlyList<SeriesAllocation> WithinTheWholePool(List<SeriesAllocation> allocations)
     {
