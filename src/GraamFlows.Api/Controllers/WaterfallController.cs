@@ -356,6 +356,7 @@ public class WaterfallController : ControllerBase
         {
             // Validate required steps
             UnifiedWaterfallBuilder.ValidateSteps(dto.UnifiedWaterfall, dto.DealName);
+            deal.DeclaresReserveDeposit = UnifiedWaterfallBuilder.DeclaresReserveDeposit(dto.UnifiedWaterfall);
 
             // Determine waterfall type: ComposableStructure if explicitly set or ExecutionOrder provided
             if (dto.WaterfallType == "ComposableStructure" || dto.UnifiedWaterfall.ExecutionOrder != null)

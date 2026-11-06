@@ -23,7 +23,7 @@ public class ReserveConfigHttpWiringTests
     private const double Pool = 1_000_000;
 
     private static WaterfallRequest Request(double funded, ReserveAccountConfigDto? config,
-        double? balanceAtIssuance = Pool)
+        double? balanceAtIssuance = Pool, bool sendExecutionOrder = true, bool declareDeposit = true)
     {
         var deal = new DealDto
         {
@@ -53,11 +53,13 @@ public class ReserveConfigHttpWiringTests
             },
             UnifiedWaterfall = new UnifiedWaterfallDto
             {
-                ExecutionOrder = new List<string>
-                {
-                    "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED",
-                    "PRINCIPAL_RECOVERY", "WRITEDOWN", "RESERVE_DEPOSIT", "EXCESS_RELEASE"
-                },
+                ExecutionOrder = sendExecutionOrder
+                    ? new List<string>
+                    {
+                        "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED",
+                        "PRINCIPAL_RECOVERY", "WRITEDOWN", "RESERVE_DEPOSIT", "EXCESS_RELEASE"
+                    }
+                    : null,
                 Steps = new List<WaterfallStepDto>
                 {
                     new() { Type = "INTEREST", Structure = Seq("A") },
@@ -65,11 +67,12 @@ public class ReserveConfigHttpWiringTests
                     new() { Type = "PRINCIPAL", Source = "unscheduled", Default = Seq("A") },
                     new() { Type = "PRINCIPAL", Source = "recovery", Default = Seq("A") },
                     new() { Type = "WRITEDOWN", Structure = Seq("A") },
-                    new() { Type = "RESERVE_DEPOSIT" },
                     new() { Type = "EXCESS_RELEASE", Structure = Seq("CERT") }
                 }
             }
         };
+        if (declareDeposit)
+            deal.UnifiedWaterfall.Steps.Insert(5, new WaterfallStepDto { Type = "RESERVE_DEPOSIT" });
 
         // Straight-line amortization over 100 months at a 5% pool rate over a 4% note: about
         // 830 of excess in the first month, so a deposit is visible well before the pool is gone.
@@ -180,6 +183,53 @@ public class ReserveConfigHttpWiringTests
 
         balances.Max().Should().BeApproximately(5_000, 0.01,
             "no stated target means the closing deposit is the target, as it always was");
+    }
+
+    [Fact]
+    public void With_no_execution_order_a_reserve_still_builds_to_its_target()
+    {
+        var balances = ReserveBalances(Request(5_000, new ReserveAccountConfigDto
+        {
+            TargetPct = 0.01, TargetBase = "CutoffPoolBalance", CutoffPoolBalance = Pool,
+            CapAtNoteBalance = true
+        }, sendExecutionOrder: false));
+
+        balances.Max().Should().BeApproximately(10_000, 0.01,
+            "a request that sends no order runs the default one, and a deposit step is in it");
+    }
+
+    [Fact]
+    public void With_no_execution_order_a_reserve_with_no_config_releases_as_the_notes_retire()
+    {
+        var balances = ReserveBalances(Request(5_000, null, sendExecutionOrder: false));
+
+        balances[^1].Should().BeApproximately(0, 0.01,
+            "held to the end, the closing deposit is cash that reaches nobody");
+    }
+
+    [Fact]
+    public void The_default_order_runs_the_reserve_as_the_stated_order_does()
+    {
+        var config = new ReserveAccountConfigDto
+        {
+            TargetPct = 0.01, TargetBase = "CurrentPoolBalance", CapAtNoteBalance = true
+        };
+
+        ReserveBalances(Request(5_000, config, sendExecutionOrder: false))
+            .Should().Equal(ReserveBalances(Request(5_000, config)));
+    }
+
+    [Fact]
+    public void With_no_execution_order_a_deal_that_declares_no_deposit_runs_none()
+    {
+        var balances = ReserveBalances(Request(5_000, new ReserveAccountConfigDto
+        {
+            TargetPct = 0.01, TargetBase = "CutoffPoolBalance", CutoffPoolBalance = Pool,
+            CapAtNoteBalance = true
+        }, sendExecutionOrder: false, declareDeposit: false));
+
+        balances.Max().Should().BeLessThanOrEqualTo(5_000,
+            "the default order does not add a step the deal's waterfall never had");
     }
 
     public static IEnumerable<object?[]> TargetsThatStateNothing => new List<object?[]>

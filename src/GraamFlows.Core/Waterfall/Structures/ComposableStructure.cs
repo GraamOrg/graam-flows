@@ -64,7 +64,7 @@ public class ComposableStructure : BaseStructure
 
         // Get execution order from deal or use default (handle both null and empty list)
         var executionOrder = (deal.ExecutionOrder == null || !deal.ExecutionOrder.Any())
-            ? GetDefaultExecutionOrder()
+            ? GetDefaultExecutionOrder(deal)
             : deal.ExecutionOrder.ToList();
 
         var dealTerminated = false;
@@ -497,22 +497,26 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
-    ///     Gets the default execution order when none is specified.
+    ///     Gets the default execution order when none is specified. RESERVE_DEPOSIT runs only for
+    ///     a deal that declared the step: a reserve-typed tranche with no deposit step is not a
+    ///     waterfall this order should start moving cash through.
     /// </summary>
-    private static List<string> GetDefaultExecutionOrder()
+    private static List<string> GetDefaultExecutionOrder(IDeal deal)
     {
-        return new List<string>
+        var order = new List<string>
         {
             "EXPENSE",
             "INTEREST",
             "PRINCIPAL_SCHEDULED",
             "PRINCIPAL_UNSCHEDULED",
             "PRINCIPAL_RECOVERY",
-            "RESERVE",
-            "WRITEDOWN",
-            "EXCESS_TURBO",
-            "EXCESS_RELEASE"
+            "WRITEDOWN"
         };
+        if (deal.DeclaresReserveDeposit)
+            order.Add("RESERVE_DEPOSIT");
+        order.Add("EXCESS_TURBO");
+        order.Add("EXCESS_RELEASE");
+        return order;
     }
 
     /// <summary>
