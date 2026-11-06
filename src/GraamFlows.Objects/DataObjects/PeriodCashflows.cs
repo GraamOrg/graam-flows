@@ -177,6 +177,15 @@ public class PeriodCashflows
     /// </summary>
     public double? PeriodYears30360 { get; set; }
 
+    /// <summary>
+    ///     Interest the trust held back from the classes this period, which the pool's rate does not
+    ///     show: appraisal reductions, special servicing and workout fees (a trustee's printed interest
+    ///     shortfalls; negative for what it paid back). It leaves the funds the waterfall distributes
+    ///     and leaves <see cref="NetInterest" />, the rate a WAC class accrues at, alone: taken out of
+    ///     NetInterest it would cut every WAC class's coupon too. Zero outside a replay of filed months.
+    /// </summary>
+    public double InterestWithheld { get; set; }
+
     public PeriodCashflows Clone()
     {
         var clone = new PeriodCashflows(CashflowDate, ScheduledPrincipal, Balance, UnscheduledPrincipal, Interest,
@@ -193,6 +202,7 @@ public class PeriodCashflows
         clone.CollateralMonths = CollateralMonths;
         clone.FeeBasis = FeeBasis;
         clone.PeriodYears30360 = PeriodYears30360;
+        clone.InterestWithheld = InterestWithheld;
         clone.ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal;
         clone.AdditionalPurchaseFace = AdditionalPurchaseFace;
         clone.PurchaseDiscount = PurchaseDiscount;

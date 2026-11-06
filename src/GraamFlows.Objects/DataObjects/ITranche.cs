@@ -40,6 +40,9 @@ public interface ITranche
     TrancheTypeEnum TrancheTypeEnum { get; }
     MarketDataInstEnum FloaterIndexEnum { get; }
     bool IsPseudo { get; }
+
+    /// <summary>A CMBS vertical interest: it takes its percentage of every amount distributed.</summary>
+    bool VerticalInterest { get; }
     string CouponFormula { get; }
     string Description { get; }
     int InterestPriority { get; }

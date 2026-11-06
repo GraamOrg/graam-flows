@@ -25,9 +25,15 @@ public record ReserveAccountConfig
         return TargetPct * baseBalance;
     }
 
-    /// <summary>Calculate effective target (applying note balance cap if configured)</summary>
+    /// <summary>
+    /// Calculate effective target (applying note balance cap if configured). With the notes
+    /// retired there is nothing left to reserve against, capped or not: the account releases,
+    /// and an uncapped target does not go on holding cash from the residual.
+    /// </summary>
     public double CalculateEffectiveTarget(double currentPoolBalance, double noteBalance)
     {
+        if (noteBalance < 0.01)
+            return 0;
         var target = CalculateTarget(currentPoolBalance);
         return CapAtNoteBalance ? Math.Min(target, noteBalance) : target;
     }
