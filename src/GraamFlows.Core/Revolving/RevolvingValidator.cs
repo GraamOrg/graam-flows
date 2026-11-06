@@ -141,6 +141,16 @@ internal static class RevolvingValidator
             throw new RevolvingConfigException(
                 $"Series '{series.Name}' has an expectedDate but no accumulationStart, so it would never pay.");
 
+        if (series.ClosingDate is { } closing)
+        {
+            if (series.FirstPayDate is not { } firstPay)
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' states a closingDate but no firstPayDate, so its first period has no end.");
+            if (closing >= firstPay)
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' closes on {closing:yyyy-MM-dd}, on or after its first pay date.");
+        }
+
         if (series.Phase != SeriesPhase.Revolving)
             RequireFrozenValue(program, series);
     }
