@@ -281,6 +281,7 @@ public class WaterfallRunner
         if (dto.UnifiedWaterfall != null)
         {
             UnifiedWaterfallBuilder.ValidateSteps(dto.UnifiedWaterfall, dto.DealName);
+            deal.DeclaresReserveDeposit = UnifiedWaterfallBuilder.DeclaresReserveDeposit(dto.UnifiedWaterfall);
 
             // Always use ComposableStructure as it's the only supported engine
             deal.CashflowEngine = "ComposableStructure";

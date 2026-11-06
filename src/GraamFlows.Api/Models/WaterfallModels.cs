@@ -627,9 +627,11 @@ public class UnifiedWaterfallDto
 
     /// <summary>
     /// Explicit execution order for ComposableStructure.
-    /// If not provided, order is inferred from Steps array.
+    /// If not provided, the engine runs its default order; it does not read one from Steps,
+    /// except that RESERVE_DEPOSIT is in it only when Steps declares one.
+    /// A name the engine has no step for does nothing.
     /// Example: ["EXPENSE", "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED",
-    ///           "PRINCIPAL_RECOVERY", "RESERVE", "WRITEDOWN", "EXCESS"]
+    ///           "PRINCIPAL_RECOVERY", "WRITEDOWN", "RESERVE_DEPOSIT", "EXCESS"]
     /// </summary>
     public List<string>? ExecutionOrder { get; set; }
 
