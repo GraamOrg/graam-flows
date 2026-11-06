@@ -48,6 +48,7 @@ public class MockPayable : IPayable
     public double Balance { get; private set; }
     public double InterestDueAmount { get; set; }
     public bool LockedOut { get; set; }
+    public bool IsVerticalInterest { get; set; }
 
     // Tracking
     public double TotalSpPaid { get; private set; }
