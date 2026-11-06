@@ -198,6 +198,16 @@ public class GroupFinanceReallocationTests
     }
 
     [Fact]
+    public void ANewSeriesYieldReproducesItsPrintedFirstMonth()
+    {
+        var month = Month(RunSeptember(Reallocating()), "2026-1");
+
+        // Its 7.2796% base rate is not asserted: 2026-1 closed on September 22, and that first
+        // month's printed rate does not come from any whole day count tried.
+        Math.Round(month.PortfolioYieldPct, 4).Should().Be(31.6945);
+    }
+
+    [Fact]
     public void WithoutTheStepASeriesKeepsItsOwnFinanceAndMissesThePrintedExcess()
     {
         var month = Month(RunSeptember(CardProgram.Program()), "2024-1");
