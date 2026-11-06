@@ -278,6 +278,9 @@ public class DynamicClass : IPayable
         DynamicTranches.Count > 0 &&
         DynamicTranches.All(dt => dt.Tranche.CashflowTypeEnum == CashflowType.InterestOnly);
 
+    public bool IsVerticalInterest =>
+        DynamicTranches.Count > 0 && DynamicTranches.All(dt => dt.Tranche.VerticalInterest);
+
     public double WritedownCapacity(DateTime cfDate)
     {
         // A strip whose balance is a pool NOTIONAL has no principal to write down — its balance

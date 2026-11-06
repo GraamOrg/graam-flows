@@ -34,6 +34,12 @@ public interface IDeal : IPayRuleAssemblyStore
     IList<string> ExecutionOrder { get; }
 
     /// <summary>
+    /// The waterfall's steps include RESERVE_DEPOSIT. Reads only when ExecutionOrder is empty:
+    /// the default order runs a deposit the deal declared, not one it did not.
+    /// </summary>
+    bool DeclaresReserveDeposit { get; }
+
+    /// <summary>
     /// Date from which collateral cashflows participate in distributions. Null keeps the
     /// derived boundary (first-of-month of the first tranche's FirstPayDate), so an
     /// existing caller is unaffected.
