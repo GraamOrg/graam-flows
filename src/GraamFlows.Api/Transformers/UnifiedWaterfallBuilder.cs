@@ -618,6 +618,9 @@ public static class UnifiedWaterfallBuilder
     /// <summary>
     ///     Validates that required steps are present in the unified waterfall
     /// </summary>
+    public static bool DeclaresReserveDeposit(UnifiedWaterfallDto waterfall) =>
+        waterfall.Steps.Any(s => s.Type.Equals("RESERVE_DEPOSIT", StringComparison.OrdinalIgnoreCase));
+
     public static void ValidateSteps(UnifiedWaterfallDto waterfall, string dealName)
     {
         var stepTypes = waterfall.Steps.Select(s => s.Type.ToUpperInvariant()).ToHashSet();
