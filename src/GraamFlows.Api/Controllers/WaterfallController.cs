@@ -267,6 +267,7 @@ public class WaterfallController : ControllerBase
                 DayCount = trancheDto.DayCount,
                 BusinessDayConvention = trancheDto.BusinessDayConvention,
                 CashflowType = trancheDto.CashflowType,
+                VerticalInterest = trancheDto.VerticalInterest,
                 TrancheType = trancheDto.TrancheType,
                 ClassReference = trancheDto.ClassReference ?? trancheDto.TrancheName,
                 FirstPayDate = trancheDto.FirstPayDate ?? factorDate,
@@ -285,7 +286,8 @@ public class WaterfallController : ControllerBase
                         : factorDate),
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,
-                Deal = deal
+                Deal = deal,
+                ReserveConfig = trancheDto.ReserveConfig?.ToConfig(dto.BalanceAtIssuance)
             };
             deal.Tranches.Add(tranche);
         }
@@ -355,6 +357,7 @@ public class WaterfallController : ControllerBase
         {
             // Validate required steps
             UnifiedWaterfallBuilder.ValidateSteps(dto.UnifiedWaterfall, dto.DealName);
+            deal.DeclaresReserveDeposit = UnifiedWaterfallBuilder.DeclaresReserveDeposit(dto.UnifiedWaterfall);
 
             // Determine waterfall type: ComposableStructure if explicitly set or ExecutionOrder provided
             if (dto.WaterfallType == "ComposableStructure" || dto.UnifiedWaterfall.ExecutionOrder != null)
@@ -666,6 +669,7 @@ public class WaterfallController : ControllerBase
                 Interest = dto.Interest,
                 NetInterest = dto.NetInterest,
                 ServiceFee = dto.ServiceFee,
+                InterestWithheld = dto.InterestWithheld,
                 DefaultedPrincipal = dto.DefaultedPrincipal,
                 RecoveryPrincipal = dto.RecoveryPrincipal,
                 CollateralLoss = dto.CollateralLoss,

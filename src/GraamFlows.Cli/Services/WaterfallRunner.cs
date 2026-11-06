@@ -214,15 +214,7 @@ public class WaterfallRunner
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,
                 Deal = deal,
-                ReserveConfig = trancheDto.ReserveConfig != null
-                    ? new ReserveAccountConfig
-                    {
-                        TargetPct = trancheDto.ReserveConfig.TargetPct,
-                        TargetBase = trancheDto.ReserveConfig.TargetBase ?? "CutoffPoolBalance",
-                        CutoffPoolBalance = trancheDto.ReserveConfig.CutoffPoolBalance ?? dto.BalanceAtIssuance ?? 0,
-                        CapAtNoteBalance = trancheDto.ReserveConfig.CapAtNoteBalance ?? true
-                    }
-                    : null
+                ReserveConfig = trancheDto.ReserveConfig?.ToConfig(dto.BalanceAtIssuance)
             };
 
             deal.Tranches.Add(tranche);
@@ -289,6 +281,7 @@ public class WaterfallRunner
         if (dto.UnifiedWaterfall != null)
         {
             UnifiedWaterfallBuilder.ValidateSteps(dto.UnifiedWaterfall, dto.DealName);
+            deal.DeclaresReserveDeposit = UnifiedWaterfallBuilder.DeclaresReserveDeposit(dto.UnifiedWaterfall);
 
             // Always use ComposableStructure as it's the only supported engine
             deal.CashflowEngine = "ComposableStructure";
