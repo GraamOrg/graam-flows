@@ -286,7 +286,8 @@ public class WaterfallController : ControllerBase
                         : factorDate),
                 HolidayCalendar = "Settlement",
                 CouponFormula = trancheDto.CouponFormula,
-                Deal = deal
+                Deal = deal,
+                ReserveConfig = trancheDto.ReserveConfig?.ToConfig(dto.BalanceAtIssuance)
             };
             deal.Tranches.Add(tranche);
         }
