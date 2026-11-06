@@ -670,7 +670,7 @@ public class ComposableStructure : BaseStructure
         dynGroup.InitNotionalBalances(adjPeriodCf.BeginBalance, adjPeriodCf.CashflowDate);
 
         // Track available funds through the waterfall
-        var availableInterest = cfAlloc.Interest;
+        var availableInterest = Math.Max(cfAlloc.Interest - adjPeriodCf.InterestWithheld, 0);
         var availableSchedPrin = cfAlloc.SchedPrin;
         var availablePrepayPrin = cfAlloc.PrepayPrin;
         var availableRecovPrin = cfAlloc.RecovPrin;

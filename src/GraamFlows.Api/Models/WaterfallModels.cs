@@ -420,6 +420,10 @@ public class TrancheDto
     public string TrancheType { get; set; } = "Offered"; // Offered, Residual, Notional
     public string? ClassReference { get; set; }
 
+    /// <summary>A CMBS vertical interest, as the stored deal marks it (see ProrataStructure).</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("_verticalInterest")]
+    public bool VerticalInterest { get; set; }
+
     // #3691: for a class-cut IO strip (TrancheType="Notional"), the funded bond whose
     // amortization its notional tracks (e.g. A-1AX -> A-1A). Distinct from ClassReference
     // (class-GROUP membership); this becomes the DealStructure's ExchangableTranche.

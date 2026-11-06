@@ -59,6 +59,10 @@ public class ProrataStructure : BasePayable
         if (totalInterestDue < 0.01)
             return 0;
 
+        var vertical = interestDueByPayable.Keys.Where(p => p.IsVerticalInterest).ToList();
+        if (vertical.Count > 0 && vertical.Count < interestDueByPayable.Count && availableFunds < totalInterestDue)
+            return PayShortMonthByShare(cfDate, availableFunds, interestDueByPayable, vertical, rateProvider, allTranches);
+
         var interestPaid = 0.0;
 
         // Distribute pro rata based on interest due
@@ -76,6 +80,48 @@ public class ProrataStructure : BasePayable
         }
 
         return interestPaid;
+    }
+
+    /// <summary>
+    ///     A short month beside a vertical interest. PRORATA(vertical, cascade) splits every other
+    ///     amount as the document does: the vertical takes its percentage of every amount available
+    ///     for distribution, and the certificates share the rest ("VRR Interest Available Funds" and
+    ///     "Certificate Available Funds", BANK 2026-BNK52). Split by interest due it would not, as due
+    ///     carries each class's unpaid interest: Benchmark 2019-B15's J-RR carried $2.7M of it against
+    ///     $2.3M of monthly interest, which halves the VRR Interest's 3.33%. So each vertical class
+    ///     takes its balance share of the funds, never more than it is due, and the rest of the
+    ///     payables share what is left by due.
+    /// </summary>
+    private double PayShortMonthByShare(DateTime cfDate, double availableFunds,
+        Dictionary<IPayable, double> interestDueByPayable, List<IPayable> vertical, IRateProvider rateProvider,
+        IEnumerable<DynamicTranche> allTranches)
+    {
+        var totalBalance = interestDueByPayable.Keys.Sum(p => FundedBalance(p, cfDate));
+        var interestPaid = 0.0;
+        foreach (var payable in vertical)
+        {
+            var share = totalBalance < 0.01 ? 0 : FundedBalance(payable, cfDate) / totalBalance;
+            var funds = Math.Min(availableFunds * share, interestDueByPayable[payable]);
+            interestPaid += payable.PayInterest(this, cfDate, funds, rateProvider, allTranches);
+        }
+
+        var rest = interestDueByPayable.Where(kv => !kv.Key.IsVerticalInterest).ToList();
+        var restDue = rest.Sum(kv => kv.Value);
+        var restFunds = availableFunds - interestPaid;
+        foreach (var (payable, interestDue) in rest.Where(kv => kv.Value >= 0.01))
+        {
+            var funds = Math.Min(restFunds * interestDue / restDue, interestDue);
+            interestPaid += payable.PayInterest(this, cfDate, funds, rateProvider, allTranches);
+        }
+
+        return interestPaid;
+    }
+
+    /// <summary>A notional is not a balance of the pool.</summary>
+    private static double FundedBalance(IPayable payable, DateTime cfDate)
+    {
+        return payable.Leafs().Where(leaf => leaf is not DynamicClass { IsNotionalBalance: true })
+            .Sum(leaf => leaf.BeginBalance(cfDate));
     }
 
     public override double InterestDue(DateTime cfDate, IRateProvider rateProvider,
