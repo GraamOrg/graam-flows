@@ -1219,6 +1219,43 @@ public class RevolvingEngineTests
         whole.Series.Should().Contain(s => s.PhasePath.Any(p => p.Phase == SeriesPhase.EarlyAmortization));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ASeriesWrittenOffBeforeItsAccumulationCanBeCut(bool sharing)
+    {
+        // It reaches accumulation with nothing invested, so nothing froze. With sharing, another
+        // series' excess reinstates it and it takes its first allocation after the cut.
+        var wiped = CardProgram.Series("Wiped", 1_000.0, 100.0, 100.0) with
+        {
+            ExcessSharing = sharing,
+            AccumulationStart = new DateTime(2026, 9, 1),
+            ExpectedDate = new DateTime(2027, 6, 15),
+            ControlledAmounts = new[] { 100.0 }
+        };
+        wiped = wiped with { Classes = wiped.Classes.Select(c => c with { WrittenDown = c.Balance }).ToList() };
+        foreach (var freeze in new[] { PrincipalFreeze.FrozenPercent, PrincipalFreeze.FrozenNumerator })
+        {
+            var run = CardProgram.Run(CardProgram.Program(freeze: freeze), 6_000.0,
+                new[] { wiped, CardProgram.Series("Live", 3_000.0, 300.0, 300.0) }, CardProgram.Drivers(), 6);
+            var whole = CardProgram.Execute(run);
+
+            var months = CardProgram.MonthByMonth(run, whole);
+
+            CardProgram.RequireSameMonths(whole, months);
+            months[2].Series[0].Closing.Phase.Should().Be(SeriesPhase.Accumulating);
+        }
+    }
+
+    [Fact]
+    public void ASeriesThatLeftRevolvingWithAnAmountMustStateItsFrozenValue()
+    {
+        var series = CardProgram.Series("S", 400.0, 50.0, 50.0) with { Phase = SeriesPhase.EarlyAmortization };
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { series }, CardProgram.Drivers(), 1);
+
+        ((Action)(() => CardProgram.Execute(run))).Should().Throw<RevolvingConfigException>().WithMessage("*frozen*");
+    }
+
     [Fact]
     public void ARunCutIntoMonthsKeepsAFrozenNumeratorAndGroupReallocation()
     {
