@@ -104,6 +104,22 @@ public class SeriesAllocatorTests
     }
 
     [Fact]
+    public void FrozenNumeratorsStandInForTheCurrentOnesInTheDenominator()
+    {
+        // Numerators of 400 and 200 fit a pool of 1,000. The frozen 800 does not: over the 1,000 of
+        // frozen and revolving numerators it is 80%, and the live series takes its 200 of that.
+        var rows = SeriesAllocator.Allocate(Pool(900.0, 900.0), PoolMeasure.PeriodStart, PrincipalFreeze.FrozenNumerator,
+            new[]
+            {
+                new SeriesClaim("A", 400.0, SeriesPhase.Accumulating, null, 800.0),
+                new SeriesClaim("B", 200.0, SeriesPhase.Revolving)
+            });
+
+        rows[0].FloatingPct.Should().Be(400.0 / 900.0);
+        rows[0].PrincipalPct.Should().BeApproximately(0.8 / (0.8 + 200.0 / 900.0), 1e-12);
+    }
+
+    [Fact]
     public void TheLastRevolvingDayIsThePeriodStartWhateverThePoolMeasure()
     {
         var row = SeriesAllocator.Allocate(Pool(1_000.0, 2_000.0), PoolMeasure.PeriodEnd, PrincipalFreeze.FrozenPercent,

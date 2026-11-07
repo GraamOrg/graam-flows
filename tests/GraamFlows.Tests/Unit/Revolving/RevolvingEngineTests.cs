@@ -1472,6 +1472,159 @@ public class RevolvingEngineTests
     }
 
     [Fact]
+    public void ASeriesWrittenOffButHoldingItsAccountStillAccruesInterest()
+    {
+        // Nothing is invested, and the account still holds cash that can pay the class.
+        var series = CardProgram.Series("S", 400.0, 50.0, 50.0) with
+        {
+            Phase = SeriesPhase.Accumulating,
+            FrozenPrincipalPct = 0.25,
+            FundingAccount = 100.0,
+            AccumulationStart = new DateTime(2026, 7, 1),
+            ExpectedDate = new DateTime(2027, 7, 15),
+            ControlledAmounts = new[] { 10.0 }
+        };
+        series = series with { Classes = series.Classes.Select(c => c with { WrittenDown = c.Balance }).ToList() };
+        var result = CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { series },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1));
+
+        result.Series[0].Classes["A"][0].InterestAccrued.Should().BeApproximately(400.0 * 0.05 / 12.0, 1e-9);
+    }
+
+    private static RevolvingSeries WrittenOff(string name, bool sharing, double interest = 0.0, double reserve = 0.0)
+    {
+        var series = CardProgram.Series(name, 100.0, 10.0, 10.0) with { ExcessSharing = sharing, Reserve = reserve };
+        return series with
+        {
+            Classes = series.Classes.Select(c => c with { WrittenDown = c.Balance, InterestShortfall = c.Key == "A" ? interest : 0.0 }).ToList()
+        };
+    }
+
+    private static RevolvingResult OwedAndWrittenOff(params RevolvingSeries[] series) =>
+        CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, series, CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1));
+
+    [Fact]
+    public void ASeriesWrittenOffIsNotRetired()
+    {
+        OwedAndWrittenOff(WrittenOff("Owed", true), CardProgram.Series("Live", 400.0, 50.0, 50.0)).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesOwedInterestIsNotRetired()
+    {
+        var paid = CardProgram.Series("Owed", 0.0, 0.0, 0.0);
+        paid = paid with { Classes = paid.Classes.Select(c => c with { InterestShortfall = 5.0 }).ToList() };
+
+        OwedAndWrittenOff(paid).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesPaidAndHoldingNothingIsRetired()
+    {
+        OwedAndWrittenOff(CardProgram.Series("Paid", 0.0, 0.0, 0.0)).Series[0].Retired.Should().BeTrue();
+    }
+
+    private static RevolvingSeries PaidOff(string name = "Paid") => CardProgram.Series(name, 0.0, 0.0, 0.0);
+
+    private static RevolvingSeries AwaitingFirstPay(RevolvingSeries series) => series with
+    {
+        ClosingDate = new DateTime(2026, 7, 10),
+        FirstPayDate = new DateTime(2026, 12, 15)
+    };
+
+    [Fact]
+    public void ASeriesHoldingAFundingAccountIsNotRetired()
+    {
+        var holding = PaidOff() with
+        {
+            Phase = SeriesPhase.Accumulating,
+            FrozenPrincipalPct = 0.25,
+            FundingAccount = 50.0,
+            AccumulationStart = new DateTime(2026, 7, 1),
+            ExpectedDate = new DateTime(2027, 7, 15),
+            ControlledAmounts = new[] { 10.0 }
+        };
+
+        OwedAndWrittenOff(holding).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesHoldingCarriedFinanceIsNotRetired()
+    {
+        var waiting = AwaitingFirstPay(PaidOff()) with { CarriedFinance = 5.0 };
+
+        OwedAndWrittenOff(waiting).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesWithADefaultStillDueIsNotRetired()
+    {
+        var waiting = AwaitingFirstPay(PaidOff());
+        waiting = waiting with { Classes = waiting.Classes.Select(c => c with { DefaultDue = 5.0 }).ToList() };
+
+        OwedAndWrittenOff(waiting).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesHoldingFundingMustStateItsFrozenValueEvenWrittenOff()
+    {
+        var series = WrittenOff("Held", false) with { Phase = SeriesPhase.EarlyAmortization, FundingAccount = 50.0 };
+
+        ((Action)(() => OwedAndWrittenOff(series))).Should().Throw<RevolvingConfigException>().WithMessage("*frozen*");
+    }
+
+    [Fact]
+    public void ALiveSeriesIsNotStranded()
+    {
+        OwedAndWrittenOff(CardProgram.Series("Live", 400.0, 50.0, 50.0)).Series[0].Stranded.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public void AWrittenOffSeriesIsStrandedOnlyWhenNoExcessCanReachIt(bool sharing, bool liveInGroup, bool stranded)
+    {
+        var other = CardProgram.Series("Live", 400.0, 50.0, 50.0, group: liveInGroup ? "1" : "2");
+
+        OwedAndWrittenOff(WrittenOff("Owed", sharing, 5.0), other).Series[0].Stranded.Should().Be(stranded);
+    }
+
+    [Fact]
+    public void AWrittenOffSeriesIsReachedByReallocationWithoutSharing()
+    {
+        var series = new[] { WrittenOff("Owed", false, 5.0), CardProgram.Series("Live", 400.0, 50.0, 50.0) };
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0, series, CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1);
+        var reallocating = run with
+        {
+            Program = run.Program with { GroupSteps = new[] { new WaterfallStep(WaterfallVerb.ReallocateGroupFinance) } }
+        };
+
+        CardProgram.Execute(reallocating).Series[0].Stranded.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AReserveReleasedPaysWhatItCanAndTheRestIsStranded()
+    {
+        var result = CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { WrittenOff("Owed", false, 5.0, 3.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1));
+
+        result.Series[0].Classes["A"][0].InterestPaid.Should().BeApproximately(3.0, 1e-9);
+        result.Series[0].Stranded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AStackReleasesAWrittenOffSeriesReserveThroughItsSteps()
+    {
+        // Only a note tranche draws its reserve for principal. Here it runs through the finance steps.
+        var result = CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { WrittenOff("Owed", false, 5.0, 50.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1));
+
+        result.Series[0].Classes["A"][0].PrincipalPaid.Should().Be(0.0);
+    }
+
+    [Fact]
     public void EveryCollectedDollarLandsAcrossStressedRuns()
     {
         var random = new Random(6122);
