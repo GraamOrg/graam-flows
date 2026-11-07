@@ -363,12 +363,16 @@ public sealed record RevolvingSeries
 
     /// <summary>
     ///     On a tranche: its nominal liquidation amount at the close of the month before the first
-    ///     monthly period. Null is its amount at the statement date, right for a new tranche.
+    ///     monthly period. Null is its amount at the statement date, right for a new tranche, and the
+    ///     run discloses it on any other.
     /// </summary>
     public double? PriorNumerator { get; init; }
 
-    /// <summary>On a tranche: its funding account at the close of the month before the first period.</summary>
-    public double PriorFunding { get; init; }
+    /// <summary>
+    ///     On a tranche: its funding account at the close of the month before the first period. Null
+    ///     is 0, right for a new tranche, and the run discloses it on any other.
+    /// </summary>
+    public double? PriorFunding { get; init; }
 
     /// <summary>Seeded monthly metric values, oldest first.</summary>
     public IReadOnlyDictionary<TriggerMetric, IReadOnlyList<double>> History { get; init; } =

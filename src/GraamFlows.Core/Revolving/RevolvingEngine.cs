@@ -767,6 +767,12 @@ public static class RevolvingEngine
             if (Delinked && _run.ActualPeriods.All(a => a is { InterestAccountEarnings: 0, PrincipalAccountEarnings: 0 }))
                 disclosures.Add("No account earnings were supplied, so cash waiting in the funding accounts earned 0.");
 
+            // A tranche with a closing date joins in this run, so the month before has nothing to say.
+            foreach (var s in _run.Series.Where(s => Delinked && s.ClosingDate == null
+                                                                && (s.PriorNumerator == null || s.PriorFunding == null)))
+                disclosures.Add($"Series '{s.Name}' states no priorNumerator or priorFunding, so the month before "
+                                + "the first period took its statement amount and an empty funding account.");
+
             if (_run.Drivers is { } drivers)
             {
                 if (drivers.RecoveryRate == null)

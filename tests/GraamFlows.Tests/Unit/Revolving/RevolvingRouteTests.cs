@@ -101,6 +101,40 @@ public class RevolvingRouteTests
         return JsonSerializer.Serialize(bad.Value);
     }
 
+    private static void NoteSeries(RevolvingRequest r)
+    {
+        r.Program.Delinked = new RevolvingDelinkedDto { ClassOrder = new List<string> { "A" } };
+        r.Program.PrincipalSteps = new List<RevolvingStepDto>
+        {
+            new() { Verb = "DEPOSIT_PFA" },
+            new() { Verb = "RELEASE_TRANSFEROR" }
+        };
+    }
+
+    [Fact]
+    public void PayClassOnANoteSeriesIsANamed400NotA500()
+    {
+        var error = Error(Request(r =>
+        {
+            NoteSeries(r);
+            r.Program.PrincipalSteps.Insert(0, new RevolvingStepDto { Verb = "PAY_CLASS", Class = "A" });
+        }));
+
+        error.Should().Contain("PAY_CLASS");
+    }
+
+    [Fact]
+    public void ANoteSeriesWithNoLastReleaseStepIsANamed400NotA500()
+    {
+        var error = Error(Request(r =>
+        {
+            NoteSeries(r);
+            r.Program.FinanceSteps.RemoveAt(r.Program.FinanceSteps.Count - 1);
+        }));
+
+        error.Should().Contain("finance steps must end");
+    }
+
     [Fact]
     public void AForecastReturnsPeriodsSeriesAndTrancheRows()
     {

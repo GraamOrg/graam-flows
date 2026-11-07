@@ -21,7 +21,7 @@ internal static class RevolvingValidator
         ValidateSteps(program.Name, "principal", program.PrincipalSteps,
             verb => WaterfallVerbs.RunsOnPrincipal(verb) || (delinked && verb == WaterfallVerb.ReallocatePrincipal));
         if (program.Delinked is { } notes)
-            ValidateNotes(program.Name, notes);
+            ValidateNotes(program, notes);
         foreach (var test in program.Triggers)
             ValidateTrigger(program, test);
 
@@ -244,10 +244,57 @@ internal static class RevolvingValidator
     }
 
     /// <summary>A step on a note series names a class of the whole series, so it is checked there.</summary>
-    private static void ValidateNotes(string program, DelinkedNotes notes)
+    private static void ValidateNotes(RevolvingProgram program, DelinkedNotes notes)
     {
+        var name = program.Name;
         if (notes.ClassOrder.Count == 0 || notes.ClassOrder.Distinct().Count() != notes.ClassOrder.Count)
-            throw new RevolvingConfigException($"Program '{program}': delinked.classOrder must name distinct classes.");
+            throw new RevolvingConfigException($"Program '{name}': delinked.classOrder must name distinct classes.");
+
+        if (program.GroupSteps.Count > 0)
+            throw new RevolvingConfigException(
+                $"Program '{name}' has group steps, which a de-linked note series does not run: it has one finance bucket.");
+
+        foreach (var step in program.FinanceSteps.Concat(program.PrincipalSteps))
+            ValidateNoteStep(name, notes, step);
+
+        RequireLastStep(name, "finance", program.FinanceSteps, WaterfallVerb.ShareExcess);
+        RequireLastStep(name, "principal", program.PrincipalSteps, WaterfallVerb.SharePrincipal);
+    }
+
+    private static void ValidateNoteStep(string program, DelinkedNotes notes, WaterfallStep step)
+    {
+        if (step.Verb == WaterfallVerb.PayClass)
+            throw new RevolvingConfigException(
+                $"Program '{program}' has PAY_CLASS, which a de-linked note series does not run: a tranche is paid "
+                + "from its funding account.");
+
+        // One step runs across every tranche of a class, and tranches sit in different phases.
+        if (step.Phases != null)
+            throw new RevolvingConfigException(
+                $"Program '{program}': {step.Verb} states phases, which a de-linked note series does not read: "
+                + "each tranche takes its own phase.");
+
+        var order = notes.ClassOrder.ToList();
+        foreach (var key in new[] { step.Class }.OfType<string>().Concat(step.From ?? Array.Empty<string>()))
+            if (!order.Contains(key))
+                throw new RevolvingConfigException(
+                    $"Program '{program}': {step.Verb} names class '{key}', which delinked.classOrder does not name.");
+
+        foreach (var key in step.From ?? Array.Empty<string>())
+            if (order.IndexOf(key) <= order.IndexOf(step.Class!))
+                throw new RevolvingConfigException(
+                    $"Program '{program}': {step.Verb} of class '{step.Class}' takes from class '{key}', which is "
+                    + "not junior to it.");
+    }
+
+    /// <summary>A bucket with no last step would leave cash undistributed, which fails the cash proof.</summary>
+    private static void RequireLastStep(string program, string list, IReadOnlyList<WaterfallStep> steps,
+        WaterfallVerb share)
+    {
+        var last = steps.LastOrDefault()?.Verb;
+        if (last != WaterfallVerb.ReleaseTransferor && last != share)
+            throw new RevolvingConfigException(
+                $"Program '{program}': its {list} steps must end by sharing it or releasing it to the transferor.");
     }
 
     private static void ValidateTranche(DelinkedNotes notes, RevolvingSeries series, HashSet<string> keys)
@@ -261,10 +308,30 @@ internal static class RevolvingValidator
             throw new RevolvingConfigException(
                 $"Series '{series.Name}' is class '{key}', which delinked.classOrder does not name.");
 
+        var order = notes.ClassOrder.ToList();
+        var rank = order.IndexOf(key);
         foreach (var junior in series.RequiredSubordination.Keys)
-            if (notes.ClassOrder.ToList().IndexOf(junior) <= notes.ClassOrder.ToList().IndexOf(key))
+            if (order.IndexOf(junior) <= rank)
                 throw new RevolvingConfigException(
                     $"Series '{series.Name}' requires subordination of class '{junior}', which is not junior to it.");
+
+        // Nothing here defaults to no subordination: a stated 0 is a statement.
+        foreach (var junior in order.Skip(rank + 1).Where(j => !series.RequiredSubordination.ContainsKey(j)))
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' states no requiredSubordination of class '{junior}'.");
+
+        // Early amortization can reach any tranche, and it pays through the funding account.
+        if (!series.FundedClasses.Contains(key))
+            throw new RevolvingConfigException($"Series '{series.Name}' must name class '{key}' in fundedClasses.");
+
+        if (series is { FirstPayDate: not null, ClosingDate: null })
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' states a firstPayDate but no closingDate, so its first period has no start.");
+
+        // What a tranche holds in its account moved its amount, so the two months differ.
+        if (series.FundingAccount >= SeriesRun.Cent && (series.PriorNumerator == null || series.PriorFunding == null))
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' holds a funding account and must state priorNumerator and priorFunding.");
     }
 
     private static void RequireFrozenValue(RevolvingProgram program, RevolvingSeries series)

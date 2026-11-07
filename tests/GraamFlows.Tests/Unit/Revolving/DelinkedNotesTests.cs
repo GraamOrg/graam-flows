@@ -687,6 +687,132 @@ public class DelinkedNotesTests
         act.Should().Throw<RevolvingConfigException>().WithMessage("*finance steps*");
     }
 
+    private static Action Refused(RevolvingProgram? program = null, RevolvingSeries? senior = null)
+    {
+        return () => NoteProgram.Execute(program ?? NoteProgram.Program(), Aug2026, new[] { ShortMonth(100.0, 0.0) },
+            new[] { senior ?? Stack()[0], Stack()[1], Stack()[2] });
+    }
+
+    [Fact]
+    public void AStepNamingAClassTheOrderDoesNotNameIsRefused()
+    {
+        var unknown = new WaterfallStep(WaterfallVerb.PayInterest, "AA");
+        var program = NoteProgram.Program() with { FinanceSteps = NoteProgram.FinanceSteps.Prepend(unknown).ToList() };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*PayInterest names class 'AA'*");
+    }
+
+    [Fact]
+    public void AReallocationFromAClassTheOrderDoesNotNameIsRefused()
+    {
+        var unknown = new WaterfallStep(WaterfallVerb.ReallocatePrincipal, "A", From: new[] { "Z" });
+        var program = NoteProgram.Program() with { PrincipalSteps = NoteProgram.PrincipalSteps.Prepend(unknown).ToList() };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*names class 'Z'*");
+    }
+
+    [Fact]
+    public void AReallocationFromAClassThatIsNotJuniorIsRefused()
+    {
+        var upward = new WaterfallStep(WaterfallVerb.ReallocatePrincipal, "B", From: new[] { "A" });
+        var program = NoteProgram.Program() with { PrincipalSteps = NoteProgram.PrincipalSteps.Prepend(upward).ToList() };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*not junior*");
+    }
+
+    [Fact]
+    public void PhasesOnANoteStepAreRefused()
+    {
+        var limited = new WaterfallStep(WaterfallVerb.PayInterest, "A", Phases: new[] { SeriesPhase.EarlyAmortization });
+        var program = NoteProgram.Program() with { FinanceSteps = NoteProgram.FinanceSteps.Prepend(limited).ToList() };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*states phases*");
+    }
+
+    [Fact]
+    public void PayClassOnANoteSeriesIsRefused()
+    {
+        var pay = new WaterfallStep(WaterfallVerb.PayClass, "A");
+        var program = NoteProgram.Program() with { PrincipalSteps = NoteProgram.PrincipalSteps.Prepend(pay).ToList() };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*PAY_CLASS*funding account*");
+    }
+
+    [Fact]
+    public void GroupStepsOnANoteSeriesAreRefused()
+    {
+        var program = NoteProgram.Program() with
+        {
+            GroupSteps = new[] { new WaterfallStep(WaterfallVerb.ReallocateGroupFinance) }
+        };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*group steps*");
+    }
+
+    [Fact]
+    public void FinanceStepsWithNoLastReleaseAreRefused()
+    {
+        var program = NoteProgram.Program() with { FinanceSteps = NoteProgram.FinanceSteps.Take(4).ToList() };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*finance steps must end*");
+    }
+
+    [Fact]
+    public void PrincipalStepsWithNoLastReleaseAreRefused()
+    {
+        var program = NoteProgram.Program() with { PrincipalSteps = NoteProgram.PrincipalSteps.Take(5).ToList() };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*principal steps must end*");
+    }
+
+    [Fact]
+    public void ATrancheStatingNoRequiredAmountOfAClassBelowIsRefused()
+    {
+        var bare = Stack()[0] with { RequiredSubordination = new Dictionary<string, double> { ["B"] = 8.0 } };
+
+        Refused(senior: bare).Should().Throw<RevolvingConfigException>().WithMessage("*no requiredSubordination of class 'C'*");
+    }
+
+    [Fact]
+    public void ATrancheWhoseFundedClassesAreEmptyIsRefused()
+    {
+        var bare = Stack()[0] with { FundedClasses = Array.Empty<string>() };
+
+        Refused(senior: bare).Should().Throw<RevolvingConfigException>().WithMessage("*fundedClasses*");
+    }
+
+    [Fact]
+    public void AFirstPayDateWithNoClosingDateIsRefusedOnATranche()
+    {
+        var bare = Stack()[0] with { FirstPayDate = new DateTime(2026, 11, 15) };
+
+        Refused(senior: bare).Should().Throw<RevolvingConfigException>().WithMessage("*firstPayDate but no closingDate*");
+    }
+
+    [Fact]
+    public void ATrancheHoldingAFundingAccountMustStateTheMonthBefore()
+    {
+        var bare = Stack()[0] with { FundingAccount = 100.0, PriorNumerator = 860.0 };
+
+        Refused(senior: bare).Should().Throw<RevolvingConfigException>().WithMessage("*priorNumerator and priorFunding*");
+    }
+
+    [Fact]
+    public void ATrancheStatingNoMonthBeforeIsDisclosedAndANewTrancheIsNot()
+    {
+        var joining = Stack()[0] with
+        {
+            Name = "joining",
+            ClosingDate = new DateTime(2026, 8, 20),
+            FirstPayDate = new DateTime(2026, 10, 15)
+        };
+        var stated = Stack()[1] with { PriorNumerator = 70.0, PriorFunding = 0.0 };
+        var result = RunShort(ShortMonth(100.0, 0.0), joining, stated, Stack()[2]);
+
+        result.Disclosures.Should().Contain(d => d.Contains("'C' states no priorNumerator"));
+        result.Disclosures.Should().NotContain(d => d.Contains("'joining' states no prior") || d.Contains("'B' states no prior"));
+    }
+
     [Fact]
     public void AnUnknownCoversIsRefusedByName()
     {
