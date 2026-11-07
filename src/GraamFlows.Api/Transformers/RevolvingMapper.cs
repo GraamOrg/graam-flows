@@ -58,7 +58,8 @@ public static class RevolvingMapper
                         Period = trip.Period,
                         DistributionDate = trip.DistributionDate
                     }
-                    : null
+                    : null,
+                Closing = ToClosing(series.Closing)
             };
 
             foreach (var (key, rows) in series.Classes)
@@ -66,6 +67,46 @@ public static class RevolvingMapper
         }
 
         return response;
+    }
+
+    private static RevolvingClosingDto ToClosing(RevolvingSeries closing)
+    {
+        double[]? Months(TriggerMetric metric) => closing.History.GetValueOrDefault(metric)?.ToArray();
+
+        return new RevolvingClosingDto
+        {
+            State = new RevolvingSeriesStateDto
+            {
+                Phase = PhaseNames.ToWire(closing.Phase),
+                FrozenPrincipalPct = closing.FrozenPrincipalPct * 100.0,
+                FundingAccount = closing.FundingAccount,
+                FundingDeficit = closing.FundingDeficit,
+                Reserve = closing.Reserve,
+                AccumulationMonthsRun = closing.AccumulationMonthsRun,
+                CarriedFinance = closing.CarriedFinance,
+                FeesDue = closing.FeesDue.ToDictionary(f => f.Key, f => f.Value),
+                TriggerState = closing.TriggerStates.ToDictionary(t => t.Key, t => new RevolvingTriggerStateDto
+                {
+                    Latched = t.Value.Latched,
+                    MonthsToAct = t.Value.MonthsToAct,
+                    GoodMonths = t.Value.GoodMonths
+                }),
+                History = new RevolvingHistoryDto
+                {
+                    PortfolioYield = Months(TriggerMetric.PortfolioYield),
+                    BaseRate = Months(TriggerMetric.BaseRate),
+                    ExcessSpread = Months(TriggerMetric.ExcessSpread)
+                }
+            },
+            Classes = closing.Classes.ToDictionary(c => c.Key, c => new RevolvingClassClosingDto
+            {
+                Balance = c.Balance,
+                OriginalBalance = c.OriginalBalance ?? c.Balance,
+                WrittenDown = c.WrittenDown,
+                InterestShortfall = c.InterestShortfall,
+                DefaultDue = c.DefaultDue
+            })
+        };
     }
 
     /// <summary>The indices a run's floating classes pay on.</summary>
@@ -149,6 +190,10 @@ public static class RevolvingMapper
             FundingDeficit = state?.FundingDeficit ?? 0.0,
             Reserve = state?.Reserve ?? 0.0,
             AccumulationMonthsRun = state?.AccumulationMonthsRun ?? 0,
+            CarriedFinance = state?.CarriedFinance ?? 0.0,
+            FeesDue = state?.FeesDue ?? new Dictionary<string, double>(),
+            TriggerStates = (state?.TriggerState ?? new Dictionary<string, RevolvingTriggerStateDto>())
+                .ToDictionary(t => t.Key, t => new TriggerState(t.Value.Latched, t.Value.MonthsToAct, t.Value.GoodMonths)),
             History = ToHistory(state?.History)
         };
     }
@@ -204,7 +249,8 @@ public static class RevolvingMapper
             Margin = dto.Margin ?? 0.0,
             Basis = AccrualBasisParser.Parse(dto.DayCount),
             WrittenDown = dto.WrittenDown ?? 0.0,
-            InterestShortfall = dto.InterestShortfall ?? 0.0
+            InterestShortfall = dto.InterestShortfall ?? 0.0,
+            DefaultDue = dto.DefaultDue ?? 0.0
         };
     }
 

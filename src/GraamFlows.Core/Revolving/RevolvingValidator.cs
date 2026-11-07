@@ -67,24 +67,27 @@ internal static class RevolvingValidator
     private static void ValidateDrivers(PoolDriverPath drivers)
     {
         RequireShare("paymentRate", drivers.PaymentRate);
-        RequireShare("newReceivablesRate", drivers.NewReceivablesRate);
+        RequireShare("newReceivablesRate", drivers.NewReceivablesRate, double.PositiveInfinity);
         RequireShare("yield", drivers.Yield);
         RequireShare("chargeOffRate", drivers.ChargeOffRate);
         RequireShare("recoveryRate", drivers.RecoveryRate);
         RequireShare("dilutionRate", drivers.DilutionRate);
     }
 
-    /// <summary>A driver is a share of the month's beginning balance, annual or not.</summary>
-    private static void RequireShare(string name, PoolDriver? driver)
+    /// <summary>
+    ///     A driver is a share of the month's beginning balance, annual or not. Collections cannot pass
+    ///     the balance, and new receivables can: a month's new charges are not drawn from it.
+    /// </summary>
+    private static void RequireShare(string name, PoolDriver? driver, double most = 1.0)
     {
         foreach (var value in driver?.Values ?? Array.Empty<double>())
         {
             // 31 days is the most an annual rate can be worth in a month.
             var share = driver!.Annual ? PoolLedger.MonthlyShare(value, 31) : value;
-            if (!double.IsFinite(share) || share < 0.0 || share > 1.0)
+            if (!double.IsFinite(share) || share < 0.0 || share > most)
                 throw new RevolvingConfigException(
-                    $"Driver {name} is {value * 100.0}%. A month's value must come to between 0% and 100% "
-                    + "of beginning principal receivables.");
+                    $"Driver {name} is {value * 100.0}%. A month's value must come to at least 0%"
+                    + (double.IsInfinity(most) ? "." : " and at most 100% of beginning principal receivables."));
         }
     }
 
@@ -189,6 +192,15 @@ internal static class RevolvingValidator
                 RequireClass(series, keys, key, step.Verb.ToString());
         }
 
+        foreach (var (test, state) in series.TriggerStates)
+        {
+            if (program.Triggers.All(t => t.Name != test))
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' states triggerState on test '{test}', which the program does not have.");
+            if (state.MonthsToAct < 0 || state.GoodMonths < 0)
+                throw new RevolvingConfigException($"Series '{series.Name}' triggerState of '{test}' must be at least 0.");
+        }
+
         RequireStepsForClaims(program, series);
         RequireGroupWhereItMatters(series);
         ValidateFigures(series);
@@ -225,7 +237,7 @@ internal static class RevolvingValidator
     private static void RequireStepsForClaims(RevolvingProgram program, RevolvingSeries series)
     {
         var interest = program.FinanceSteps.Where(s => s.Verb == WaterfallVerb.PayInterest).Select(s => s.Class).ToHashSet();
-        foreach (var c in series.Classes.Where(c => !interest.Contains(c.Key)))
+        foreach (var c in series.Classes.Where(c => OwesInterest(c) && !interest.Contains(c.Key)))
             throw new RevolvingConfigException(
                 $"Class '{c.Key}' of series '{series.Name}' has no PAY_INTEREST step, so its interest would "
                 + "accrue and never be paid.");
@@ -238,7 +250,7 @@ internal static class RevolvingValidator
                 throw new RevolvingConfigException($"Series '{series.Name}' has a fee with no name.");
             if (!names.Add(fee.Name))
                 throw new RevolvingConfigException($"Series '{series.Name}' states fee '{fee.Name}' twice.");
-            if (!fees.Contains(fee.Name))
+            if (!fees.Contains(fee.Name) && (fee.RatePct > 0.0 || series.FeesDue.GetValueOrDefault(fee.Name) >= SeriesRun.Cent))
                 throw new RevolvingConfigException(
                     $"Series '{series.Name}' states fee '{fee.Name}' and no PAY_FEE step pays it, so it would "
                     + "accrue into base rate and never be paid.");
@@ -250,6 +262,12 @@ internal static class RevolvingValidator
     {
         if (string.IsNullOrWhiteSpace(series.Group) && (series.PrincipalSharing || series.ExcessSharing))
             throw new RevolvingConfigException($"Series '{series.Name}' shares cash but states no group.");
+    }
+
+    /// <summary>A class with no balance or no rate accrues nothing, so it needs no step to pay it.</summary>
+    private static bool OwesInterest(RevolvingClass c)
+    {
+        return c.InterestShortfall >= SeriesRun.Cent || (c.Balance >= SeriesRun.Cent && (c.Index != null || c.Coupon > 0.0));
     }
 
     private static void ValidateFigures(RevolvingSeries series)
@@ -268,6 +286,7 @@ internal static class RevolvingValidator
                 RequireAmount($"{label} originalBalance", original);
             RequireAmount($"{label} writtenDown", c.WrittenDown);
             RequireAmount($"{label} interestShortfall", c.InterestShortfall);
+            RequireAmount($"{label} defaultDue", c.DefaultDue);
             if (c.WrittenDown > c.Balance + SeriesRun.Cent)
                 throw new RevolvingConfigException(
                     $"{label} has {c.WrittenDown:F2} written down of a {c.Balance:F2} balance.");
@@ -282,6 +301,14 @@ internal static class RevolvingValidator
         RequireAmount($"{name} fundingAccount", series.FundingAccount);
         RequireAmount($"{name} fundingDeficit", series.FundingDeficit);
         RequireAmount($"{name} reserve", series.Reserve);
+        RequireAmount($"{name} carriedFinance", series.CarriedFinance);
+        foreach (var (fee, amount) in series.FeesDue)
+        {
+            if (series.Fees.All(f => f.Name != fee))
+                throw new RevolvingConfigException($"{name} states feesDue on fee '{fee}', which it does not state.");
+            RequireAmount($"{name} feesDue of '{fee}'", amount);
+        }
+
         foreach (var (metric, months) in series.History)
         foreach (var value in months)
             RequireFinite($"{name} history of {metric}", value);
