@@ -228,6 +228,22 @@ internal static class RevolvingValidator
                 $"Series '{series.Name}' expects to pay on {expected:yyyy-MM-dd}, before it starts accumulating "
                 + $"on {start:yyyy-MM-dd}.");
 
+        if (series.ClosingDate is { } closing)
+        {
+            if (series.FirstPayDate is not { } firstPay)
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' states a closingDate but no firstPayDate, so its first period has no end.");
+            if (closing >= firstPay)
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' closes on {closing:yyyy-MM-dd}, on or after its first pay date.");
+
+            // A series not yet issued has no months to accumulate in.
+            if (series.AccumulationStart is { } begins && begins < new DateTime(closing.Year, closing.Month, 1))
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' starts accumulating on {begins:yyyy-MM-dd}, before the month it closes in, "
+                    + $"{closing:yyyy-MM}.");
+        }
+
         if (series.Phase != SeriesPhase.Revolving && !series.FreezePending)
             RequireFrozenValue(program, series);
     }

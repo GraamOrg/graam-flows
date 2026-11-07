@@ -187,6 +187,7 @@ public static class RevolvingMapper
             ExpectedDate = dto.ExpectedDate,
             ControlledAmounts = dto.ControlledAmount ?? Array.Empty<double>(),
             FirstPayDate = dto.FirstPayDate,
+            ClosingDate = dto.ClosingDate,
             RequiredReserve = dto.RequiredReserve ?? 0.0,
             Phase = state?.Phase == null ? SeriesPhase.Revolving : PhaseNames.Parse(state.Phase),
             FrozenPrincipalPct = state?.FrozenPrincipalPct / 100.0,
