@@ -1174,6 +1174,35 @@ public class RevolvingEngineTests
     }
 
     [Fact]
+    public void ASeriesReinstatedAfterLeavingRevolvingCanBeCutEveryMonth()
+    {
+        // No yield for three months, so it reaches accumulation with nothing frozen, and is reinstated
+        // late in a month: it closes with an amount and no frozen value, which its next month sets.
+        var wiped = CardProgram.Series("Wiped", 1_000.0, 100.0, 100.0) with
+        {
+            AccumulationStart = new DateTime(2026, 9, 1),
+            ExpectedDate = new DateTime(2027, 6, 15),
+            ControlledAmounts = new[] { 100.0 }
+        };
+        wiped = wiped with { Classes = wiped.Classes.Select(c => c with { WrittenDown = c.Balance }).ToList() };
+        var drivers = CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0) with
+        {
+            Yield = new PoolDriver(new[] { 0.0, 0.0, 0.0, 0.25 })
+        };
+        var run = CardProgram.Run(CardProgram.Program(), 6_000.0,
+            new[] { wiped, CardProgram.Series("Live", 3_000.0, 300.0, 300.0) }, drivers, 8);
+        var whole = CardProgram.Execute(run);
+
+        var months = CardProgram.MonthByMonth(run, whole);
+
+        CardProgram.RequireSameMonths(whole, months);
+        var reinstated = months.Select(m => m.Series[0].Closing).First(c => c.Classes[0].WrittenDown < c.Classes[0].Balance);
+        reinstated.FreezePending.Should().BeTrue();
+        reinstated.FrozenPrincipalPct.Should().BeNull();
+        months[^1].Series[0].Closing.FreezePending.Should().BeFalse();
+    }
+
+    [Fact]
     public void ASeriesThatLeftRevolvingWithAnAmountMustStateItsFrozenValue()
     {
         var series = CardProgram.Series("S", 400.0, 50.0, 50.0) with { Phase = SeriesPhase.EarlyAmortization };
