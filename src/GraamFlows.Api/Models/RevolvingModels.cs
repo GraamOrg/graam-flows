@@ -68,6 +68,17 @@ public class RevolvingProgramDto
     public List<RevolvingTriggerDto>? Triggers { get; set; }
     public double? SeriesRequiredTransferorPct { get; set; }
     public double? RequiredTransferorPct { get; set; }
+
+    /// <summary>Set on a de-linked note series: each series is then one tranche of one class.</summary>
+    public RevolvingDelinkedDto? Delinked { get; set; }
+}
+
+public class RevolvingDelinkedDto
+{
+    /// <summary>The classes, senior first.</summary>
+    public List<string>? ClassOrder { get; set; }
+
+    public bool SegregatedFinance { get; set; }
 }
 
 public class RevolvingStepDto
@@ -78,6 +89,9 @@ public class RevolvingStepDto
     public List<string>? From { get; set; }
     public List<string>? WhenPaid { get; set; }
     public List<string>? Phases { get; set; }
+
+    /// <summary>On a note series, what REALLOCATE_PRINCIPAL pays: INTEREST or FEE.</summary>
+    public string? Covers { get; set; }
 }
 
 public class RevolvingTriggerDto
@@ -124,6 +138,9 @@ public class RevolvingSeriesDto
 
     public double? RequiredReserve { get; set; }
 
+    /// <summary>On a tranche: percent of its adjusted amount it requires of each junior class.</summary>
+    public Dictionary<string, double>? RequiredSubordination { get; set; }
+
     /// <summary>Where the series stands at the statement date.</summary>
     public RevolvingSeriesStateDto? State { get; set; }
 }
@@ -142,6 +159,15 @@ public class RevolvingSeriesStateDto
     public double? FundingDeficit { get; set; }
     public double? Reserve { get; set; }
     public int? AccumulationMonthsRun { get; set; }
+
+    /// <summary>On a tranche: its nominal liquidation amount at the close of the month before.</summary>
+    public double? PriorNumerator { get; set; }
+
+    /// <summary>On a tranche: its funding account at the close of the month before.</summary>
+    public double? PriorFunding { get; set; }
+
+    /// <summary>On a tranche: what it has used of each junior class.</summary>
+    public Dictionary<string, double>? Usage { get; set; }
 
     /// <summary>Finance waiting for a series' first waterfall.</summary>
     public double? CarriedFinance { get; set; }
@@ -194,6 +220,24 @@ public class RevolvingClosingDto
 {
     public RevolvingSeriesStateDto State { get; set; } = new();
     public Dictionary<string, RevolvingClassClosingDto> Classes { get; set; } = new();
+
+    /// <summary>
+    ///     Nothing owed and nothing held: no interest, fee, default or write-down, and no reserve,
+    ///     funding account or carried finance. A next run can leave it out and nothing changes.
+    /// </summary>
+    public bool Retired { get; set; }
+
+    /// <summary>
+    ///     Still owed, and nothing in this run can pay it: no series it can be paid from has an amount
+    ///     that takes an allocation, or holds cash. Trust collections belong to the transferor from
+    ///     here. It reads this run alone, so a series joining later, or account earnings stated in a
+    ///     later request, can still pay it. Send it on if either is coming.
+    ///
+    ///     Retired and stranded are the two ends the engine names, and a series need not reach either.
+    ///     One with an amount stays open while it revolves, and also while a pool with nothing left
+    ///     collects nothing. So a loop stops on these flags and on a count of months.
+    /// </summary>
+    public bool Stranded { get; set; }
 }
 
 /// <summary>Monthly percents from the statements, oldest first, for the trigger tests.</summary>
@@ -331,6 +375,12 @@ public class ActualPeriodDto
     public double Dilution { get; set; }
     public double? EndingBalance { get; set; }
     public int? Days { get; set; }
+
+    /// <summary>The pool the allocator divides by, where the trust prints one.</summary>
+    public double? AllocationBalance { get; set; }
+
+    public double? InterestAccountEarnings { get; set; }
+    public double? PrincipalAccountEarnings { get; set; }
 }
 
 public class RevolvingResponse
@@ -373,6 +423,43 @@ public class RevolvingProgramPeriodDto
     public double CashIn { get; set; }
     public double CashOut { get; set; }
     public List<RevolvingReportingTestDto> ReportingTests { get; set; } = new();
+    public RevolvingNotesDto? Notes { get; set; }
+}
+
+/// <summary>A de-linked note series' month as a whole.</summary>
+public class RevolvingNotesDto
+{
+    public double Numerator { get; set; }
+    public double PrincipalNumerator { get; set; }
+    public double FinanceAllocation { get; set; }
+    public double PrincipalAllocation { get; set; }
+    public double InvestorDefault { get; set; }
+    public double FeesPaid { get; set; }
+    public double InterestPaid { get; set; }
+    public double AccountEarnings { get; set; }
+    public double SegregatedFinance { get; set; }
+    public double ExcessDollars { get; set; }
+    public double UncoveredDefault { get; set; }
+    public double UnchargedDefault { get; set; }
+    public double PrincipalReallocated { get; set; }
+    public double FinanceYieldPct { get; set; }
+    public double NetLossPct { get; set; }
+    public double PortfolioYieldPct { get; set; }
+    public double CouponPct { get; set; }
+    public double BaseRatePct { get; set; }
+    public double ExcessSpreadPct { get; set; }
+}
+
+/// <summary>What a de-linked tranche did in the month.</summary>
+public class RevolvingTrancheDto
+{
+    public double Numerator { get; set; }
+    public double OpeningNominalLiquidation { get; set; }
+    public double NextNumerator { get; set; }
+    public double NextPriorFunding { get; set; }
+    public Dictionary<string, double> RequiredSubordination { get; set; } = new();
+    public Dictionary<string, double> UsageThisMonth { get; set; } = new();
+    public Dictionary<string, double> Usage { get; set; } = new();
 }
 
 public class RevolvingReportingTestDto
@@ -444,6 +531,9 @@ public class RevolvingSeriesPeriodDto
     public double ExcessSpreadPct { get; set; }
     public double ExcessDollars { get; set; }
     public List<RevolvingTriggerReadingDto> Triggers { get; set; } = new();
+    public double? FrozenPrincipalPct { get; set; }
+    public double? FrozenNumerator { get; set; }
+    public RevolvingTrancheDto? Tranche { get; set; }
 }
 
 public class RevolvingTriggerReadingDto

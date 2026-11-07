@@ -131,7 +131,11 @@ internal static class CardProgram
     ///     The months of a run, one request at a time on the printed figures it produced, each opening
     ///     on the last one's close and nothing else.
     /// </summary>
-    public static IReadOnlyList<RevolvingResult> MonthByMonth(RevolvingRun run, RevolvingResult whole)
+    /// <param name="run">the run.</param>
+    /// <param name="whole">its result.</param>
+    /// <param name="leaveOutRetired">send no series the last month's close called retired.</param>
+    public static IReadOnlyList<RevolvingResult> MonthByMonth(RevolvingRun run, RevolvingResult whole,
+        bool leaveOutRetired = false)
     {
         var months = new List<RevolvingResult>();
         var series = run.Series;
@@ -148,7 +152,10 @@ internal static class CardProgram
                 Series = series
             });
             months.Add(month);
-            series = month.Series.Select(s => s.Closing).ToList();
+            series = month.Series.Where(s => !(leaveOutRetired && s.Retired)).Select(s => s.Closing).ToList();
+            if (series.Count == 0)
+                break;
+
             statement = new DateTime(statement.Year, statement.Month, 1).AddMonths(2).AddDays(-1);
         }
 
@@ -166,7 +173,10 @@ internal static class CardProgram
             Recoveries = period.Pool.Recoveries,
             ChargeOffs = period.Pool.ChargeOffs,
             Dilution = period.Pool.Dilution,
-            Days = period.Dates.Days
+            Days = period.Dates.Days,
+            AllocationBalance = period.Pool.AllocationBalance,
+            InterestAccountEarnings = period.InterestAccountEarnings,
+            PrincipalAccountEarnings = period.PrincipalAccountEarnings
         };
     }
 
@@ -179,7 +189,17 @@ internal static class CardProgram
             var because = $"month {i}";
             months[i].Periods[0].TransferorFinance.Should().BeApproximately(whole.Periods[i].TransferorFinance, tiny, because);
             months[i].Periods[0].TransferorPrincipal.Should().BeApproximately(whole.Periods[i].TransferorPrincipal, tiny, because);
-            foreach (var series in whole.Series)
+            if (whole.Periods[i].Notes is { } notes)
+            {
+                var cutNotes = months[i].Periods[0].Notes!;
+                cutNotes.Numerator.Should().BeApproximately(notes.Numerator, tiny, because);
+                cutNotes.SegregatedFinance.Should().BeApproximately(notes.SegregatedFinance, tiny, because);
+                cutNotes.ExcessDollars.Should().BeApproximately(notes.ExcessDollars, tiny, because);
+                cutNotes.UncoveredDefault.Should().BeApproximately(notes.UncoveredDefault, tiny, because);
+                cutNotes.PrincipalReallocated.Should().BeApproximately(notes.PrincipalReallocated, tiny, because);
+            }
+
+            foreach (var series in whole.Series.Where(w => months[i].Series.Any(s => s.Name == w.Name)))
             {
                 var cut = months[i].Series.Single(s => s.Name == series.Name);
                 var want = series.Periods[i];
@@ -194,6 +214,14 @@ internal static class CardProgram
                 got.FundingAccount.Should().BeApproximately(want.FundingAccount, tiny, named);
                 got.FundingDeficit.Should().BeApproximately(want.FundingDeficit, tiny, named);
                 got.PrincipalPct.Should().BeApproximately(want.PrincipalPct, tiny, named);
+                if (want.Tranche is { } tranche)
+                {
+                    got.Tranche!.Numerator.Should().BeApproximately(tranche.Numerator, tiny, named);
+                    got.Tranche.Usage.Values.Sum().Should().BeApproximately(tranche.Usage.Values.Sum(), tiny, named);
+                    got.Tranche.RequiredSubordination.Values.Sum().Should()
+                        .BeApproximately(tranche.RequiredSubordination.Values.Sum(), tiny, named);
+                }
+
                 foreach (var (key, rows) in series.Classes)
                 {
                     var row = cut.Classes[key][0];

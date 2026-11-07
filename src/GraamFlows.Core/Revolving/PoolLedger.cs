@@ -75,6 +75,9 @@ public sealed record PoolActuals
     public double Recoveries { get; init; }
     public double ChargeOffs { get; init; }
     public double Dilution { get; init; }
+
+    /// <summary>The pool the allocator divides by, where the trust prints one.</summary>
+    public double? AllocationBalance { get; init; }
 }
 
 /// <summary>One month of the whole program's pool: the receivables roll and the cash it collected.</summary>
@@ -99,6 +102,14 @@ public sealed record PoolPeriod
 
     /// <summary>The principal bucket: principal collections plus any recoveries that land in it.</summary>
     public double PrincipalCash => PrincipalCollections + RecoveriesToPrincipal;
+
+    /// <summary>
+    ///     What the investors bear: charge-offs, less recoveries that already came back as principal.
+    /// </summary>
+    public double DefaultAmount => ChargeOffs - RecoveriesToPrincipal;
+
+    /// <summary>The pool the allocator divides by, where the trust prints one.</summary>
+    public double? AllocationBalance { get; init; }
 }
 
 /// <summary>
@@ -163,7 +174,8 @@ public static class PoolLedger
             Recoveries = a.Recoveries,
             RecoveriesToPrincipal = toPrincipal,
             RecoveriesToFinance = a.Recoveries - toPrincipal,
-            Ending = ending
+            Ending = ending,
+            AllocationBalance = a.AllocationBalance
         };
     }
 }

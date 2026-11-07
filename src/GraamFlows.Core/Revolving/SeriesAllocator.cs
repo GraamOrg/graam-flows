@@ -72,7 +72,7 @@ public static class SeriesAllocator
 
         // The last revolving day is the close of the month before, whatever the program measures
         // its monthly floating % on.
-        var lastRevolvingDay = Math.Max(pool.Beginning, sumOfNumerators);
+        var lastRevolvingDay = Math.Max(pool.AllocationBalance ?? pool.Beginning, sumOfNumerators);
 
         // Frozen numerators stand in for the current ones here, so the shares they make fit the pool.
         var currentPool = Math.Max(Measure(pool, measure),
@@ -119,6 +119,9 @@ public static class SeriesAllocator
 
     private static double Measure(PoolPeriod pool, PoolMeasure measure)
     {
+        if (pool.AllocationBalance is { } printed)
+            return printed;
+
         return measure switch
         {
             PoolMeasure.PeriodStart => pool.Beginning,

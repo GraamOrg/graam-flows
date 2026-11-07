@@ -101,6 +101,40 @@ public class RevolvingRouteTests
         return JsonSerializer.Serialize(bad.Value);
     }
 
+    private static void NoteSeries(RevolvingRequest r)
+    {
+        r.Program.Delinked = new RevolvingDelinkedDto { ClassOrder = new List<string> { "A" } };
+        r.Program.PrincipalSteps = new List<RevolvingStepDto>
+        {
+            new() { Verb = "DEPOSIT_PFA" },
+            new() { Verb = "RELEASE_TRANSFEROR" }
+        };
+    }
+
+    [Fact]
+    public void PayClassOnANoteSeriesIsANamed400NotA500()
+    {
+        var error = Error(Request(r =>
+        {
+            NoteSeries(r);
+            r.Program.PrincipalSteps.Insert(0, new RevolvingStepDto { Verb = "PAY_CLASS", Class = "A" });
+        }));
+
+        error.Should().Contain("PAY_CLASS");
+    }
+
+    [Fact]
+    public void ANoteSeriesWithNoLastReleaseStepIsANamed400NotA500()
+    {
+        var error = Error(Request(r =>
+        {
+            NoteSeries(r);
+            r.Program.FinanceSteps.RemoveAt(r.Program.FinanceSteps.Count - 1);
+        }));
+
+        error.Should().Contain("finance steps must end");
+    }
+
     [Fact]
     public void ARunCutOnTheResponsesClosingMatchesOneLongRun()
     {
@@ -164,6 +198,9 @@ public class RevolvingRouteTests
             one.Periods[0].TransferorFinance.Should().BeApproximately(whole.Periods[i].TransferorFinance, 1e-6, $"month {i}");
 
             var closed = one.Series["S"].Closing;
+            closed.State.History!.ExcessSpread.Should().NotBeNull();
+            closed.State.History.PortfolioYield.Should().NotBeNull();
+            closed.State.History.BaseRate.Should().NotBeNull();
             state = JsonSerializer.Deserialize<RevolvingSeriesStateDto>(JsonSerializer.Serialize(closed.State, camel), Options);
             classes = closed.Classes;
             statement = new DateTime(statement.Year, statement.Month, 1).AddMonths(2).AddDays(-1);
@@ -171,6 +208,27 @@ public class RevolvingRouteTests
 
         whole.Series["S"].PhasePath.Select(m => m.Phase).Should().Contain("EARLY_AMORTIZATION");
         whole.Series["S"].Periods.Should().Contain(p => p.CarriedFinance > 0.0);
+    }
+
+    [Fact]
+    public void TheClosingSaysWhetherASeriesIsRetiredOrStranded()
+    {
+        var written = Ok(Request(r =>
+        {
+            r.Periods = 1;
+            r.Drivers!.Yield = new RevolvingDriverDto { Values = new[] { 0.0 } };
+            r.Series[0].Classes[0].WrittenDown = 400_000.0;
+        }));
+        var paid = Ok(Request(r =>
+        {
+            r.Periods = 1;
+            r.Series[0].Classes[0].Balance = 0.0;
+        }));
+
+        written.Series["S"].Closing.Stranded.Should().BeTrue();
+        written.Series["S"].Closing.Retired.Should().BeFalse();
+        paid.Series["S"].Closing.Retired.Should().BeTrue();
+        paid.Series["S"].Closing.Stranded.Should().BeFalse();
     }
 
     [Fact]

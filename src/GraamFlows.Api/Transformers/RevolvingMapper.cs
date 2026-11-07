@@ -59,7 +59,7 @@ public static class RevolvingMapper
                         DistributionDate = trip.DistributionDate
                     }
                     : null,
-                Closing = ToClosing(series.Closing)
+                Closing = ToClosing(series)
             };
 
             foreach (var (key, rows) in series.Classes)
@@ -69,12 +69,15 @@ public static class RevolvingMapper
         return response;
     }
 
-    private static RevolvingClosingDto ToClosing(RevolvingSeries closing)
+    private static RevolvingClosingDto ToClosing(SeriesResult series)
     {
+        var closing = series.Closing;
         double[]? Months(TriggerMetric metric) => closing.History.GetValueOrDefault(metric)?.ToArray();
 
         return new RevolvingClosingDto
         {
+            Retired = series.Retired,
+            Stranded = series.Stranded,
             State = new RevolvingSeriesStateDto
             {
                 Phase = PhaseNames.ToWire(closing.Phase),
@@ -87,6 +90,9 @@ public static class RevolvingMapper
                 CarriedFinance = closing.CarriedFinance,
                 FreezePending = closing.FreezePending ? true : null,
                 FeesDue = closing.FeesDue.ToDictionary(f => f.Key, f => f.Value),
+                PriorNumerator = closing.PriorNumerator,
+                PriorFunding = closing.PriorFunding,
+                Usage = closing.Usage.ToDictionary(u => u.Key, u => u.Value),
                 TriggerState = closing.TriggerStates.ToDictionary(t => t.Key, t => new RevolvingTriggerStateDto
                 {
                     Latched = t.Value.Latched,
@@ -136,7 +142,14 @@ public static class RevolvingMapper
             PrincipalSteps = dto.PrincipalSteps.Select(ToStep).ToList(),
             Triggers = (dto.Triggers ?? new List<RevolvingTriggerDto>()).Select(ToTrigger).ToList(),
             SeriesRequiredTransferorPct = dto.SeriesRequiredTransferorPct,
-            RequiredTransferorPct = dto.RequiredTransferorPct
+            RequiredTransferorPct = dto.RequiredTransferorPct,
+            Delinked = dto.Delinked == null
+                ? null
+                : new DelinkedNotes
+                {
+                    ClassOrder = dto.Delinked.ClassOrder ?? new List<string>(),
+                    SegregatedFinance = dto.Delinked.SegregatedFinance
+                }
         };
     }
 
@@ -148,7 +161,8 @@ public static class RevolvingMapper
             dto.Fee,
             dto.From,
             dto.WhenPaid,
-            dto.Phases?.Select(PhaseNames.Parse).ToList());
+            dto.Phases?.Select(PhaseNames.Parse).ToList(),
+            ReallocationCoversParser.Parse(dto.Covers));
     }
 
     private static TriggerTest ToTrigger(RevolvingTriggerDto dto)
@@ -201,7 +215,11 @@ public static class RevolvingMapper
             FeesDue = state?.FeesDue ?? new Dictionary<string, double>(),
             TriggerStates = (state?.TriggerState ?? new Dictionary<string, RevolvingTriggerStateDto>())
                 .ToDictionary(t => t.Key, t => ToTriggerState(name, t.Key, t.Value)),
-            History = ToHistory(state?.History)
+            History = ToHistory(state?.History),
+            RequiredSubordination = dto.RequiredSubordination ?? new Dictionary<string, double>(),
+            Usage = state?.Usage ?? new Dictionary<string, double>(),
+            PriorNumerator = state?.PriorNumerator,
+            PriorFunding = state?.PriorFunding
         };
     }
 
@@ -280,7 +298,10 @@ public static class RevolvingMapper
             ChargeOffs = Stated(month, "chargeOffs", dto.ChargeOffs),
             Dilution = dto.Dilution,
             Ending = dto.EndingBalance,
-            Days = dto.Days
+            Days = dto.Days,
+            AllocationBalance = dto.AllocationBalance,
+            InterestAccountEarnings = dto.InterestAccountEarnings ?? 0.0,
+            PrincipalAccountEarnings = dto.PrincipalAccountEarnings ?? 0.0
         };
     }
 
@@ -352,7 +373,31 @@ public static class RevolvingMapper
                 Required = t.Required,
                 Actual = t.Actual,
                 Headroom = t.Headroom
-            }).ToList()
+            }).ToList(),
+            Notes = p.Notes is { } n
+                ? new RevolvingNotesDto
+                {
+                    Numerator = n.Numerator,
+                    PrincipalNumerator = n.PrincipalNumerator,
+                    FinanceAllocation = n.FinanceAllocation,
+                    PrincipalAllocation = n.PrincipalAllocation,
+                    InvestorDefault = n.InvestorDefault,
+                    FeesPaid = n.FeesPaid,
+                    InterestPaid = n.InterestPaid,
+                    AccountEarnings = n.AccountEarnings,
+                    SegregatedFinance = n.SegregatedFinance,
+                    ExcessDollars = n.ExcessDollars,
+                    UncoveredDefault = n.UncoveredDefault,
+                    UnchargedDefault = n.UnchargedDefault,
+                    PrincipalReallocated = n.PrincipalReallocated,
+                    FinanceYieldPct = n.FinanceYieldPct,
+                    NetLossPct = n.NetLossPct,
+                    PortfolioYieldPct = n.PortfolioYieldPct,
+                    CouponPct = n.CouponPct,
+                    BaseRatePct = n.BaseRatePct,
+                    ExcessSpreadPct = n.ExcessSpreadPct
+                }
+                : null
         };
     }
 
@@ -400,7 +445,21 @@ public static class RevolvingMapper
                 Headroom = t.Headroom,
                 Latched = t.Latched,
                 Acting = t.Acting
-            }).ToList()
+            }).ToList(),
+            FrozenPrincipalPct = p.FrozenPrincipalPct,
+            FrozenNumerator = p.FrozenNumerator,
+            Tranche = p.Tranche is { } t2
+                ? new RevolvingTrancheDto
+                {
+                    Numerator = t2.Numerator,
+                    OpeningNominalLiquidation = t2.OpeningNominalLiquidation,
+                    NextNumerator = t2.NextNumerator,
+                    NextPriorFunding = t2.NextPriorFunding,
+                    RequiredSubordination = t2.RequiredSubordination.ToDictionary(x => x.Key, x => x.Value),
+                    UsageThisMonth = t2.UsageThisMonth.ToDictionary(x => x.Key, x => x.Value),
+                    Usage = t2.Usage.ToDictionary(x => x.Key, x => x.Value)
+                }
+                : null
         };
     }
 

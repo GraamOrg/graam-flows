@@ -63,6 +63,71 @@ public sealed record SeriesPeriod
     public double ExcessDollars { get; init; }
 
     public IReadOnlyList<TriggerReading> Triggers { get; init; } = Array.Empty<TriggerReading>();
+
+    /// <summary>The frozen share, once a series has left revolving under FROZEN_PERCENT.</summary>
+    public double? FrozenPrincipalPct { get; init; }
+
+    /// <summary>The frozen numerator, once a series has left revolving under FROZEN_NUMERATOR.</summary>
+    public double? FrozenNumerator { get; init; }
+
+    /// <summary>On a tranche of a de-linked note series. Null otherwise.</summary>
+    public TranchePeriod? Tranche { get; init; }
+}
+
+/// <summary>What a de-linked tranche did this month.</summary>
+public sealed record TranchePeriod
+{
+    /// <summary>What finance, the fee and defaults were allocated on: the close of the month before.</summary>
+    public double Numerator { get; init; }
+
+    /// <summary>Its nominal liquidation amount as the month opened.</summary>
+    public double OpeningNominalLiquidation { get; init; }
+
+    /// <summary>The next month's numerator.</summary>
+    public double NextNumerator { get; init; }
+
+    /// <summary>The next month's funding account at the close of the month before it.</summary>
+    public double NextPriorFunding { get; init; }
+
+    public IReadOnlyDictionary<string, double> RequiredSubordination { get; init; } = new Dictionary<string, double>();
+    public IReadOnlyDictionary<string, double> UsageThisMonth { get; init; } = new Dictionary<string, double>();
+    public IReadOnlyDictionary<string, double> Usage { get; init; } = new Dictionary<string, double>();
+}
+
+/// <summary>The month of a de-linked note series as a whole.</summary>
+public sealed record NotePeriod
+{
+    public double Numerator { get; init; }
+    public double PrincipalNumerator { get; init; }
+    public double FinanceAllocation { get; init; }
+    public double PrincipalAllocation { get; init; }
+    public double InvestorDefault { get; init; }
+    public double FeesPaid { get; init; }
+    public double InterestPaid { get; init; }
+
+    /// <summary>Account earnings the caller supplied, in the finance bucket.</summary>
+    public double AccountEarnings { get; init; }
+
+    /// <summary>Transferor finance moved in to cover interest on funded principal.</summary>
+    public double SegregatedFinance { get; init; }
+
+    /// <summary>What the transferor was paid of finance. It is not computed from a rate.</summary>
+    public double ExcessDollars { get; init; }
+
+    public double UncoveredDefault { get; init; }
+
+    /// <summary>
+    ///     The part of the uncovered default past what the tranches it fell on had left. A nominal
+    ///     liquidation amount stops at zero, so the transferor's interest in the pool takes it.
+    /// </summary>
+    public double UnchargedDefault { get; init; }
+    public double PrincipalReallocated { get; init; }
+    public double FinanceYieldPct { get; init; }
+    public double NetLossPct { get; init; }
+    public double PortfolioYieldPct { get; init; }
+    public double CouponPct { get; init; }
+    public double BaseRatePct { get; init; }
+    public double ExcessSpreadPct { get; init; }
 }
 
 /// <summary>Minimum pool or transferor test. It is reported every month and never trips.</summary>
@@ -80,6 +145,14 @@ public sealed record ProgramPeriod
     /// <summary>Printed beginning less the prior month's ending, on a replayed month.</summary>
     public double? RollBreak { get; init; }
 
+    /// <summary>Earnings on cash in the interest funding accounts, from the request.</summary>
+    public double InterestAccountEarnings { get; init; }
+
+    /// <summary>Earnings on cash in the principal funding accounts, from the request.</summary>
+    public double PrincipalAccountEarnings { get; init; }
+
+    public double AccountEarnings => InterestAccountEarnings + PrincipalAccountEarnings;
+
     public double TransferorAmount { get; init; }
     public double TransferorFinance { get; init; }
     public double TransferorPrincipal { get; init; }
@@ -91,6 +164,9 @@ public sealed record ProgramPeriod
     public double CashOut { get; init; }
 
     public IReadOnlyList<ReportingTest> ReportingTests { get; init; } = Array.Empty<ReportingTest>();
+
+    /// <summary>On a de-linked note series. Null otherwise.</summary>
+    public NotePeriod? Notes { get; init; }
 }
 
 /// <summary>A move in a series' phase path.</summary>
@@ -109,6 +185,12 @@ public sealed record SeriesResult
 
     /// <summary>The series as the run closed it. A next run opens on this, and on nothing else.</summary>
     public required RevolvingSeries Closing { get; init; }
+
+    /// <summary>Nothing owed and nothing held, so a next run can leave it out.</summary>
+    public bool Retired { get; init; }
+
+    /// <summary>Still owed, and no series in this run can pay it. See the closing's docs.</summary>
+    public bool Stranded { get; init; }
 }
 
 public sealed record RevolvingResult
