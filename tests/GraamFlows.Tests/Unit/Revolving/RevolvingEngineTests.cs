@@ -1145,6 +1145,258 @@ public class RevolvingEngineTests
         prove.Should().Throw<InvalidOperationException>().WithMessage("*collected*placed*");
     }
 
+    [Theory]
+    [InlineData(100.0, 101.0)]
+    [InlineData(100.0, 100.002)]
+    [InlineData(101.0, 100.0)]
+    public void TheCashProofCatchesARealGap(double collected, double placed)
+    {
+        var prove = () => RevolvingCashProof.Require("Example", 3, collected, placed);
+
+        prove.Should().Throw<InvalidOperationException>().WithMessage("Period 3 of 'Example' collected*");
+    }
+
+    [Theory]
+    [InlineData(100.0, 100.0)]
+    [InlineData(1e11, 1e11 + 2e-4)]
+    public void TheCashProofLeavesRoomForFloatingPointError(double collected, double placed)
+    {
+        var prove = () => RevolvingCashProof.Require("Example", 3, collected, placed);
+
+        prove.Should().NotThrow();
+    }
+
+    private static readonly TriggerTest ReserveOnThinSpread = new()
+    {
+        Name = "RESERVE_ON_THIN_SPREAD",
+        Metric = TriggerMetric.ExcessSpread,
+        Window = 1,
+        Comparison = TriggerComparison.Below,
+        Level = 2.0,
+        Action = TriggerAction.FundReserve,
+        CurePeriods = 2,
+        ReserveAmount = 5.0
+    };
+
+    private static RevolvingRun StressedRun(int lag, params TriggerTest[] tests)
+    {
+        // One series is short of its fee, then fails its test. The other has yet to pay, so its
+        // finance waits and its interest, fee and default accrue. A recovery lets a reserve test cure.
+        var paying = CardProgram.Series("Paying", 400.0, 50.0, 50.0);
+        var waiting = CardProgram.Series("Waiting", 400.0, 50.0, 50.0) with
+        {
+            ClosingDate = new DateTime(2026, 7, 20),
+            FirstPayDate = new DateTime(2026, 12, 15)
+        };
+        var drivers = CardProgram.Drivers(0.4, 0.4, 0.0005, 0.002, 0.0) with
+        {
+            Yield = new PoolDriver(new[] { 0.0005, 0.0005, 0.05, 0.05, 0.05, 0.0005 })
+        };
+        return CardProgram.Run(CardProgram.Program(actionLag: lag, triggers: tests), 2_000.0,
+            new[] { paying, waiting }, drivers, 8);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ARunCutIntoMonthsMatchesOneLongRun(int lag)
+    {
+        var yieldBelow = CardProgram.YieldBelowBaseRate with { Window = 1 };
+        var run = StressedRun(lag, yieldBelow, ReserveOnThinSpread);
+        var whole = CardProgram.Execute(run);
+
+        var months = CardProgram.MonthByMonth(run, whole);
+
+        CardProgram.RequireSameMonths(whole, months);
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.FeesDue.Values.Sum() > 1.0));
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.CarriedFinance > 1.0));
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.Classes.Any(c => c.DefaultDue > 0.1)));
+        whole.Series.Should().Contain(s => s.PhasePath.Any(p => p.Phase == SeriesPhase.EarlyAmortization));
+    }
+
+    [Fact]
+    public void ARunCutIntoMonthsKeepsAFrozenNumeratorAndGroupReallocation()
+    {
+        var stressed = StressedRun(1, CardProgram.YieldBelowBaseRate with { Window = 1 });
+        var run = stressed with
+        {
+            Program = stressed.Program with
+            {
+                PrincipalFreeze = PrincipalFreeze.FrozenNumerator,
+                GroupSteps = new[] { new WaterfallStep(WaterfallVerb.ReallocateGroupFinance) }
+            }
+        };
+        var whole = CardProgram.Execute(run);
+
+        var months = CardProgram.MonthByMonth(run, whole);
+
+        CardProgram.RequireSameMonths(whole, months);
+        months[^1].Series.Should().Contain(s => s.Closing.FrozenNumerator != null);
+    }
+
+    [Fact]
+    public void ATestTrippedInOneRunActsAtItsLagInTheNext()
+    {
+        var yieldBelow = CardProgram.YieldBelowBaseRate with { Window = 1 };
+        var run = StressedRun(2, yieldBelow);
+        var months = CardProgram.MonthByMonth(run, CardProgram.Execute(run));
+
+        // The first month's rates are read at the second month's open, and it acts two months on.
+        var trip = months.First(m => m.Series.Any(s => s.Closing.TriggerStates.Count > 0));
+        trip.Series.Single(s => s.Name == "Paying").Closing.TriggerStates[yieldBelow.Name].Should()
+            .Be(new TriggerState(true, 1, 0));
+    }
+
+    [Fact]
+    public void AReserveTestCuresAcrossACut()
+    {
+        var run = StressedRun(0, ReserveOnThinSpread);
+        var whole = CardProgram.Execute(run);
+
+        var months = CardProgram.MonthByMonth(run, whole);
+
+        CardProgram.RequireSameMonths(whole, months);
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.TriggerStates.Values.Any(t => t.GoodMonths > 0)));
+        whole.Series[0].Periods.Should().Contain(p => p.ReserveRequired > 0.0);
+    }
+
+    [Fact]
+    public void AClosingKeepsTheOriginalBalanceAFactorIsMeasuredFrom()
+    {
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0,
+            new[] { CardProgram.Series("S", 400.0, 50.0, 50.0) with { Phase = SeriesPhase.EarlyAmortization, FrozenPrincipalPct = 0.25 } },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        var closing = CardProgram.Execute(run).Series[0].Closing;
+
+        closing.Classes[0].Balance.Should().BeLessThan(400.0);
+        closing.Classes[0].OriginalBalance.Should().Be(400.0);
+    }
+
+    private static RevolvingRun WithClassD(RevolvingClass d, double? fee = null)
+    {
+        var series = CardProgram.Series("S", 400.0, 50.0, 50.0);
+        return CardProgram.Run(CardProgram.Program(), 2_000.0,
+            new[]
+            {
+                series with
+                {
+                    Classes = series.Classes.Append(d).ToList(),
+                    WritedownOrder = new[] { "D", "C", "B", "A" },
+                    Fees = fee == null ? series.Fees : series.Fees.Append(new RevolvingFee("extra", fee.Value)).ToList()
+                }
+            }, CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+    }
+
+    [Fact]
+    public void AClassWithNoCouponNeedsNoInterestStep()
+    {
+        var run = () => CardProgram.Execute(WithClassD(new RevolvingClass { Key = "D", Balance = 50.0, Coupon = 0.0 }));
+
+        run.Should().NotThrow();
+    }
+
+    [Fact]
+    public void AClassWithNoBalanceNeedsNoInterestStep()
+    {
+        var run = () => CardProgram.Execute(WithClassD(new RevolvingClass { Key = "D", Balance = 0.0, Coupon = 5.0 }));
+
+        run.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(50.0, 5.0, 0.0)]
+    [InlineData(50.0, 0.0, 1.0)]
+    public void AClassThatOwesInterestStillNeedsItsStep(double balance, double coupon, double shortfall)
+    {
+        var run = () => CardProgram.Execute(WithClassD(
+            new RevolvingClass { Key = "D", Balance = balance, Coupon = coupon, InterestShortfall = shortfall }));
+
+        run.Should().Throw<RevolvingConfigException>().WithMessage("*no PAY_INTEREST step*");
+    }
+
+    [Fact]
+    public void AFeeOfZeroNeedsNoFeeStep()
+    {
+        var series = CardProgram.Series("S", 400.0, 50.0, 50.0);
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0,
+            new[] { series with { Fees = series.Fees.Append(new RevolvingFee("nil", 0.0)).ToList() } },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        ((Action)(() => CardProgram.Execute(run))).Should().NotThrow();
+    }
+
+    [Fact]
+    public void AFeeOfZeroWithSomethingStillDueNeedsItsStep()
+    {
+        var series = CardProgram.Series("S", 400.0, 50.0, 50.0);
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0,
+            new[]
+            {
+                series with
+                {
+                    Fees = series.Fees.Append(new RevolvingFee("nil", 0.0)).ToList(),
+                    FeesDue = new Dictionary<string, double> { ["nil"] = 5.0 }
+                }
+            },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        ((Action)(() => CardProgram.Execute(run))).Should().Throw<RevolvingConfigException>().WithMessage("*no PAY_FEE step*");
+    }
+
+    [Fact]
+    public void NewReceivablesCanPassTheBeginningBalance()
+    {
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { CardProgram.Series("S", 400.0, 50.0, 50.0) },
+            CardProgram.Drivers(0.3, 1.5, 0.05, 0.0, 0.0), 1);
+
+        CardProgram.Execute(run).Periods[0].Pool.Ending.Should().BeApproximately(2_000.0 + 3_000.0 - 600.0, 1e-9);
+    }
+
+    [Fact]
+    public void ACollectionsDriverOverTheBalanceIsStillRefused()
+    {
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { CardProgram.Series("S", 400.0, 50.0, 50.0) },
+            CardProgram.Drivers(1.5, 0.4, 0.05, 0.0, 0.0), 1);
+
+        ((Action)(() => CardProgram.Execute(run))).Should().Throw<RevolvingConfigException>().WithMessage("*paymentRate*at most 100%*");
+    }
+
+    [Fact]
+    public void ANegativeNewReceivablesRateIsRefused()
+    {
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { CardProgram.Series("S", 400.0, 50.0, 50.0) },
+            CardProgram.Drivers(0.3, -0.1, 0.05, 0.0, 0.0), 1);
+
+        ((Action)(() => CardProgram.Execute(run))).Should().Throw<RevolvingConfigException>().WithMessage("*newReceivablesRate*at least 0%*");
+    }
+
+    [Theory]
+    [InlineData("carried")]
+    [InlineData("feeName")]
+    [InlineData("feeAmount")]
+    [InlineData("testName")]
+    [InlineData("months")]
+    [InlineData("defaultDue")]
+    public void ClosingStateIsCheckedLikeAnyOtherFigure(string field)
+    {
+        var series = CardProgram.Series("S", 400.0, 50.0, 50.0);
+        var bad = field switch
+        {
+            "carried" => series with { CarriedFinance = double.NaN },
+            "feeName" => series with { FeesDue = new Dictionary<string, double> { ["nope"] = 1.0 } },
+            "feeAmount" => series with { FeesDue = new Dictionary<string, double> { ["servicing"] = -5.0 } },
+            "testName" => series with { TriggerStates = new Dictionary<string, TriggerState> { ["nope"] = new(true, 0, 0) } },
+            "months" => series with { TriggerStates = new Dictionary<string, TriggerState> { [CardProgram.YieldBelowBaseRate.Name] = new(true, -1, 0) } },
+            _ => series with { Classes = series.Classes.Select(c => c with { DefaultDue = -5.0 }).ToList() }
+        };
+        var run = CardProgram.Run(CardProgram.Program(triggers: new[] { CardProgram.YieldBelowBaseRate }), 2_000.0, new[] { bad },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        ((Action)(() => CardProgram.Execute(run))).Should().Throw<RevolvingConfigException>();
+    }
+
     [Fact]
     public void EveryCollectedDollarLandsAcrossStressedRuns()
     {

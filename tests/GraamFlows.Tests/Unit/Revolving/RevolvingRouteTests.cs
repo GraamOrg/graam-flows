@@ -136,6 +136,78 @@ public class RevolvingRouteTests
     }
 
     [Fact]
+    public void ARunCutOnTheResponsesClosingMatchesOneLongRun()
+    {
+        // A fee finance cannot pay, a test that trips and acts a month later, and a first waterfall
+        // still to come, so all of it must carry across the wire.
+        var months = Enumerable.Range(0, 6).Select(i => new ActualPeriodDto
+        {
+            BeginningBalance = 1_000_000.0,
+            NewReceivables = 100_000.0,
+            PrincipalCollections = 100_000.0,
+            FinanceCollections = i < 3 ? 1_000.0 : 60_000.0,
+            ChargeOffs = 2_000.0
+        }).ToList();
+        var camel = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+        RevolvingRequest Stressed(Action<RevolvingRequest>? change = null) => Request(r =>
+        {
+            r.Program.ActionLag = 1;
+            r.Program.Triggers![0].Window = 1;
+            r.Program.FinanceSteps.Insert(1, new RevolvingStepDto { Verb = "PAY_FEE", Fee = "servicing" });
+            r.Drivers = null;
+            r.Periods = months.Count;
+            r.ActualPeriods = months;
+            r.Series[0].Fees = new List<RevolvingFeeDto> { new() { Name = "servicing", Rate = 12.0 } };
+            r.Series[0].FirstPayDate = new DateTime(2026, 10, 15);
+            r.Series[0].AccumulationStart = null;
+            r.Series[0].ExpectedDate = null;
+            r.Series[0].ControlledAmount = null;
+            change?.Invoke(r);
+        });
+
+        var whole = Ok(Stressed());
+
+        var state = (RevolvingSeriesStateDto?)null;
+        var classes = new Dictionary<string, RevolvingClassClosingDto>();
+        var statement = new DateTime(2026, 7, 31);
+        for (var i = 0; i < months.Count; i++)
+        {
+            var (when, month, open, held) = (statement, months[i], state, classes);
+            var one = Ok(Stressed(r =>
+            {
+                r.StatementDate = when;
+                r.ActualPeriods = new List<ActualPeriodDto> { month };
+                r.Periods = 1;
+                r.Series[0].State = open;
+                foreach (var c in r.Series[0].Classes.Where(c => held.ContainsKey(c.Key!)))
+                {
+                    var closing = held[c.Key!];
+                    (c.Balance, c.OriginalBalance, c.WrittenDown) = (closing.Balance, closing.OriginalBalance, closing.WrittenDown);
+                    (c.InterestShortfall, c.DefaultDue) = (closing.InterestShortfall, closing.DefaultDue);
+                }
+            }));
+
+            var want = whole.Series["S"].Periods[i];
+            var got = one.Series["S"].Periods[0];
+            got.Phase.Should().Be(want.Phase, $"month {i}");
+            got.FeesPaid.Should().BeApproximately(want.FeesPaid, 1e-6, $"month {i}");
+            got.CarriedFinance.Should().BeApproximately(want.CarriedFinance, 1e-6, $"month {i}");
+            one.TrancheCashflows["S/A"][0].Interest.Should().BeApproximately(whole.TrancheCashflows["S/A"][i].Interest, 1e-6, $"month {i}");
+            one.TrancheCashflows["S/A"][0].Balance.Should().BeApproximately(whole.TrancheCashflows["S/A"][i].Balance, 1e-6, $"month {i}");
+            one.Periods[0].TransferorFinance.Should().BeApproximately(whole.Periods[i].TransferorFinance, 1e-6, $"month {i}");
+
+            var closed = one.Series["S"].Closing;
+            state = JsonSerializer.Deserialize<RevolvingSeriesStateDto>(JsonSerializer.Serialize(closed.State, camel), Options);
+            classes = closed.Classes;
+            statement = new DateTime(statement.Year, statement.Month, 1).AddMonths(2).AddDays(-1);
+        }
+
+        whole.Series["S"].PhasePath.Select(m => m.Phase).Should().Contain("EARLY_AMORTIZATION");
+        whole.Series["S"].Periods.Should().Contain(p => p.CarriedFinance > 0.0);
+    }
+
+    [Fact]
     public void AForecastReturnsPeriodsSeriesAndTrancheRows()
     {
         // A rich yield, so the shrinking floating % leaves no default uncovered near the end.
