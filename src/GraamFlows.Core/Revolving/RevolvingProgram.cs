@@ -277,8 +277,8 @@ public sealed record RevolvingClass
     /// <summary>Outstanding principal at the statement date.</summary>
     public required double Balance { get; init; }
 
-    /// <summary>Fixed coupon in percent. Ignored for a floating class.</summary>
-    public double Coupon { get; init; }
+    /// <summary>Fixed coupon in percent. A fixed class must state it. A floating class ignores it.</summary>
+    public double? Coupon { get; init; }
 
     public MarketDataInstEnum? Index { get; init; }
     public double Margin { get; init; }
@@ -377,13 +377,14 @@ public sealed record RevolvingSeries
 
 /// <summary>
 ///     One forecast driver. Monthly values are fractions of beginning principal receivables; annual
-///     values convert per month as <c>annual × days / 365</c>. A short vector holds its last value.
+///     values convert per month as <c>annual × days / 365</c>. A vector is read by forecast month, so
+///     its first value is the first month after any replayed ones. A short vector holds its last value.
 /// </summary>
 public sealed record PoolDriver(IReadOnlyList<double> Values, bool Annual = false)
 {
-    public double At(int period, int days)
+    public double At(int forecastMonth, int days)
     {
-        var value = Values[Math.Min(period, Values.Count - 1)];
+        var value = Values[Math.Min(forecastMonth, Values.Count - 1)];
         return Annual ? PoolLedger.MonthlyShare(value, days) : value;
     }
 }
@@ -399,17 +400,19 @@ public sealed record PoolDriverPath
     public PoolDriver? RecoveryRate { get; init; }
     public PoolDriver? DilutionRate { get; init; }
 
-    public PoolDrivers For(int period, int days)
+    /// <param name="forecastMonth">0 is the first month after any replayed ones.</param>
+    /// <param name="days">days in the month, for annual drivers.</param>
+    public PoolDrivers For(int forecastMonth, int days)
     {
         return new PoolDrivers
         {
-            PaymentRate = PaymentRate.At(period, days),
-            NewReceivablesRate = NewReceivablesRate?.At(period, days) ?? 0.0,
+            PaymentRate = PaymentRate.At(forecastMonth, days),
+            NewReceivablesRate = NewReceivablesRate?.At(forecastMonth, days) ?? 0.0,
             HoldPool = HoldPool,
-            Yield = Yield.At(period, days),
-            ChargeOffRate = ChargeOffRate.At(period, days),
-            RecoveryRate = RecoveryRate?.At(period, days) ?? 0.0,
-            DilutionRate = DilutionRate?.At(period, days) ?? 0.0
+            Yield = Yield.At(forecastMonth, days),
+            ChargeOffRate = ChargeOffRate.At(forecastMonth, days),
+            RecoveryRate = RecoveryRate?.At(forecastMonth, days) ?? 0.0,
+            DilutionRate = DilutionRate?.At(forecastMonth, days) ?? 0.0
         };
     }
 }
@@ -468,7 +471,8 @@ public sealed record RevolvingRun
 
     /// <summary>
     ///     Annual percent the funding accounts earn, accrued 30/360 and swept to cash monthly. Null
-    ///     is 0, and the run discloses it.
+    ///     is 0, and the run discloses it. Accounts earn in replayed months too, so a vector is read
+    ///     by run month, unlike the forecast drivers.
     /// </summary>
     public IReadOnlyList<double>? FundingEarningsRate { get; init; }
 }
