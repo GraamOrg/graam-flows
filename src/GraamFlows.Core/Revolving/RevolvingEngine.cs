@@ -81,11 +81,11 @@ public static class RevolvingEngine
             foreach (var s in _series)
             {
                 s.OpenMonth();
-                readings[s] = ReadTriggers(s, dates.Period);
+                readings[s] = Issued(s, dates) ? ReadTriggers(s, dates.Period) : Array.Empty<TriggerReading>();
                 MoveByDate(s, dates);
             }
 
-            var live = _series.Where(s => !Finished(s)).ToList();
+            var live = _series.Where(s => !Finished(s) && Issued(s, dates)).ToList();
             foreach (var s in live)
                 s.Numerator = Delinked ? s.PriorNumerator ?? s.AdjustedInvested : s.AdjustedInvested;
             var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure, _program.PrincipalFreeze!.Value,
@@ -171,12 +171,9 @@ public static class RevolvingEngine
             var cashOut = transferorFinance + transferorPrincipal
                           + _series.Sum(s => s.Classes.Sum(c => c.InterestPaid + c.PrincipalPaid)
                                              + s.FeesPaid + s.Funding.Balance + s.Reserve + s.CarriedFinance);
-            // Written so that NaN fails: a comparison with NaN is false.
-            if (!(Math.Abs(cashIn - cashOut) <= SeriesRun.Cent))
-                throw new InvalidOperationException(
-                    $"Period {dates.Period} of '{_program.Name}' collected {cashIn:F2} and placed {cashOut:F2}.");
+            RevolvingCashProof.Require(_program.Name, dates.Period, cashIn, cashOut);
 
-            var invested = _series.Sum(s => s.AdjustedInvested);
+            var invested = _series.Where(s => Issued(s, dates)).Sum(s => s.AdjustedInvested);
             _rows.Add(month with
             {
                 TransferorAmount = pool.Ending - invested,
@@ -252,6 +249,15 @@ public static class RevolvingEngine
                 s.Machine.MoveTo(SeriesPhase.Accumulating);
         }
 
+        /// <summary>
+        ///     A series takes no allocation before the monthly period it closes in, whichever day of it
+        ///     that is. One that pays in this distribution is in, so its first waterfall has cash.
+        /// </summary>
+        private static bool Issued(SeriesRun s, RevolvingPeriodDates dates)
+        {
+            return s.Config.ClosingDate is not { } closing || closing <= dates.PeriodEnd || RunsWaterfall(s, dates);
+        }
+
         private static bool RunsWaterfall(SeriesRun s, RevolvingPeriodDates dates)
         {
             return s.Config.FirstPayDate is not { } first
@@ -274,7 +280,7 @@ public static class RevolvingEngine
             foreach (var c in s.Classes)
                 AccrueInterest(c, dates, closing, accrues);
             foreach (var fee in s.Config.Fees)
-                s.AccrueFee(fee, Delinked ? s.Numerator : adjusted);
+                s.AccrueFee(fee, Delinked ? s.Numerator : Issued(s, dates) ? adjusted : 0.0);
 
             var earnings = s.Funding.Earnings(EarningsRatePct(dates.Period));
             var finance = pool.FinanceCash * allocation.FloatingPct;
@@ -775,6 +781,7 @@ public static class RevolvingEngine
                 Periods = _seriesRows[s],
                 Classes = s.Classes.ToDictionary(c => c.Config.Key, c => (IReadOnlyList<ClassPeriod>)_classRows[c]),
                 PhasePath = _phasePaths[s],
+                Closing = s.Closing(_run.Periods),
                 FirstTrip = first == null
                     ? null
                     : new FirstTrip(first.Test.Name, first.FirstTrip!.Value,
