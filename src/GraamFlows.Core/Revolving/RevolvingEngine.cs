@@ -374,6 +374,7 @@ public static class RevolvingEngine
                 SegregatedFinance = segregated,
                 ExcessDollars = notes.Excess,
                 UncoveredDefault = notes.UncoveredDefault,
+                UnchargedDefault = notes.UnchargedDefault,
                 PrincipalReallocated = notes.PrincipalReallocated,
                 FinanceYieldPct = financeYield,
                 NetLossPct = netLoss,
@@ -433,9 +434,18 @@ public static class RevolvingEngine
             return days / 360.0;
         }
 
-        /// <summary>A class bears its share of the series' default amount.</summary>
-        private static void AllocateDefault(SeriesRun s, double investorDefault, double invested)
+        /// <summary>
+        ///     A class bears its share of the series' default amount. A tranche's is its share of the
+        ///     month's numerator, which can stand after its current amount has gone.
+        /// </summary>
+        private void AllocateDefault(SeriesRun s, double investorDefault, double invested)
         {
+            if (Delinked)
+            {
+                s.Classes[0].DefaultDue += investorDefault;
+                return;
+            }
+
             if (invested <= 0)
                 return;
 

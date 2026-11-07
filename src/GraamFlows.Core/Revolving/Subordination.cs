@@ -120,7 +120,7 @@ internal static class Subordination
     ///     The default finance left uncovered, charged to every tranche pro rata to its numerator.
     ///     Each class's own charge first spends its seniors' unused amounts in proportion, then each
     ///     senior tranche's charge moves down: to the lowest class it may, then the next. Whatever
-    ///     cannot move reduces the tranche it fell on.
+    ///     cannot move reduces the tranche it fell on, as far as it has anything left.
     /// </summary>
     public static void AllocateCharges(NoteMonth month, double uncovered)
     {
@@ -145,7 +145,9 @@ internal static class Subordination
             {
                 var juniors = order.Skip(rank + 1).Reverse().ToList();
                 var left = Bear(month, tranche, amount, juniors);
-                tranche.Classes[0].WriteDown(left);
+                var charged = Math.Min(left, tranche.AdjustedInvested);
+                tranche.Classes[0].WriteDown(charged);
+                month.UnchargedDefault += left - charged;
             }
         }
     }

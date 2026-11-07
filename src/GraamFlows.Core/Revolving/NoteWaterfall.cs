@@ -31,6 +31,12 @@ internal sealed class NoteMonth
     /// <summary>The default finance did not cover, charged off against the tranches.</summary>
     public double UncoveredDefault { get; set; }
 
+    /// <summary>
+    ///     What fell on no one: a charge past what a tranche had left. A nominal liquidation amount
+    ///     stops at zero, so the transferor's interest in the pool takes it.
+    /// </summary>
+    public double UnchargedDefault { get; set; }
+
     /// <summary>Principal moved to pay senior interest and fees, which junior tranches bear.</summary>
     public double PrincipalReallocated { get; set; }
 
@@ -189,7 +195,8 @@ internal static class NoteWaterfall
 
     /// <summary>
     ///     Principal pays a senior tranche's unpaid interest or fee, up to what its juniors still
-    ///     owe it and what the junior classes were allocated this month. They bear it as a reduction.
+    ///     owe it and what the junior classes were allocated this month. They bear it as a reduction,
+    ///     and only what they can bear moves: a reallocation may not fall on the senior tranche.
     /// </summary>
     private static void Reallocate(NoteMonth month, WaterfallStep step)
     {
@@ -203,15 +210,18 @@ internal static class NoteWaterfall
             return;
 
         var pay = Math.Min(total, Math.Min(month.Principal, month.JuniorPrincipalLeft));
-        month.Principal -= pay;
-        month.JuniorPrincipalLeft -= pay;
-        month.PrincipalReallocated += pay;
+        var moved = 0.0;
         foreach (var (tranche, want) in wants)
         {
             var share = pay * want / total;
-            Settle(tranche, share, interest);
-            Subordination.Bear(month, tranche, share, step.From!);
+            var borne = share - Subordination.Bear(month, tranche, share, step.From!);
+            Settle(tranche, borne, interest);
+            moved += borne;
         }
+
+        month.Principal -= moved;
+        month.JuniorPrincipalLeft -= moved;
+        month.PrincipalReallocated += moved;
     }
 
     private static double Deficiency(SeriesRun t, bool interest)
