@@ -16,6 +16,12 @@ public sealed record TriggerReading(
     bool Latched,
     bool Acting);
 
+/// <summary>A tripped test as one run closes it and the next opens it.</summary>
+/// <param name="Latched">it has tripped and has not cured.</param>
+/// <param name="MonthsToAct">months after the opening month before it acts. 0 acts in that month.</param>
+/// <param name="GoodMonths">good months so far towards a FUND_RESERVE test's cure.</param>
+public sealed record TriggerState(bool Latched, int MonthsToAct, int GoodMonths);
+
 /// <summary>
 ///     The latch for one test on one series. Latching is per test: EARLY_AMORTIZATION always sticks,
 ///     and a FUND_RESERVE test releases after its stated run of good months. A tripped test acts
@@ -27,10 +33,16 @@ internal sealed class TriggerLatch
     private int? _actsAt;
     private int _goodMonths;
 
-    public TriggerLatch(TriggerTest test, int lag)
+    public TriggerLatch(TriggerTest test, int lag, TriggerState? state = null)
     {
         Test = test;
         _lag = lag;
+        if (state is not { Latched: true })
+            return;
+
+        Latched = true;
+        _actsAt = state.MonthsToAct;
+        _goodMonths = state.GoodMonths;
     }
 
     public TriggerTest Test { get; }
@@ -40,6 +52,12 @@ internal sealed class TriggerLatch
     public bool ActingIn(int period)
     {
         return Latched && _actsAt <= period;
+    }
+
+    /// <param name="nextPeriod">the month after the run's last, which the next run calls 0.</param>
+    public TriggerState Closing(int nextPeriod)
+    {
+        return new TriggerState(Latched, Math.Max(0, _actsAt!.Value - nextPeriod), _goodMonths);
     }
 
     /// <summary>Tests the months before <paramref name="period" />.</summary>
