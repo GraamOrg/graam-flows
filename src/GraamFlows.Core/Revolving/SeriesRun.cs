@@ -143,7 +143,7 @@ internal sealed class SeriesRun
     public double ReserveDeposit { get; set; }
     public double ReserveRelease { get; set; }
 
-    /// <summary>Actual days this month's interest ran: the interest period, or from closing.</summary>
+    /// <summary>Actual days this month's interest ran: the interest period, from closing, or none.</summary>
     public int InterestDays { get; set; }
 
     public SeriesPhase Phase => Machine.Phase;

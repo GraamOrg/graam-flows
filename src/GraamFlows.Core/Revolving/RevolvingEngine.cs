@@ -220,8 +220,10 @@ public static class RevolvingEngine
             var adjusted = s.AdjustedInvested;
 
             var closing = ClosingInThisPeriod(s, dates);
-            s.InterestDays = closing is { } from ? (dates.DistributionDate - from).Days : dates.AccrualDays;
-            var accrues = !s.Exhausted;
+            var accrues = !s.Exhausted && !AwaitsFirstPeriod(s, dates);
+            s.InterestDays = !accrues ? 0
+                : closing is { } from ? (dates.DistributionDate - from).Days
+                : dates.AccrualDays;
             foreach (var c in s.Classes)
                 AccrueInterest(c, dates, closing, accrues);
             foreach (var fee in s.Config.Fees)
@@ -279,6 +281,15 @@ public static class RevolvingEngine
                    && (dates.DistributionDate.Year, dates.DistributionDate.Month) == (first.Year, first.Month)
                 ? closing
                 : null;
+        }
+
+        /// <summary>
+        ///     With a closing date, the first distribution's accrual is the whole first period however
+        ///     many months away it is, so the months before it add nothing.
+        /// </summary>
+        private static bool AwaitsFirstPeriod(SeriesRun s, RevolvingPeriodDates dates)
+        {
+            return s.Config.ClosingDate != null && !RunsWaterfall(s, dates);
         }
 
         /// <param name="accrues">false reads the month's rate and adds no interest.</param>
@@ -456,7 +467,7 @@ public static class RevolvingEngine
             // trust to the 4 decimals printed.
             var baseRatePct = RevolvingMetrics.BaseRatePct(s.Classes.Sum(c => c.InterestAccrued), open.Invested, s.InterestDays)
                               + RevolvingMetrics.BaseRatePct(s.FeesAccrued, open.Invested, dates.AccrualDays);
-            if (open.Invested >= SeriesRun.Cent)
+            if (open.Invested >= SeriesRun.Cent && s.InterestDays > 0)
             {
                 Remember(s, TriggerMetric.PortfolioYield, yieldPct);
                 Remember(s, TriggerMetric.BaseRate, baseRatePct);
