@@ -301,9 +301,13 @@ internal static class RevolvingValidator
             throw new RevolvingConfigException($"{name} is {value}. It must be a finite number.");
     }
 
+    /// <summary>
+    ///     One run's close is the next run's open, and a close can sit a hair under zero, so anything
+    ///     under a cent is dust here, as it is in the cash proof.
+    /// </summary>
     private static void RequireAmount(string name, double value)
     {
-        if (!double.IsFinite(value) || value < 0.0)
+        if (!double.IsFinite(value) || value <= -SeriesRun.Cent)
             throw new RevolvingConfigException($"{name} is {value}. It must be a finite amount of at least 0.");
     }
 
