@@ -1215,6 +1215,26 @@ public class RevolvingEngineTests
     }
 
     [Fact]
+    public void ARunCutIntoMonthsKeepsAFrozenNumeratorAndGroupReallocation()
+    {
+        var stressed = StressedRun(1, CardProgram.YieldBelowBaseRate with { Window = 1 });
+        var run = stressed with
+        {
+            Program = stressed.Program with
+            {
+                PrincipalFreeze = PrincipalFreeze.FrozenNumerator,
+                GroupSteps = new[] { new WaterfallStep(WaterfallVerb.ReallocateGroupFinance) }
+            }
+        };
+        var whole = CardProgram.Execute(run);
+
+        var months = CardProgram.MonthByMonth(run, whole);
+
+        CardProgram.RequireSameMonths(whole, months);
+        months[^1].Series.Should().Contain(s => s.Closing.FrozenNumerator != null);
+    }
+
+    [Fact]
     public void ATestTrippedInOneRunActsAtItsLagInTheNext()
     {
         var yieldBelow = CardProgram.YieldBelowBaseRate with { Window = 1 };
