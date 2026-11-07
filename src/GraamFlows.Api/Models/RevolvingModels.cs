@@ -230,8 +230,11 @@ public class RevolvingClosingDto
     /// <summary>
     ///     Still owed, and nothing in this run can pay it: no series it can be paid from has an amount
     ///     that takes an allocation, or holds cash. Trust collections belong to the transferor from
-    ///     here. A loop that runs until the series are done must stop on retired or stranded, or it
-    ///     waits forever. Send a stranded series on if a later series joins, since that can pay it.
+    ///     here. Send a stranded series on if a later series joins, since that can pay it.
+    ///
+    ///     Retired and stranded are the two ends the engine names, and a series need not reach either.
+    ///     One with an amount stays open while it revolves, and also while a pool with nothing left
+    ///     collects nothing. So a loop stops on these flags and on a count of months.
     /// </summary>
     public bool Stranded { get; set; }
 }

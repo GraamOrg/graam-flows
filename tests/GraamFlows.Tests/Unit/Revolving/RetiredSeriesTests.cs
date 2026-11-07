@@ -41,7 +41,7 @@ public class RetiredSeriesTests
             FeesDue = new Dictionary<string, double> { ["servicing"] = random.Next(3) == 0 ? size * 0.01 : 0.0 }
         };
         series = series with { Classes = series.Classes.Select(c => Stressed(random, c)).ToList() };
-        return random.Next(3) switch
+        return random.Next(4) switch
         {
             0 => series with
             {
@@ -50,6 +50,12 @@ public class RetiredSeriesTests
                 FrozenNumerator = size
             },
             1 => series with { FirstPayDate = new DateTime(2026, 8, 15).AddMonths(random.Next(1, 4)) },
+            2 => series with
+            {
+                AccumulationStart = new DateTime(2026, 8, 1).AddMonths(random.Next(0, 4)),
+                ExpectedDate = new DateTime(2027, 3, 15).AddMonths(random.Next(0, 6)),
+                ControlledAmounts = new[] { size / 6.0 }
+            },
             _ => series
         };
     }
@@ -179,6 +185,60 @@ public class RetiredSeriesTests
     public void LeavingOutEveryRetiredTrancheChangesNothing()
     {
         Enumerable.Range(0, Runs).Sum(seed => CheckLeavingOutRetired(NoteRun(seed))).Should().BeGreaterThan(50);
+    }
+
+    [Fact]
+    public void AStackCutEveryMonthMatchesOneLongRun()
+    {
+        foreach (var run in Enumerable.Range(0, Runs).Select(StackRun))
+        {
+            var whole = CardProgram.Execute(run);
+            CardProgram.RequireSameMonths(whole, CardProgram.MonthByMonth(run, whole));
+        }
+    }
+
+    [Fact]
+    public void NotesCutEveryMonthMatchOneLongRun()
+    {
+        foreach (var run in Enumerable.Range(0, Runs).Select(NoteRun))
+        {
+            var whole = CardProgram.Execute(run);
+            CardProgram.RequireSameMonths(whole, CardProgram.MonthByMonth(run, whole));
+        }
+    }
+
+    /// <summary>The first month every series has closed retired or stranded, and what paid after it.</summary>
+    private static int CheckStoppingOnTheFlags(RevolvingRun run)
+    {
+        var whole = CardProgram.Execute(run);
+        for (var month = 1; month < run.Periods; month++)
+        {
+            var part = CardProgram.Execute(run with { Periods = month });
+            if (!part.Series.All(s => s.Retired || s.Stranded))
+                continue;
+
+            foreach (var series in whole.Series)
+            {
+                series.Periods.Skip(month).Should().AllSatisfy(p =>
+                {
+                    p.FeesPaid.Should().BeApproximately(0.0, 1e-6, series.Name);
+                    p.FinanceAllocation.Should().BeApproximately(0.0, 1e-6, series.Name);
+                });
+                series.Classes.Values.SelectMany(rows => rows.Skip(month)).Should().AllSatisfy(c =>
+                    (c.InterestPaid + c.PrincipalPaid).Should().BeApproximately(0.0, 1e-6, series.Name));
+            }
+
+            return 1;
+        }
+
+        return 0;
+    }
+
+    [Fact]
+    public void StoppingWhenEverySeriesIsRetiredOrStrandedLosesNothing()
+    {
+        Enumerable.Range(0, Runs).SelectMany(seed => new[] { StackRun(seed), NoteRun(seed) })
+            .Sum(CheckStoppingOnTheFlags).Should().BeGreaterThan(10);
     }
 
     [Fact]

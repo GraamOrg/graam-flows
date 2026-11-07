@@ -310,6 +310,8 @@ public static class RevolvingEngine
             var surplus = Math.Max(0.0, s.Reserve - s.ReserveRequired);
             s.Reserve -= surplus;
             s.ReserveRelease = surplus;
+            if (Delinked && s.Exhausted)
+                surplus = RevolvingWaterfall.DrawReserve(s, surplus);
 
             if (Delinked || RunsWaterfall(s, dates))
             {
@@ -502,7 +504,7 @@ public static class RevolvingEngine
 
         private double RequiredReserve(SeriesRun s, int period)
         {
-            if (Finished(s))
+            if (s.Exhausted)
                 return 0.0;
 
             return s.Latches

@@ -1447,6 +1447,98 @@ public class DelinkedNotesTests
     }
 
     [Fact]
+    public void ATrancheIsNotStrandedWhileItsAccountStillEarnsItSegregatedFinance()
+    {
+        // $500 outstanding is written down, and the account pays the other $500 as the month opens.
+        // Nothing is left, but next month's carry stands on what the account held this month.
+        var tranche = NoteProgram.Tranche("A", "A", 1_000.0, 12.0) with
+        {
+            Fees = Array.Empty<RevolvingFee>(),
+            Classes = new[] { new RevolvingClass { Key = "A", Balance = 1_000.0, Coupon = 12.0, WrittenDown = 500.0 } },
+            Phase = SeriesPhase.EarlyAmortization,
+            FrozenNumerator = 1_000.0,
+            FundingAccount = 500.0,
+            PriorNumerator = 0.0,
+            PriorFunding = 0.0
+        };
+        var month = NoteProgram.Month(2_000.0, 2_000.0, 0.0, 1_000.0, 0.0, 0.0, 30);
+        var first = NoteProgram.Execute(NoteProgram.Program(segregated: true), Aug2026, new[] { month }, new[] { tranche });
+        var second = NoteProgram.Execute(NoteProgram.Program(segregated: true), Aug2026,
+            new[] { month, month with { Beginning = null } }, new[] { tranche });
+
+        Named(first, "A").Stranded.Should().BeFalse();
+        Notes(second, 1).SegregatedFinance.Should().BeApproximately(5.0, 1e-9);
+        Named(second, "A").Stranded.Should().BeTrue();
+    }
+
+    private static RevolvingSeries WrittenOffHolding(double reserve, double shortfall) =>
+        NoteProgram.Tranche("A0", "A", 800.0, 0.0) with
+        {
+            Fees = Array.Empty<RevolvingFee>(),
+            Classes = new[]
+            {
+                new RevolvingClass { Key = "A", Balance = 800.0, Coupon = 0.0, WrittenDown = 800.0, InterestShortfall = shortfall }
+            },
+            Phase = SeriesPhase.EarlyAmortization,
+            FrozenNumerator = 800.0,
+            PriorNumerator = 0.0,
+            PriorFunding = 0.0,
+            Reserve = reserve,
+            RequiredReserve = reserve,
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 }
+        };
+
+    [Fact]
+    public void AWrittenOffTrancheDrawsItsOwnReserveForInterestThenPrincipal()
+    {
+        var result = RunShort(ShortMonth(0.0, 0.0), WrittenOffHolding(20.0, 5.0));
+
+        var row = Named(result, "A0").Classes["A"][0];
+        row.InterestPaid.Should().Be(5.0);
+        row.PrincipalPaid.Should().Be(15.0);
+        row.EndBalance.Should().Be(0.0);
+        row.CumWritedown.Should().Be(785.0);
+        Named(result, "A0").Periods[0].Reserve.Should().Be(0.0);
+    }
+
+    [Fact]
+    public void AWrittenOffTranchesReserveGoesToNoOtherTranche()
+    {
+        var other = NoteProgram.Tranche("A1", "A", 400.0, 12.0) with { Fees = Array.Empty<RevolvingFee>(), PriorNumerator = 400.0, PriorFunding = 0.0 };
+        var result = RunShort(ShortMonth(0.0, 0.0, 0.0), WrittenOffHolding(20.0, 5.0), other);
+
+        Named(result, "A1").Classes["A"][0].InterestPaid.Should().Be(0.0);
+    }
+
+    [Fact]
+    public void WhatAReserveHasLeftOnceItsTrancheIsOwedNothingJoinsFinance()
+    {
+        var result = RunShort(ShortMonth(0.0, 0.0, 0.0), WrittenOffHolding(900.0, 5.0));
+
+        Named(result, "A0").Classes["A"][0].PrincipalPaid.Should().Be(800.0);
+        Named(result, "A0").Retired.Should().BeTrue();
+        Notes(result).ExcessDollars.Should().BeApproximately(95.0, 1e-9);
+    }
+
+    [Fact]
+    public void AWrittenOffTrancheNoLongerHoldsItsRequiredReserveAgainstEveryoneElse()
+    {
+        var result = RunShort(ShortMonth(0.0, 0.0, 0.0), WrittenOffHolding(20.0, 0.0));
+
+        Named(result, "A0").Periods[0].ReserveRequired.Should().Be(0.0);
+        Named(result, "A0").Stranded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ATrancheWithAnAmountKeepsItsRequiredReserve()
+    {
+        var tranche = Stack()[0] with { Reserve = 20.0, RequiredReserve = 20.0 };
+        var result = RunShort(ShortMonth(100.0, 0.0), tranche, Stack()[1], Stack()[2]);
+
+        Named(result, "A").Periods[0].Reserve.Should().Be(20.0);
+    }
+
+    [Fact]
     public void ATrancheOfTwoClassesIsRefused()
     {
         var two = NoteProgram.Tranche("A", "A", 860.0) with

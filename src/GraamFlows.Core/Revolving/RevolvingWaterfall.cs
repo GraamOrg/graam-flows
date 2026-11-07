@@ -108,6 +108,25 @@ internal static class RevolvingWaterfall
         s.Funding.Withdraw(s.Funding.Balance);
     }
 
+    /// <summary>
+    ///     A note tranche with nothing left draws its own reserve, which "will ... be available only to
+    ///     the holders of that tranche": its interest, then what it is still owed of its principal.
+    /// </summary>
+    /// <returns>what is left, once the tranche is owed nothing.</returns>
+    public static double DrawReserve(SeriesRun s, double reserve)
+    {
+        var c = s.Classes[0];
+        var interest = Math.Min(reserve, c.InterestDue);
+        c.InterestDue -= interest;
+        c.InterestPaid += interest;
+
+        var principal = Math.Min(reserve - interest, c.Outstanding);
+        c.Reinstate(Math.Min(principal, c.WrittenDown));
+        c.Outstanding -= principal;
+        c.PrincipalPaid += principal;
+        return reserve - interest - principal;
+    }
+
     /// <summary>Uncovered defaults write the series down in its stated order.</summary>
     public static void WriteDownUncovered(SeriesRun s)
     {
