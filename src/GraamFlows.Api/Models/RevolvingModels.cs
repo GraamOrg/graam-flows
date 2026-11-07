@@ -211,6 +211,9 @@ public class RevolvingClosingDto
 {
     public RevolvingSeriesStateDto State { get; set; } = new();
     public Dictionary<string, RevolvingClassClosingDto> Classes { get; set; } = new();
+
+    /// <summary>It owes nothing, so a next run can leave it out.</summary>
+    public bool Retired { get; set; }
 }
 
 /// <summary>Monthly percents from the statements, oldest first, for the trigger tests.</summary>
