@@ -166,7 +166,10 @@ public class RevolvingClassClosingDto
 
 /// <summary>
 ///     A series as the run closed it. To cut a run, send <see cref="State" /> as the next request's
-///     <c>state</c> and each of <see cref="Classes" /> onto its class. Nothing else may carry.
+///     <c>state</c> and each of <see cref="Classes" /> onto its class. Nothing else about a series
+///     may carry. What belongs to the run is the caller's to move on: <c>statementDate</c>, the pool,
+///     and <c>marketRates</c>, <c>drivers</c> and <c>fundingEarningsRate</c>, whose first value is the
+///     new run's first month. Unmoved, they replay the old run's first months.
 /// </summary>
 public class RevolvingClosingDto
 {
