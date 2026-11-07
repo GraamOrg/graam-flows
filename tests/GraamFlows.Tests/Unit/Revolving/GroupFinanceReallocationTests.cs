@@ -256,6 +256,28 @@ public class GroupFinanceReallocationTests
     }
 
     [Fact]
+    public void AFirstPayTwoMonthsOutClaimsItsInterestOnceInTheGroup()
+    {
+        // Each series is allocated 10,000 a month. Two carries its first month, so 30,000 reaches
+        // the group in November against interest of 5,000 and Two's 60 days of 10,000. That leaves
+        // 15,000 to split evenly. Counting Two's first month as well would claim 15,000 and move
+        // 2,500 between the series.
+        var two = Plain("Two", 1_000_000.0, 6.0) with
+        {
+            ClosingDate = new DateTime(2026, 9, 15),
+            FirstPayDate = new DateTime(2026, 11, 15)
+        };
+        var run = CardProgram.Run(Reallocating(), 4_000_000.0, new[] { Plain("One", 1_000_000.0, 6.0), two },
+            CardProgram.Drivers(0.40, 0.40, 0.01, 0.0, 0.0), 2, new DateTime(2026, 8, 31));
+
+        var result = CardProgram.Execute(run);
+
+        var november = result.Series.ToDictionary(s => s.Name, s => s.Periods[1]);
+        november["One"].ReallocatedFinance!.Value.Should().BeApproximately(5_000.0 + 7_500.0, 1e-6);
+        november["Two"].ReallocatedFinance!.Value.Should().BeApproximately(10_000.0 + 7_500.0, 1e-6);
+    }
+
+    [Fact]
     public void TheBalanceGoesProRataToInvestedAmountsNotShortfalls()
     {
         // 6,000 in the pool. Claims are 1,000 and 500 of interest, so 4,500 is left.
