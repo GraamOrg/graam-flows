@@ -204,10 +204,13 @@ internal sealed class SeriesRun
     public bool PaidInFull => Exhausted && Classes.All(c => c.WrittenDown < Cent);
 
     /// <summary>
-    ///     Owes nothing. A tranche written down to nothing is not retired: it gets no allocation, but
-    ///     finance can still reimburse it, and its interest still runs.
+    ///     All its principal is paid. It gets no allocation. A tranche written down to nothing is not
+    ///     paid: finance can still reimburse it, and its interest still runs.
     /// </summary>
-    public bool Retired => Classes.All(c => c.Outstanding < Cent) && Funding.Balance < Cent;
+    public bool Paid => Classes.All(c => c.Outstanding < Cent) && Funding.Balance < Cent;
+
+    /// <summary>Paid, and owes nothing else, so it leaves the waterfall.</summary>
+    public bool Retired => Paid && Classes.All(c => c.InterestDue < Cent) && FeesDue < Cent;
 
     public double FundingRoom => Math.Max(0.0,
         Config.FundedClasses.Sum(key => ClassFor(key).Invested) - Funding.Balance);

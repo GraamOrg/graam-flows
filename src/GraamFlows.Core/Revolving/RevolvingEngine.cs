@@ -123,7 +123,8 @@ public static class RevolvingEngine
                 segregated = SegregatedFinance(live, earnings + month.PrincipalAccountEarnings,
                     pool.FinanceCash - allocatedFinance, dates);
                 allocatedFinance += segregated;
-                notes = RunNotes(live, opened, allocations, accountEarnings + segregated, dates);
+                var owing = _series.Where(s => !s.Retired && Issued(s, dates)).ToList();
+                notes = RunNotes(owing, opened, allocations, accountEarnings + segregated, dates);
             }
             else
             {
@@ -156,7 +157,8 @@ public static class RevolvingEngine
 
             var notePeriod = notes == null
                 ? null
-                : ClosedNotes(notes, opened, allocations, accountEarnings, segregated, month.InterestAccountEarnings, dates);
+                : ClosedNotes(notes, live, opened, allocations, accountEarnings, segregated,
+                    month.InterestAccountEarnings, dates);
 
             foreach (var s in _series)
                 CloseSeries(s, opened[s], allocations.GetValueOrDefault(s.Config.Name), readings[s], dates, notePeriod);
@@ -331,11 +333,12 @@ public static class RevolvingEngine
 
         /// <summary>
         ///     Out of the month's allocation and accruals. A note tranche written off stays in: it is
-        ///     owed its amount back from finance.
+        ///     owed its amount back from finance. One paid off and still owed interest or a fee takes
+        ///     no allocation, but stays in the waterfall until finance has paid it.
         /// </summary>
         private bool Finished(SeriesRun s)
         {
-            return Delinked ? s.Retired : s.Exhausted;
+            return Delinked ? s.Paid : s.Exhausted;
         }
 
         /// <summary>
@@ -356,10 +359,10 @@ public static class RevolvingEngine
         }
 
         /// <summary>A note series' month: one finance bucket, one principal bucket, class by class.</summary>
-        private NoteMonth RunNotes(List<SeriesRun> live, Dictionary<SeriesRun, MonthOpen> opened,
+        private NoteMonth RunNotes(List<SeriesRun> owing, Dictionary<SeriesRun, MonthOpen> opened,
             Dictionary<string, SeriesAllocation> allocations, double addedFinance, RevolvingPeriodDates dates)
         {
-            var notes = new NoteMonth(_program.Delinked!, live);
+            var notes = new NoteMonth(_program.Delinked!, owing);
             Subordination.Measure(notes, s => s.OpeningAdjusted);
 
             // A retired tranche holds no claim, but its released reserve is still finance to apply.
@@ -376,8 +379,8 @@ public static class RevolvingEngine
             notes.Finance += addedFinance;
             NoteWaterfall.RunFinance(notes, _program.FinanceSteps);
 
-            var uncovered = live.Sum(s => s.Classes[0].DefaultDue);
-            foreach (var s in live)
+            var uncovered = owing.Sum(s => s.Classes[0].DefaultDue);
+            foreach (var s in owing)
                 s.Classes[0].DefaultDue = 0.0;
             Subordination.AllocateCharges(notes, uncovered);
 
@@ -385,16 +388,16 @@ public static class RevolvingEngine
             return notes;
         }
 
-        private NotePeriod ClosedNotes(NoteMonth notes, Dictionary<SeriesRun, MonthOpen> opened,
+        private NotePeriod ClosedNotes(NoteMonth notes, List<SeriesRun> live, Dictionary<SeriesRun, MonthOpen> opened,
             Dictionary<string, SeriesAllocation> allocations, double earnings, double segregated,
             double interestAccountEarnings, RevolvingPeriodDates dates)
         {
             // A required amount stands on the month's opening adjusted amount, and a tranche paid
             // this month no longer requires any.
-            Subordination.Measure(notes, s => s.Retired ? 0.0 : s.OpeningAdjusted);
+            Subordination.Measure(notes, s => s.Paid ? 0.0 : s.OpeningAdjusted);
 
-            var numerator = notes.Tranches.Sum(s => s.Numerator);
-            var frozen = notes.Tranches.Sum(s => s.Phase == SeriesPhase.Revolving
+            var numerator = live.Sum(s => s.Numerator);
+            var frozen = live.Sum(s => s.Phase == SeriesPhase.Revolving
                 ? s.Numerator
                 : s.FrozenNumerator ?? s.Numerator);
             var finance = notes.Tranches.Sum(s => opened[s].Finance);
@@ -782,6 +785,7 @@ public static class RevolvingEngine
                 Classes = s.Classes.ToDictionary(c => c.Config.Key, c => (IReadOnlyList<ClassPeriod>)_classRows[c]),
                 PhasePath = _phasePaths[s],
                 Closing = s.Closing(_run.Periods),
+                Retired = Delinked ? s.Retired : s.Exhausted,
                 FirstTrip = first == null
                     ? null
                     : new FirstTrip(first.Test.Name, first.FirstTrip!.Value,
@@ -798,8 +802,8 @@ public static class RevolvingEngine
             if (Delinked && _run.ActualPeriods.All(a => a is { InterestAccountEarnings: 0, PrincipalAccountEarnings: 0 }))
                 disclosures.Add("No account earnings were supplied, so cash waiting in the funding accounts earned 0.");
 
-            // A tranche with a closing date joins in this run, so the month before has nothing to say.
-            foreach (var s in _run.Series.Where(s => Delinked && s.ClosingDate == null
+            // A tranche closing after the statement date joins in this run, so it had no month before.
+            foreach (var s in _run.Series.Where(s => Delinked && !(s.ClosingDate > _run.StatementDate)
                                                                 && (s.PriorNumerator == null || s.PriorFunding == null)))
                 disclosures.Add($"Series '{s.Name}' states no priorNumerator or priorFunding, so the month before "
                                 + "the first period took its statement amount and an empty funding account.");

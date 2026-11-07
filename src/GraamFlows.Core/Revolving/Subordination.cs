@@ -69,7 +69,7 @@ internal static class Subordination
         var senior = month.Notes.ClassOrder.TakeWhile(k => k != key).ToList();
 
         // The seniors' required amounts as they stand after this month's senior deposits.
-        Measure(month, t => t.Retired ? 0.0 : t.AdjustedInvested);
+        Measure(month, t => t.Paid ? 0.0 : t.AdjustedInvested);
         var claim = senior
             .Select(k => month.OfClass(k).Sum(t => Unused(t, key)))
             .DefaultIfEmpty(0.0)

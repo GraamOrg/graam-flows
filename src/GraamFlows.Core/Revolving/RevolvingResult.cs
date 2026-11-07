@@ -185,6 +185,9 @@ public sealed record SeriesResult
 
     /// <summary>The series as the run closed it. A next run opens on this, and on nothing else.</summary>
     public required RevolvingSeries Closing { get; init; }
+
+    /// <summary>It owes nothing, so a next run can leave it out.</summary>
+    public bool Retired { get; init; }
 }
 
 public sealed record RevolvingResult

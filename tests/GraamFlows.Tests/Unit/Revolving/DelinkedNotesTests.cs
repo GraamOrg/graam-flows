@@ -827,68 +827,90 @@ public class DelinkedNotesTests
         Notes(result, 2).SegregatedFinance.Should().BeApproximately(425_000_000.0 * 0.0149 / 12.0, 0.01);
     }
 
-    /// <summary>The next run's tranche, on what this one closed with. Nothing else may carry.</summary>
-    private static RevolvingSeries Carried(RevolvingSeries tranche, RevolvingResult result)
-    {
-        var series = Named(result, tranche.Name);
-        var row = series.Periods[^1];
-        var key = tranche.Classes[0].Key;
-        var cls = series.Classes[key][^1];
-        return tranche with
-        {
-            Classes = new[]
-            {
-                tranche.Classes[0] with
-                {
-                    Balance = cls.EndBalance + cls.CumWritedown,
-                    WrittenDown = cls.CumWritedown,
-                    InterestShortfall = cls.InterestDueUnpaid
-                }
-            },
-            Phase = row.Phase,
-            FundingAccount = row.FundingAccount,
-            FundingDeficit = row.FundingDeficit,
-            AccumulationMonthsRun = tranche.AccumulationMonthsRun + (row.Phase == SeriesPhase.Accumulating ? 1 : 0),
-            FrozenNumerator = row.FrozenNumerator,
-            PriorNumerator = row.Tranche!.NextNumerator,
-            PriorFunding = row.Tranche.NextPriorFunding,
-            Usage = row.Tranche.Usage
-        };
-    }
-
     [Fact]
     public void OneLongRunMatchesMonthlyRunsCarriedOnTheEnginesClose()
     {
         // A replay cuts every month, so a run's own state only proves itself against this.
         var slow = NoteProgram.Accumulating(NoteProgram.Tranche("A(2016-4)", "A", 850_000_000.0, 1.49), 850_000_000.0,
             212_500_000.0, 850_000_000.0, 0.0, new[] { 212_500_000.0 }, new DateTime(2020, 3, 1), new DateTime(2020, 9, 15));
-        var tranches = May2020Tranches(slow);
-        var months = May2020Months(4);
-        var whole = NoteProgram.Execute(NoteProgram.Program(segregated: true), Apr2020, months, tranches);
-
-        var statement = Apr2020;
-        var cut = tranches;
-        for (var i = 0; i < months.Length; i++)
+        var run = new RevolvingRun
         {
-            var month = months[i] with { Beginning = whole.Periods[i].Pool.Beginning };
-            var one = NoteProgram.Execute(NoteProgram.Program(segregated: true), statement, new[] { month }, cut);
+            Program = NoteProgram.Program(segregated: true),
+            StatementDate = Apr2020,
+            Periods = 4,
+            PoolBalance = May2020.Beginning!.Value,
+            ActualPeriods = May2020Months(4),
+            Series = May2020Tranches(slow),
+            FundingEarningsRate = new[] { 0.0 }
+        };
+        var whole = CardProgram.Execute(run);
 
-            var expected = Notes(whole, i);
-            var actual = Notes(one);
-            actual.Numerator.Should().BeApproximately(expected.Numerator, 1e-6);
-            actual.SegregatedFinance.Should().BeApproximately(expected.SegregatedFinance, 1e-6);
-            actual.ExcessDollars.Should().BeApproximately(expected.ExcessDollars, 1e-4);
-            foreach (var t in tranches)
-            {
-                var want = Named(whole, t.Name).Periods[i];
-                var got = Named(one, t.Name).Periods[0];
-                got.FundingAccount.Should().BeApproximately(want.FundingAccount, 1e-6);
-                got.AdjustedInvested.Should().BeApproximately(want.AdjustedInvested, 1e-6);
-            }
+        CardProgram.RequireSameMonths(whole, CardProgram.MonthByMonth(run, whole));
+    }
 
-            cut = cut.Select(t => Carried(t, one)).ToArray();
-            statement = new DateTime(statement.AddMonths(2).Year, statement.AddMonths(2).Month, 1).AddDays(-1);
-        }
+    private static readonly TriggerTest ReserveOnThinSpread = new()
+    {
+        Name = "RESERVE_ON_THIN_SPREAD",
+        Metric = TriggerMetric.ExcessSpread,
+        Window = 1,
+        Comparison = TriggerComparison.Below,
+        Level = 2.0,
+        Action = TriggerAction.FundReserve,
+        CurePeriods = 2,
+        ReserveAmount = 5.0
+    };
+
+    private static RevolvingRun StressedNotes(int lag)
+    {
+        // Finance cannot pay the fee, charge-offs fall on the classes and are reimbursed, a test trips
+        // and acts at its lag, a reserve test cures, and a tranche closes and awaits its first pay.
+        var maturing = NoteProgram.Accumulating(NoteProgram.Tranche("A1", "A", 300.0, 4.0), 300.0, 100.0, 300.0, 0.0,
+            new[] { 100.0 }, new DateTime(2026, 7, 1), new DateTime(2026, 12, 15));
+        var waiting = NoteProgram.Tranche("A2", "A", 300.0, 5.0) with
+        {
+            ClosingDate = new DateTime(2026, 7, 20),
+            FirstPayDate = new DateTime(2026, 11, 15)
+        };
+        var joining = NoteProgram.Tranche("A3", "A", 260.0, 5.0) with
+        {
+            ClosingDate = new DateTime(2026, 10, 20),
+            FirstPayDate = new DateTime(2026, 12, 15)
+        };
+        var drivers = CardProgram.Drivers(0.4, 0.4, 0.0, 0.01, 0.0) with
+        {
+            Yield = new PoolDriver(new[] { 0.0, 0.0, 0.1, 0.1, 0.1, 0.0, 0.1 })
+        };
+        return new RevolvingRun
+        {
+            Program = NoteProgram.Program(triggers: new[] { NoteProgram.ExcessSpreadBelowZero with { Window = 2 }, ReserveOnThinSpread },
+                actionLag: lag, segregated: true),
+            StatementDate = new DateTime(2026, 7, 31),
+            Periods = 9,
+            PoolBalance = 2_000.0,
+            Drivers = drivers,
+            Series = new[] { maturing, waiting, joining, NoteProgram.Tranche("B", "B", 70.0, 5.0), NoteProgram.Tranche("C", "C", 70.0, 5.0) },
+            FundingEarningsRate = new[] { 1.0 }
+        };
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void OneLongRunMatchesMonthlyRunsUnderStress(int lag)
+    {
+        var run = StressedNotes(lag);
+        var whole = CardProgram.Execute(run);
+
+        var months = CardProgram.MonthByMonth(run, whole);
+
+        CardProgram.RequireSameMonths(whole, months);
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.FeesDue.Values.Sum() > 0.1));
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.Classes[0].InterestShortfall > 0.1));
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.Classes[0].WrittenDown > 1.0));
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.Usage.Values.Sum() > 1.0));
+        months.Should().Contain(m => m.Series.Any(s => s.Closing.TriggerStates.Count > 0));
+        whole.Series.Should().Contain(s => s.PhasePath.Any(p => p.Phase == SeriesPhase.EarlyAmortization));
     }
 
     [Fact]
@@ -1055,6 +1077,191 @@ public class DelinkedNotesTests
 
         Notes(result).FinanceYieldPct.Should().BeApproximately(5.0 * 366.0 / 29.0, 1e-9);
         Named(result, "A").Periods[0].PortfolioYieldPct.Should().Be(Notes(result).PortfolioYieldPct);
+    }
+
+    private static RevolvingResult PaidWithInterestOwed(params ActualPeriod[] months)
+    {
+        // A1 is fully funded and pays in the first month, with no finance to pay its $8 of interest.
+        var paying = NoteProgram.Accumulating(NoteProgram.Tranche("A1", "A", 800.0, 12.0), 800.0, 800.0, 0.0, 800.0,
+            new[] { 100.0 }, new DateTime(2026, 8, 1), new DateTime(2026, 10, 15));
+        return NoteProgram.Execute(NoteProgram.Program(), Aug2026, months,
+            new[] { paying, Bare("A2", "A", 60.0), Stack()[1], Stack()[2] });
+    }
+
+    private static ActualPeriod Finance(double finance, double? begin = 2_000.0) =>
+        NoteProgram.Month(begin ?? 2_000.0, 2_000.0, 100.0, finance, 0.0, 0.0, 30) with { Beginning = begin };
+
+    [Fact]
+    public void ATranchePaidOffStillOwedInterestIsPaidBeforeTheTransferor()
+    {
+        var result = PaidWithInterestOwed(Finance(0.0), Finance(1_000.0, null));
+
+        var rows = Named(result, "A1").Classes["A"];
+        rows[0].PrincipalPaid.Should().Be(800.0);
+        rows[0].InterestDueUnpaid.Should().Be(8.0);
+        rows[1].InterestPaid.Should().Be(8.0);
+        rows[1].InterestDueUnpaid.Should().Be(0.0);
+        Named(result, "A1").Closing.Classes[0].InterestShortfall.Should().Be(0.0);
+        Named(result, "A1").Retired.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ATranchePaidOffAndOwedTakesNoAllocation()
+    {
+        // Its numerator and frozen numerator are both gone once it is paid.
+        var result = PaidWithInterestOwed(Finance(0.0), Finance(1_000.0, null));
+
+        Named(result, "A1").Periods[1].FinanceAllocation.Should().Be(0.0);
+        Named(result, "A1").Periods[1].PrincipalAllocation.Should().Be(0.0);
+        Named(result, "A1").Periods[1].Tranche!.Numerator.Should().Be(0.0);
+        Notes(result, 1).Numerator.Should().Be(200.0);
+        Notes(result, 1).PrincipalNumerator.Should().Be(200.0);
+    }
+
+    [Fact]
+    public void ATranchePaidOffStillOwedIsNotRetiredAndCarriesAcrossACut()
+    {
+        var first = PaidWithInterestOwed(Finance(0.0));
+
+        Named(first, "A1").Retired.Should().BeFalse();
+        Named(first, "A1").Closing.Classes[0].InterestShortfall.Should().Be(8.0);
+    }
+
+    [Fact]
+    public void ATranchePaidOffStillOwedAFeeIsPaidBeforeTheTransferor()
+    {
+        var paying = NoteProgram.Accumulating(NoteProgram.Tranche("A1", "A", 800.0, 0.0), 800.0, 800.0, 800.0, 0.0,
+            new[] { 100.0 }, new DateTime(2026, 8, 1), new DateTime(2026, 10, 15));
+        var noPrincipal = NoteProgram.Month(2_000.0, 2_000.0, 0.0, 0.0, 0.0, 0.0, 30);
+        var result = NoteProgram.Execute(NoteProgram.Program(), Aug2026, new[] { noPrincipal, Finance(1_000.0, null) },
+            new[] { paying, Bare("A2", "A", 60.0), Stack()[1], Stack()[2] });
+
+        var rows = Named(result, "A1").Periods;
+        rows[0].FeesPaid.Should().Be(0.0);
+        rows[1].FeesPaid.Should().BeApproximately(rows[0].FeesAccrued, 1e-9);
+        Named(result, "A1").Retired.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(-5.0)]
+    public void NoteFiguresThatAreNotAmountsAreRefusedByName(double bad)
+    {
+        void Refuses(string field, ActualPeriod month, params RevolvingSeries[] tranches)
+        {
+            var act = () => RunShort(month, tranches);
+            act.Should().Throw<RevolvingConfigException>().WithMessage($"*{field}*");
+        }
+
+        var month = ShortMonth(100.0, 0.0);
+        var a = Stack()[0];
+        var (b, c) = (Stack()[1], Stack()[2]);
+        Refuses("interestAccountEarnings", month with { InterestAccountEarnings = bad }, a, b, c);
+        Refuses("principalAccountEarnings", month with { PrincipalAccountEarnings = bad }, a, b, c);
+        Refuses("allocationBalance", month with { AllocationBalance = bad }, a, b, c);
+        Refuses("priorNumerator", month, a with { PriorNumerator = bad }, b, c);
+        Refuses("priorFunding", month, a with { PriorFunding = bad }, b, c);
+        Refuses("usage of class 'C'", month, a with { Usage = new Dictionary<string, double> { ["C"] = bad } }, b, c);
+        Refuses("requiredSubordination of class 'C'", month,
+            a with { RequiredSubordination = new Dictionary<string, double> { ["B"] = 8.0, ["C"] = bad } }, b, c);
+    }
+
+    [Fact]
+    public void ARequiredPercentOverAHundredIsRefused()
+    {
+        var a = Stack()[0] with { RequiredSubordination = new Dictionary<string, double> { ["B"] = 8.0, ["C"] = 150.0 } };
+
+        Refused(senior: a).Should().Throw<RevolvingConfigException>().WithMessage("*requiredSubordination*");
+    }
+
+    [Fact]
+    public void UsageOfAClassThatIsNotJuniorIsRefused()
+    {
+        var a = Stack()[0] with { Usage = new Dictionary<string, double> { ["Z"] = 5.0 } };
+
+        Refused(senior: a).Should().Throw<RevolvingConfigException>().WithMessage("*usage of class 'Z'*not junior*");
+    }
+
+    [Fact]
+    public void SharingFlagsOnATrancheAreRefusedForWhatTheyAre()
+    {
+        var a = Stack()[0] with { Group = "", ExcessSharing = true };
+
+        Refused(senior: a).Should().Throw<RevolvingConfigException>().WithMessage("*shares through its steps*");
+    }
+
+    [Fact]
+    public void ANoteProgramWithNoDepositStepIsRefused()
+    {
+        var program = NoteProgram.Program() with
+        {
+            PrincipalSteps = new WaterfallStep[] { new(WaterfallVerb.SharePrincipal), new(WaterfallVerb.ReleaseTransferor) }
+        };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*DEPOSIT_PFA*");
+    }
+
+    [Fact]
+    public void WhenPaidOnANoteStepIsRefused()
+    {
+        var limited = new WaterfallStep(WaterfallVerb.DepositPfa, WhenPaid: new[] { "A" });
+        var program = NoteProgram.Program() with { PrincipalSteps = NoteProgram.PrincipalSteps.Prepend(limited).ToList() };
+
+        Refused(program).Should().Throw<RevolvingConfigException>().WithMessage("*whenPaid*");
+    }
+
+    [Fact]
+    public void AStackMonthStatingAccountEarningsIsRefused()
+    {
+        var month = NoteProgram.Month(1_000.0, 1_000.0, 100.0, 100.0, 0.0, 0.0, 30) with { InterestAccountEarnings = 0.005 };
+        var run = CardProgram.Run(CardProgram.Program(), 1_000.0, new[] { CardProgram.Series("S", 500.0, 50.0, 50.0) }, null, 1)
+            with { ActualPeriods = new[] { month } };
+
+        ((Action)(() => CardProgram.Execute(run))).Should().Throw<RevolvingConfigException>().WithMessage("*account earnings*");
+    }
+
+    [Fact]
+    public void ARateOnADustNumeratorIsNoRate()
+    {
+        // A numerator of a billionth of a dollar would otherwise print a yield of 10^16%.
+        var dust = Stack()[0] with { PriorNumerator = 1e-9 };
+        var result = NoteProgram.Execute(NoteProgram.Program(), Aug2026,
+            new[] { NoteProgram.Month(1e9, 1e9, 1e6, 1e7, 1e5, 0.0, 30) with { InterestAccountEarnings = 500.0 } },
+            new[] { dust with { RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 } }, Reduced("B", 0.0, 1.0) with { PriorNumerator = 0.0 }, Reduced("C", 0.0, 1.0) with { PriorNumerator = 0.0 } });
+
+        Notes(result).FinanceYieldPct.Should().Be(0.0);
+        Notes(result).NetLossPct.Should().Be(0.0);
+    }
+
+    [Fact]
+    public void ATrancheThatClosedBeforeTheStatementMustStateTheMonthBeforeOrItIsDisclosed()
+    {
+        var old = Stack()[2] with { ClosingDate = new DateTime(2023, 3, 1), FirstPayDate = new DateTime(2023, 4, 15) };
+        var result = RunShort(ShortMonth(100.0, 0.0), Stack()[0] with { PriorNumerator = 860.0, PriorFunding = 0.0 },
+            Stack()[1] with { PriorNumerator = 70.0, PriorFunding = 0.0 }, old);
+
+        result.Disclosures.Should().Contain(d => d.Contains("'C' states no priorNumerator"));
+    }
+
+    [Fact]
+    public void ATrancheNotYetIssuedTakesNothing()
+    {
+        var late = Bare("A2", "A", 430.0) with
+        {
+            ClosingDate = new DateTime(2026, 11, 20),
+            FirstPayDate = new DateTime(2026, 12, 15)
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { Bare("A1", "A", 430.0), late, Stack()[1], Stack()[2] }, CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 5);
+
+        var rows = Named(result, "A2").Periods;
+        rows.Take(3).Should().AllSatisfy(p =>
+        {
+            p.FinanceAllocation.Should().Be(0.0);
+            p.Tranche!.Numerator.Should().Be(0.0);
+        });
+        rows[3].FinanceAllocation.Should().BeGreaterThan(0.0);
+        Notes(result, 0).Numerator.Should().Be(570.0);
     }
 
     [Fact]
@@ -1229,7 +1436,7 @@ public class DelinkedNotesTests
         var joining = Stack()[0] with
         {
             Name = "joining",
-            ClosingDate = new DateTime(2026, 8, 20),
+            ClosingDate = new DateTime(2026, 9, 5),
             FirstPayDate = new DateTime(2026, 10, 15)
         };
         var stated = Stack()[1] with { PriorNumerator = 70.0, PriorFunding = 0.0 };

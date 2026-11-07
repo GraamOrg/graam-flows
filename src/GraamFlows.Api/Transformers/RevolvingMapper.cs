@@ -59,7 +59,7 @@ public static class RevolvingMapper
                         DistributionDate = trip.DistributionDate
                     }
                     : null,
-                Closing = ToClosing(series.Closing)
+                Closing = ToClosing(series)
             };
 
             foreach (var (key, rows) in series.Classes)
@@ -69,12 +69,14 @@ public static class RevolvingMapper
         return response;
     }
 
-    private static RevolvingClosingDto ToClosing(RevolvingSeries closing)
+    private static RevolvingClosingDto ToClosing(SeriesResult series)
     {
+        var closing = series.Closing;
         double[]? Months(TriggerMetric metric) => closing.History.GetValueOrDefault(metric)?.ToArray();
 
         return new RevolvingClosingDto
         {
+            Retired = series.Retired,
             State = new RevolvingSeriesStateDto
             {
                 Phase = PhaseNames.ToWire(closing.Phase),

@@ -197,6 +197,14 @@ internal static class CardProgram
                 got.FundingAccount.Should().BeApproximately(want.FundingAccount, tiny, named);
                 got.FundingDeficit.Should().BeApproximately(want.FundingDeficit, tiny, named);
                 got.PrincipalPct.Should().BeApproximately(want.PrincipalPct, tiny, named);
+                if (want.Tranche is { } tranche)
+                {
+                    got.Tranche!.Numerator.Should().BeApproximately(tranche.Numerator, tiny, named);
+                    got.Tranche.Usage.Values.Sum().Should().BeApproximately(tranche.Usage.Values.Sum(), tiny, named);
+                    got.Tranche.RequiredSubordination.Values.Sum().Should()
+                        .BeApproximately(tranche.RequiredSubordination.Values.Sum(), tiny, named);
+                }
+
                 foreach (var (key, rows) in series.Classes)
                 {
                     var row = cut.Classes[key][0];

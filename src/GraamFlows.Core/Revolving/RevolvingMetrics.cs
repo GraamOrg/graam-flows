@@ -48,13 +48,13 @@ public static class RevolvingMetrics
     public static double FinanceYieldPct(double finance, double numerator, RevolvingPeriodDates dates)
     {
         var year = DateTime.IsLeapYear(dates.PeriodEnd.Year) ? 366.0 : 365.0;
-        return numerator > 0 ? finance / numerator * year / dates.PeriodEnd.Day * 100.0 : 0.0;
+        return numerator >= SeriesRun.Cent ? finance / numerator * year / dates.PeriodEnd.Day * 100.0 : 0.0;
     }
 
     /// <summary>A month's dollars over the numerator, times 12.</summary>
     public static double MonthlyAnnualizedPct(double amount, double numerator)
     {
-        return numerator > 0 ? amount / numerator * 1200.0 : 0.0;
+        return numerator >= SeriesRun.Cent ? amount / numerator * 1200.0 : 0.0;
     }
 
     /// <summary>The weighted average of class rates by outstanding amount.</summary>

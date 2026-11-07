@@ -82,7 +82,7 @@ internal static class RevolvingValidator
             ValidateDrivers(drivers);
 
         for (var month = 0; month < run.ActualPeriods.Count; month++)
-            ValidateActual(month, run.ActualPeriods[month]);
+            ValidateActual(month, run.ActualPeriods[month], run.Program.Delinked != null);
 
         foreach (var rate in run.FundingEarningsRate ?? Array.Empty<double>())
             RequirePercent("fundingEarningsRate", rate);
@@ -115,7 +115,7 @@ internal static class RevolvingValidator
         }
     }
 
-    private static void ValidateActual(int month, ActualPeriod actual)
+    private static void ValidateActual(int month, ActualPeriod actual, bool delinked)
     {
         var name = $"actualPeriods[{month}]";
         if (actual.Beginning is { } beginning)
@@ -128,6 +128,17 @@ internal static class RevolvingValidator
         RequireAmount($"{name}.dilution", actual.Dilution);
         if (actual.Ending is { } ending)
             RequireAmount($"{name}.endingBalance", ending);
+
+        if (actual.AllocationBalance is { } allocation)
+            RequireAmount($"{name}.allocationBalance", allocation);
+        RequireAmount($"{name}.interestAccountEarnings", actual.InterestAccountEarnings);
+        RequireAmount($"{name}.principalAccountEarnings", actual.PrincipalAccountEarnings);
+
+        // Only a note series' finance has a step that spends them.
+        if (!delinked && (actual.InterestAccountEarnings != 0.0 || actual.PrincipalAccountEarnings != 0.0))
+            throw new RevolvingConfigException(
+                $"{name} states account earnings, which only a de-linked note series can place. A series stack "
+                + "states fundingEarningsRate.");
 
         if (actual.Days <= 0)
             throw new RevolvingConfigException($"{name}.days is {actual.Days}. It must be at least 1.");
@@ -284,6 +295,10 @@ internal static class RevolvingValidator
         foreach (var step in program.FinanceSteps.Concat(program.PrincipalSteps))
             ValidateNoteStep(name, notes, step);
 
+        if (program.PrincipalSteps.All(s => s.Verb != WaterfallVerb.DepositPfa))
+            throw new RevolvingConfigException(
+                $"Program '{name}' has no DEPOSIT_PFA step, and a tranche is paid only through its funding account.");
+
         RequireLastStep(name, "finance", program.FinanceSteps, WaterfallVerb.ShareExcess);
         RequireLastStep(name, "principal", program.PrincipalSteps, WaterfallVerb.SharePrincipal);
     }
@@ -300,6 +315,10 @@ internal static class RevolvingValidator
             throw new RevolvingConfigException(
                 $"Program '{program}': {step.Verb} states phases, which a de-linked note series does not read: "
                 + "each tranche takes its own phase.");
+
+        if (step.WhenPaid is { Count: > 0 })
+            throw new RevolvingConfigException(
+                $"Program '{program}': {step.Verb} states whenPaid, which a de-linked note series does not read.");
 
         var order = notes.ClassOrder.ToList();
         foreach (var key in new[] { step.Class }.OfType<string>().Concat(step.From ?? Array.Empty<string>()))
@@ -341,6 +360,27 @@ internal static class RevolvingValidator
             if (order.IndexOf(junior) <= rank)
                 throw new RevolvingConfigException(
                     $"Series '{series.Name}' requires subordination of class '{junior}', which is not junior to it.");
+
+        foreach (var (junior, pct) in series.RequiredSubordination)
+            RequirePercent($"Series '{series.Name}' requiredSubordination of class '{junior}'", pct);
+
+        foreach (var (junior, amount) in series.Usage)
+        {
+            if (order.IndexOf(junior) <= rank)
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' states usage of class '{junior}', which is not junior to it.");
+            RequireAmount($"Series '{series.Name}' usage of class '{junior}'", amount);
+        }
+
+        if (series.PrincipalSharing || series.ExcessSharing)
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' is a tranche of a de-linked note series, which shares through its steps, "
+                + "not through principalSharing or excessSharing.");
+
+        if (series.PriorNumerator is { } priorNumerator)
+            RequireAmount($"Series '{series.Name}' priorNumerator", priorNumerator);
+        if (series.PriorFunding is { } priorFunding)
+            RequireAmount($"Series '{series.Name}' priorFunding", priorFunding);
 
         // Nothing here defaults to no subordination: a stated 0 is a statement.
         foreach (var junior in order.Skip(rank + 1).Where(j => !series.RequiredSubordination.ContainsKey(j)))
