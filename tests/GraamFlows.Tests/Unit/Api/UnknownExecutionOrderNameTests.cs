@@ -126,6 +126,28 @@ public class UnknownExecutionOrderNameTests
         balances[^1].Should().BeApproximately(0, 0.01, "the pool's principal pays the note down");
     }
 
+    [Theory]
+    [InlineData("EXPENSE")]
+    [InlineData("INTEREST")]
+    [InlineData("PRINCIPAL_SCHEDULED")]
+    [InlineData("PRINCIPAL_UNSCHEDULED")]
+    [InlineData("PRINCIPAL_RECOVERY")]
+    [InlineData("WRITEDOWN")]
+    [InlineData("RESERVE_DEPOSIT")]
+    [InlineData("EXCESS_TURBO")]
+    [InlineData("EXCESS")]
+    [InlineData("EXCESS_RELEASE")]
+    [InlineData("SUPPLEMENTAL_REDUCTION")]
+    [InlineData("CAP_CARRYOVER")]
+    public void Every_name_a_step_answers_to_runs(string name)
+    {
+        // A name dropped from the switch is a hard 400 now, so each one is pinned by name.
+        // MODIFICATION_LOSS needs its ladder, so ModificationLossTests pins that one.
+        Run(Request("INTEREST", name, "PRINCIPAL_SCHEDULED")).Result.Should().BeOfType<OkObjectResult>();
+        Run(Request("INTEREST", name.ToLowerInvariant(), "PRINCIPAL_SCHEDULED")).Result.Should()
+            .BeOfType<OkObjectResult>();
+    }
+
     [Fact]
     public void A_deal_with_no_order_is_not_refused()
     {
