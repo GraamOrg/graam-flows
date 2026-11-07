@@ -67,11 +67,11 @@ public static class RevolvingEngine
             foreach (var s in _series)
             {
                 s.OpenMonth();
-                readings[s] = ReadTriggers(s, dates.Period);
+                readings[s] = Issued(s, dates) ? ReadTriggers(s, dates.Period) : Array.Empty<TriggerReading>();
                 MoveByDate(s, dates);
             }
 
-            var live = _series.Where(s => !s.Exhausted).ToList();
+            var live = _series.Where(s => !s.Exhausted && Issued(s, dates)).ToList();
             var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure, _program.PrincipalFreeze!.Value,
                     live.Select(s => new SeriesClaim(s.Config.Name, s.AdjustedInvested, s.Phase,
                         s.FrozenPrincipalPct, s.FrozenNumerator)).ToList())
@@ -133,7 +133,7 @@ public static class RevolvingEngine
                                              + s.FeesPaid + s.Funding.Balance + s.Reserve + s.CarriedFinance);
             RevolvingCashProof.Require(_program.Name, dates.Period, cashIn, cashOut);
 
-            var invested = _series.Sum(s => s.AdjustedInvested);
+            var invested = _series.Where(s => Issued(s, dates)).Sum(s => s.AdjustedInvested);
             _rows.Add(month with
             {
                 TransferorAmount = pool.Ending - invested,
@@ -205,6 +205,15 @@ public static class RevolvingEngine
                 s.Machine.MoveTo(SeriesPhase.Accumulating);
         }
 
+        /// <summary>
+        ///     A series takes no allocation before the monthly period it closes in, whichever day of it
+        ///     that is. One that pays in this distribution is in, so its first waterfall has cash.
+        /// </summary>
+        private static bool Issued(SeriesRun s, RevolvingPeriodDates dates)
+        {
+            return s.Config.ClosingDate is not { } closing || closing <= dates.PeriodEnd || RunsWaterfall(s, dates);
+        }
+
         private static bool RunsWaterfall(SeriesRun s, RevolvingPeriodDates dates)
         {
             return s.Config.FirstPayDate is not { } first
@@ -224,7 +233,7 @@ public static class RevolvingEngine
             foreach (var c in s.Classes)
                 AccrueInterest(c, dates, closing, accrues);
             foreach (var fee in s.Config.Fees)
-                s.AccrueFee(fee, adjusted);
+                s.AccrueFee(fee, Issued(s, dates) ? adjusted : 0.0);
 
             var earnings = s.Funding.Earnings(EarningsRatePct(dates.Period));
             var finance = pool.FinanceCash * allocation.FloatingPct;
