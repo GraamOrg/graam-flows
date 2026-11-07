@@ -1394,6 +1394,59 @@ public class DelinkedNotesTests
     }
 
     [Fact]
+    public void ATrancheWrittenOffThisMonthIsNotStrandedWhileItsNumeratorStands()
+    {
+        // All of it goes in the first month, and next month's numerator is still this month's opening.
+        var everything = NoteProgram.Month(1_000.0, 0.0, 0.0, 0.0, 1_000.0, 0.0, 30);
+        var nothing = NoteProgram.Month(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 30) with { Beginning = null };
+        var tranches = Stack().Select(t => t with { PriorNumerator = t.Classes[0].Balance, PriorFunding = 0.0 }).ToArray();
+
+        var first = NoteProgram.Execute(NoteProgram.Program(), Aug2026, new[] { everything }, tranches);
+        var second = NoteProgram.Execute(NoteProgram.Program(), Aug2026, new[] { everything, nothing }, tranches);
+
+        Named(first, "C").Periods[0].InvestedAmount.Should().Be(0.0);
+        first.Series.Should().AllSatisfy(s => s.Stranded.Should().BeFalse());
+        second.Series.Should().AllSatisfy(s => s.Stranded.Should().BeTrue());
+    }
+
+    [Fact]
+    public void ATrancheHoldingAReserveIsNotStrandedUntilItIsSpent()
+    {
+        // The only tranche is paid and owed $8. Its $5 reserve is released next month, and pays.
+        var paying = NoteProgram.Accumulating(NoteProgram.Tranche("A1", "A", 800.0, 12.0), 800.0, 800.0, 0.0, 800.0,
+            new[] { 100.0 }, new DateTime(2026, 8, 1), new DateTime(2026, 10, 15)) with
+        {
+            Fees = Array.Empty<RevolvingFee>(),
+            Reserve = 5.0,
+            RequiredReserve = 5.0
+        };
+        var empty = NoteProgram.Month(2_000.0, 2_000.0, 0.0, 0.0, 0.0, 0.0, 30);
+
+        var first = NoteProgram.Execute(NoteProgram.Program(), Aug2026, new[] { empty }, new[] { paying });
+        var second = NoteProgram.Execute(NoteProgram.Program(), Aug2026, new[] { empty, empty with { Beginning = null } },
+            new[] { paying });
+
+        Named(first, "A1").Stranded.Should().BeFalse();
+        Named(second, "A1").Classes["A"][1].InterestPaid.Should().Be(5.0);
+        Named(second, "A1").Stranded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AReserveReleasedBeforeATrancheIsIssuedStillReachesTheBucket()
+    {
+        var late = Bare("A2", "A", 430.0) with
+        {
+            ClosingDate = new DateTime(2026, 11, 20),
+            FirstPayDate = new DateTime(2026, 12, 15),
+            Reserve = 5.0
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { Bare("A1", "A", 430.0), late, Stack()[1], Stack()[2] }, CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1);
+
+        Notes(result).ExcessDollars.Should().BeApproximately(5.0, 1e-9);
+    }
+
+    [Fact]
     public void ATrancheOfTwoClassesIsRefused()
     {
         var two = NoteProgram.Tranche("A", "A", 860.0) with

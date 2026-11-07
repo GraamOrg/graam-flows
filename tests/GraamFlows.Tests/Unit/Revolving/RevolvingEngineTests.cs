@@ -1469,7 +1469,7 @@ public class RevolvingEngineTests
     }
 
     private static RevolvingResult OwedAndWrittenOff(params RevolvingSeries[] series) =>
-        CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, series, CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1));
+        CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, series, CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1));
 
     [Fact]
     public void ASeriesWrittenOffIsNotRetired()
@@ -1492,8 +1492,64 @@ public class RevolvingEngineTests
         OwedAndWrittenOff(CardProgram.Series("Paid", 0.0, 0.0, 0.0)).Series[0].Retired.Should().BeTrue();
     }
 
+    private static RevolvingSeries PaidOff(string name = "Paid") => CardProgram.Series(name, 0.0, 0.0, 0.0);
+
+    private static RevolvingSeries AwaitingFirstPay(RevolvingSeries series) => series with
+    {
+        ClosingDate = new DateTime(2026, 7, 10),
+        FirstPayDate = new DateTime(2026, 12, 15)
+    };
+
+    [Fact]
+    public void ASeriesHoldingAFundingAccountIsNotRetired()
+    {
+        var holding = PaidOff() with
+        {
+            Phase = SeriesPhase.Accumulating,
+            FrozenPrincipalPct = 0.25,
+            FundingAccount = 50.0,
+            AccumulationStart = new DateTime(2026, 7, 1),
+            ExpectedDate = new DateTime(2027, 7, 15),
+            ControlledAmounts = new[] { 10.0 }
+        };
+
+        OwedAndWrittenOff(holding).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesHoldingCarriedFinanceIsNotRetired()
+    {
+        var waiting = AwaitingFirstPay(PaidOff()) with { CarriedFinance = 5.0 };
+
+        OwedAndWrittenOff(waiting).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesWithADefaultStillDueIsNotRetired()
+    {
+        var waiting = AwaitingFirstPay(PaidOff());
+        waiting = waiting with { Classes = waiting.Classes.Select(c => c with { DefaultDue = 5.0 }).ToList() };
+
+        OwedAndWrittenOff(waiting).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesHoldingFundingMustStateItsFrozenValueEvenWrittenOff()
+    {
+        var series = WrittenOff("Held", false) with { Phase = SeriesPhase.EarlyAmortization, FundingAccount = 50.0 };
+
+        ((Action)(() => OwedAndWrittenOff(series))).Should().Throw<RevolvingConfigException>().WithMessage("*frozen*");
+    }
+
+    [Fact]
+    public void ALiveSeriesIsNotStranded()
+    {
+        OwedAndWrittenOff(CardProgram.Series("Live", 400.0, 50.0, 50.0)).Series[0].Stranded.Should().BeFalse();
+    }
+
     [Theory]
     [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
     [InlineData(true, false, true)]
     [InlineData(true, true, false)]
     public void AWrittenOffSeriesIsStrandedOnlyWhenNoExcessCanReachIt(bool sharing, bool liveInGroup, bool stranded)
@@ -1507,7 +1563,7 @@ public class RevolvingEngineTests
     public void AWrittenOffSeriesIsReachedByReallocationWithoutSharing()
     {
         var series = new[] { WrittenOff("Owed", false, 5.0), CardProgram.Series("Live", 400.0, 50.0, 50.0) };
-        var run = CardProgram.Run(CardProgram.Program(), 2_000.0, series, CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0, series, CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1);
         var reallocating = run with
         {
             Program = run.Program with { GroupSteps = new[] { new WaterfallStep(WaterfallVerb.ReallocateGroupFinance) } }
@@ -1519,7 +1575,8 @@ public class RevolvingEngineTests
     [Fact]
     public void AReserveReleasedPaysWhatItCanAndTheRestIsStranded()
     {
-        var result = OwedAndWrittenOff(WrittenOff("Owed", false, 5.0, 3.0));
+        var result = CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { WrittenOff("Owed", false, 5.0, 3.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1));
 
         result.Series[0].Classes["A"][0].InterestPaid.Should().BeApproximately(3.0, 1e-9);
         result.Series[0].Stranded.Should().BeTrue();
