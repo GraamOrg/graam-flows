@@ -20,9 +20,6 @@ internal sealed class NoteMonth
     public double Finance { get; set; }
     public double Principal { get; set; }
 
-    /// <summary>What finance covered of the series' default, which goes on to principal.</summary>
-    public double DefaultCovered { get; set; }
-
     /// <summary>Finance left after the steps: the excess paid to the transferor.</summary>
     public double Excess { get; set; }
 
@@ -162,7 +159,6 @@ internal static class NoteWaterfall
         var pay = Math.Min(month.Finance, due);
         month.Finance -= pay;
         month.Principal += pay;
-        month.DefaultCovered += pay;
         foreach (var c in classes)
             c.DefaultDue -= pay * c.DefaultDue / due;
     }
