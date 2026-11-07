@@ -89,7 +89,7 @@ internal sealed class SeriesRun
         Latches = tests.Select(t => new TriggerLatch(t, actionLag)).ToList();
         History = config.History.ToDictionary(h => h.Key, h => h.Value.ToList());
         PriorNumerator = config.PriorNumerator;
-        PriorFunding = config.PriorFunding;
+        PriorFunding = config.PriorFunding ?? 0.0;
         Usage = config.Usage.ToDictionary(u => u.Key, u => u.Value);
     }
 

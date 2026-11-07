@@ -165,7 +165,7 @@ public static class RevolvingMapper
             RequiredSubordination = dto.RequiredSubordination ?? new Dictionary<string, double>(),
             Usage = state?.Usage ?? new Dictionary<string, double>(),
             PriorNumerator = state?.PriorNumerator,
-            PriorFunding = state?.PriorFunding ?? 0.0
+            PriorFunding = state?.PriorFunding
         };
     }
 
