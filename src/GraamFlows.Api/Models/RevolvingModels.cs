@@ -369,6 +369,7 @@ public class RevolvingNotesDto
     public double SegregatedFinance { get; set; }
     public double ExcessDollars { get; set; }
     public double UncoveredDefault { get; set; }
+    public double UnchargedDefault { get; set; }
     public double PrincipalReallocated { get; set; }
     public double FinanceYieldPct { get; set; }
     public double NetLossPct { get; set; }

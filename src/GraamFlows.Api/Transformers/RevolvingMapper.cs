@@ -326,6 +326,7 @@ public static class RevolvingMapper
                     SegregatedFinance = n.SegregatedFinance,
                     ExcessDollars = n.ExcessDollars,
                     UncoveredDefault = n.UncoveredDefault,
+                    UnchargedDefault = n.UnchargedDefault,
                     PrincipalReallocated = n.PrincipalReallocated,
                     FinanceYieldPct = n.FinanceYieldPct,
                     NetLossPct = n.NetLossPct,

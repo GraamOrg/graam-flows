@@ -115,6 +115,12 @@ public sealed record NotePeriod
     public double ExcessDollars { get; init; }
 
     public double UncoveredDefault { get; init; }
+
+    /// <summary>
+    ///     The part of the uncovered default past what the tranches it fell on had left. A nominal
+    ///     liquidation amount stops at zero, so the transferor's interest in the pool takes it.
+    /// </summary>
+    public double UnchargedDefault { get; init; }
     public double PrincipalReallocated { get; init; }
     public double FinanceYieldPct { get; init; }
     public double NetLossPct { get; init; }

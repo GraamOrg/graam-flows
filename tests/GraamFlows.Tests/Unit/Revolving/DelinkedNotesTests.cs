@@ -530,6 +530,66 @@ public class DelinkedNotesTests
         rows[^1].CumWritedown.Should().Be(0.0);
     }
 
+    private static RevolvingSeries Reduced(string key, double left, double balance = 70.0) =>
+        NoteProgram.Tranche(key, key, balance, 0.0) with
+        {
+            Fees = Array.Empty<RevolvingFee>(),
+            PriorNumerator = balance,
+            Classes = new[] { new RevolvingClass { Key = key, Balance = balance, Coupon = 0.0, WrittenDown = balance - left } }
+        };
+
+    [Fact]
+    public void PrincipalMovesOnlyAsFarAsTheJuniorClassesCanBearIt()
+    {
+        // A is short $8.60 and Class B and Class C have $1 each left. "No Available Principal
+        // Collections will be reallocated ... if the reallocation would result in the reduction of
+        // the Nominal Liquidation Amount of those senior notes."
+        var senior = NoteProgram.Tranche("A", "A", 860.0, 12.0) with { Fees = Array.Empty<RevolvingFee>() };
+        var result = RunShort(ShortMonth(0.0, 0.0, 1_000.0), senior, Reduced("B", 1.0), Reduced("C", 1.0));
+
+        Notes(result).PrincipalReallocated.Should().BeApproximately(2.0, 1e-6);
+        Named(result, "A").Classes["A"][0].InterestPaid.Should().BeApproximately(2.0, 1e-6);
+        Named(result, "A").Classes["A"][0].InterestDueUnpaid.Should().BeApproximately(6.6, 1e-6);
+        Named(result, "B").Periods[0].InvestedAmount.Should().BeApproximately(0.0, 1e-6);
+        Named(result, "C").Periods[0].InvestedAmount.Should().BeApproximately(0.0, 1e-6);
+        Named(result, "A").Periods[0].InvestedAmount.Should().BeApproximately(860.0, 1e-6);
+    }
+
+    [Fact]
+    public void AChargeStopsAtWhatATrancheHasLeftAndTheRestIsReported()
+    {
+        // C's numerator is its $70 a month ago, but it has $1 left. Its $7 charge cannot take it
+        // below zero, and nothing lies below it.
+        var result = RunShort(ShortMonth(0.0, 200.0), NoteProgram.Tranche("A", "A", 860.0, 0.0) with
+        {
+            Fees = Array.Empty<RevolvingFee>(),
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 }
+        }, NoteProgram.Tranche("B", "B", 70.0, 0.0) with
+        {
+            Fees = Array.Empty<RevolvingFee>(),
+            RequiredSubordination = new Dictionary<string, double> { ["C"] = 0.0 }
+        }, Reduced("C", 1.0));
+
+        Named(result, "C").Periods[0].InvestedAmount.Should().Be(0.0);
+        Notes(result).UncoveredDefault.Should().BeApproximately(100.0, 1e-6);
+        Notes(result).UnchargedDefault.Should().BeApproximately(6.0, 1e-6);
+    }
+
+    [Fact]
+    public void ATrancheWithNothingLeftStillTakesItsShareOfTheDefault()
+    {
+        // C has no amount left, but $70 of the month's $1,000 numerator: $7 of the $100 default. With
+        // no finance and no class below it, that $7 is reported, not lost.
+        var result = RunShort(ShortMonth(0.0, 200.0), Stack()[0], Stack()[1], Reduced("C", 0.0));
+
+        var notes = Notes(result);
+        notes.InvestorDefault.Should().BeApproximately(100.0, 1e-6);
+        notes.UncoveredDefault.Should().BeApproximately(100.0, 1e-6);
+        var charged = Named(result, "A").Classes["A"][0].Writedown + Named(result, "B").Classes["B"][0].Writedown
+                                                                    + Named(result, "C").Classes["C"][0].Writedown;
+        (charged + notes.UnchargedDefault).Should().BeApproximately(100.0, 1e-6);
+    }
+
     [Fact]
     public void ATrancheOfTwoClassesIsRefused()
     {
