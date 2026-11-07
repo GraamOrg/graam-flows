@@ -182,6 +182,16 @@ internal static class CardProgram
             var because = $"month {i}";
             months[i].Periods[0].TransferorFinance.Should().BeApproximately(whole.Periods[i].TransferorFinance, tiny, because);
             months[i].Periods[0].TransferorPrincipal.Should().BeApproximately(whole.Periods[i].TransferorPrincipal, tiny, because);
+            if (whole.Periods[i].Notes is { } notes)
+            {
+                var cutNotes = months[i].Periods[0].Notes!;
+                cutNotes.Numerator.Should().BeApproximately(notes.Numerator, tiny, because);
+                cutNotes.SegregatedFinance.Should().BeApproximately(notes.SegregatedFinance, tiny, because);
+                cutNotes.ExcessDollars.Should().BeApproximately(notes.ExcessDollars, tiny, because);
+                cutNotes.UncoveredDefault.Should().BeApproximately(notes.UncoveredDefault, tiny, because);
+                cutNotes.PrincipalReallocated.Should().BeApproximately(notes.PrincipalReallocated, tiny, because);
+            }
+
             foreach (var series in whole.Series)
             {
                 var cut = months[i].Series.Single(s => s.Name == series.Name);
