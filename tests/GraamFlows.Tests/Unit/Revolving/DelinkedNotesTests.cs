@@ -618,6 +618,7 @@ public class DelinkedNotesTests
 
         Notes(result).ExcessSpreadPct.Should().BeApproximately(0.1 * 365.0 / 31.0 - 5.7, 1e-9);
         Named(result, "A").Periods[0].Phase.Should().Be(SeriesPhase.Revolving);
+        Named(result, "A").Periods[0].BaseRatePct.Should().Be(Notes(result).BaseRatePct);
         result.Series.Should().AllSatisfy(s => s.Periods[1].Phase.Should().Be(SeriesPhase.EarlyAmortization));
     }
 
@@ -1053,6 +1054,7 @@ public class DelinkedNotesTests
         var result = NoteProgram.Execute(NoteProgram.Program(), new DateTime(2024, 1, 31), new[] { month }, Stack());
 
         Notes(result).FinanceYieldPct.Should().BeApproximately(5.0 * 366.0 / 29.0, 1e-9);
+        Named(result, "A").Periods[0].PortfolioYieldPct.Should().Be(Notes(result).PortfolioYieldPct);
     }
 
     [Fact]
