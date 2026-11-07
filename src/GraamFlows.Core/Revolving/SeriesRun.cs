@@ -216,8 +216,11 @@ internal sealed class SeriesRun
     public bool Retired => Funding.Balance < Cent && Reserve < Cent && CarriedFinance < Cent && FeesDue < Cent
                            && Classes.All(c => c.Outstanding < Cent && c.InterestDue < Cent && c.DefaultDue < Cent);
 
-    /// <summary>It has an amount that takes an allocation, or holds cash of its own.</summary>
-    public bool CanReceive => AdjustedInvested >= Cent || (!Paid && PriorNumerator >= Cent)
+    /// <summary>
+    ///     Next month it takes an allocation, draws segregated finance on what its account held, or
+    ///     holds cash of its own. Both of the first two stand a month behind its current amount.
+    /// </summary>
+    public bool CanReceive => AdjustedInvested >= Cent || (!Paid && (PriorNumerator >= Cent || PriorFunding >= Cent))
                               || Funding.Balance >= Cent || Reserve >= Cent || CarriedFinance >= Cent;
 
     public double FundingRoom => Math.Max(0.0,
