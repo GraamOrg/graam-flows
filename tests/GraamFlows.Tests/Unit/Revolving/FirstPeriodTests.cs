@@ -105,6 +105,37 @@ public class FirstPeriodTests
         result.Series.Single(s => s.Name == "Late").Periods[0].FinanceAllocation.Should().BeGreaterThan(0.0);
     }
 
+    private static RevolvingRun AccumulatesFrom(DateTime start) =>
+        CardProgram.Run(CardProgram.Program(), 2_000.0,
+            new[]
+            {
+                CardProgram.Series("Late", 500.0, 50.0, 50.0) with
+                {
+                    ClosingDate = new DateTime(2026, 11, 20),
+                    FirstPayDate = new DateTime(2026, 12, 15),
+                    AccumulationStart = start,
+                    ExpectedDate = new DateTime(2027, 6, 15),
+                    ControlledAmounts = new[] { 50.0 }
+                }
+            },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 5);
+
+    [Fact]
+    public void AccumulatingBeforeTheMonthASeriesClosesIsRefused()
+    {
+        var run = () => CardProgram.Execute(AccumulatesFrom(new DateTime(2026, 10, 31)));
+
+        run.Should().Throw<RevolvingConfigException>().WithMessage("*starts accumulating on 2026-10-31*2026-11*");
+    }
+
+    [Fact]
+    public void AccumulatingFromTheMonthASeriesClosesIsAccepted()
+    {
+        var run = () => CardProgram.Execute(AccumulatesFrom(new DateTime(2026, 11, 1)));
+
+        run.Should().NotThrow();
+    }
+
     [Fact]
     public void AShortFirstPeriodPaysFromClosing()
     {
