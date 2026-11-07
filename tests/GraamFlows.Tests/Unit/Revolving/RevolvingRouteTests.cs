@@ -22,6 +22,7 @@ public class RevolvingRouteTests
                 RecoveryBucket = "FINANCE",
                 PoolMeasure = "PERIOD_START",
                 ActionLag = 0,
+                PrincipalFreeze = "FROZEN_PERCENT",
                 FinanceSteps = new List<RevolvingStepDto>
                 {
                     new() { Verb = "PAY_INTEREST", Class = "A" },
@@ -262,6 +263,64 @@ public class RevolvingRouteTests
     }
 
     [Fact]
+    public void AProgramWithNoPrincipalFreezeIsRefusedByName()
+    {
+        Error(Request(r => r.Program.PrincipalFreeze = null))
+            .Should().Contain("Example card trust").And.Contain("principalFreeze");
+    }
+
+    [Fact]
+    public void AnUnknownPrincipalFreezeIsRefusedByName()
+    {
+        Error(Request(r => r.Program.PrincipalFreeze = "FROZEN_POOL")).Should().Contain("FROZEN_POOL");
+    }
+
+    [Fact]
+    public void TheFreezeChangesPrincipalThroughTheRoute()
+    {
+        void Shrinking(RevolvingRequest r)
+        {
+            r.Drivers!.HoldPool = false;
+            r.Drivers.NewReceivablesRate = new RevolvingDriverDto { Values = new[] { 35.0 } };
+        }
+
+        var percent = Ok(Request(Shrinking)).Series["S"].Periods;
+        var numerator = Ok(Request(r =>
+        {
+            Shrinking(r);
+            r.Program.PrincipalFreeze = "FROZEN_NUMERATOR";
+        })).Series["S"].Periods;
+
+        // Revolving through October, frozen from November, and only the numerator follows the pool.
+        percent[4].PrincipalPct.Should().Be(percent[3].PrincipalPct);
+        numerator[3].PrincipalPct.Should().Be(percent[3].PrincipalPct);
+        numerator[4].PrincipalPct.Should().BeGreaterThan(numerator[3].PrincipalPct);
+    }
+
+    [Fact]
+    public void GroupReallocationRunsThroughTheRoute()
+    {
+        var response = Ok(Request(r =>
+            r.Program.GroupSteps = new List<RevolvingStepDto> { new() { Verb = "REALLOCATE_GROUP_FINANCE" } }));
+
+        response.Series["S"].Periods[0].ReallocatedFinance.Should().BeApproximately(
+            response.Series["S"].Periods[0].FinanceAllocation, 1e-6);
+    }
+
+    [Fact]
+    public void WithNoGroupStepsTheRouteReportsNoReallocation()
+    {
+        Ok(Request()).Series["S"].Periods[0].ReallocatedFinance.Should().BeNull();
+    }
+
+    [Fact]
+    public void AnUnknownGroupVerbIsRefusedByName()
+    {
+        Error(Request(r => r.Program.GroupSteps = new List<RevolvingStepDto> { new() { Verb = "POOL_EVERYTHING" } }))
+            .Should().Contain("POOL_EVERYTHING");
+    }
+
+    [Fact]
     public void AnUnknownVerbIsRefusedByName()
     {
         Error(Request(r => r.Program.FinanceSteps.Add(new RevolvingStepDto { Verb = "PAY_SERVICER" })))
@@ -458,6 +517,8 @@ public class RevolvingRouteTests
         { r => r.Series[0].State = new RevolvingSeriesStateDto { FundingDeficit = double.NaN }, "fundingDeficit" },
         { r => r.Series[0].State = new RevolvingSeriesStateDto { Reserve = -1.0 }, "reserve" },
         { r => r.Series[0].State = new RevolvingSeriesStateDto { AccumulationMonthsRun = -1 }, "accumulationMonthsRun" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { FrozenNumerator = -1.0 }, "frozenNumerator" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { FrozenNumerator = double.NaN }, "frozenNumerator" },
         {
             r => r.Series[0].State = new RevolvingSeriesStateDto
             {
@@ -573,6 +634,14 @@ public class RevolvingRouteTests
             {
                 r.Series[0].Group = "";
                 r.Series[0].ExcessSharing = true;
+            },
+            "states no group"
+        },
+        {
+            r =>
+            {
+                r.Series[0].Group = "";
+                r.Program.GroupSteps = new List<RevolvingStepDto> { new() { Verb = "REALLOCATE_GROUP_FINANCE" } };
             },
             "states no group"
         },

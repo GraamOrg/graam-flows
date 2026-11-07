@@ -9,8 +9,12 @@ internal static class RevolvingValidator
         if (string.IsNullOrWhiteSpace(program.Name))
             throw new RevolvingConfigException("A revolving program must state its name.");
 
+        if (program.PrincipalFreeze == null)
+            throw new RevolvingConfigException($"Program '{program.Name}' states no principalFreeze.");
+
         ValidateRun(run);
         ValidateProgramFigures(program);
+        ValidateSteps(program.Name, "group", program.GroupSteps, WaterfallVerbs.RunsOnGroup);
         ValidateSteps(program.Name, "finance", program.FinanceSteps, WaterfallVerbs.RunsOnFinance);
         ValidateSteps(program.Name, "principal", program.PrincipalSteps, WaterfallVerbs.RunsOnPrincipal);
         foreach (var test in program.Triggers)
@@ -202,7 +206,7 @@ internal static class RevolvingValidator
         }
 
         RequireStepsForClaims(program, series);
-        RequireGroupWhereItMatters(series);
+        RequireGroupWhereItMatters(program, series);
         ValidateFigures(series);
 
         if (series.AccumulationStart != null || series.Phase == SeriesPhase.Accumulating)
@@ -224,10 +228,18 @@ internal static class RevolvingValidator
                 $"Series '{series.Name}' expects to pay on {expected:yyyy-MM-dd}, before it starts accumulating "
                 + $"on {start:yyyy-MM-dd}.");
 
-        if (series.Phase != SeriesPhase.Revolving && !series.FreezePending && series.FrozenPrincipalPct == null)
-            throw new RevolvingConfigException(
-                $"Series '{series.Name}' starts in {PhaseNames.ToWire(series.Phase)} and must state its frozen "
-                + "principal percentage.");
+        if (series.Phase != SeriesPhase.Revolving && !series.FreezePending)
+            RequireFrozenValue(program, series);
+    }
+
+    private static void RequireFrozenValue(RevolvingProgram program, RevolvingSeries series)
+    {
+        var starts = $"Series '{series.Name}' starts in {PhaseNames.ToWire(series.Phase)}";
+        if (program.PrincipalFreeze == PrincipalFreeze.FrozenPercent && series.FrozenPrincipalPct == null)
+            throw new RevolvingConfigException($"{starts} and must state frozenPrincipalPct.");
+
+        if (program.PrincipalFreeze == PrincipalFreeze.FrozenNumerator && series.FrozenNumerator == null)
+            throw new RevolvingConfigException($"{starts} and must state frozenNumerator.");
     }
 
     /// <summary>
@@ -258,10 +270,17 @@ internal static class RevolvingValidator
     }
 
     /// <summary>An empty group would be a group of its own, joining every series that omits one.</summary>
-    private static void RequireGroupWhereItMatters(RevolvingSeries series)
+    private static void RequireGroupWhereItMatters(RevolvingProgram program, RevolvingSeries series)
     {
-        if (string.IsNullOrWhiteSpace(series.Group) && (series.PrincipalSharing || series.ExcessSharing))
+        if (!string.IsNullOrWhiteSpace(series.Group))
+            return;
+
+        if (series.PrincipalSharing || series.ExcessSharing)
             throw new RevolvingConfigException($"Series '{series.Name}' shares cash but states no group.");
+
+        if (program.GroupSteps.Count > 0)
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' states no group, and program '{program.Name}' reallocates finance across one.");
     }
 
     /// <summary>A class with no balance or no rate accrues nothing, so it needs no step to pay it.</summary>
@@ -315,6 +334,9 @@ internal static class RevolvingValidator
 
         if (series.AccumulationMonthsRun < 0)
             throw new RevolvingConfigException($"{name} has a negative accumulationMonthsRun.");
+
+        if (series.FrozenNumerator is { } numerator)
+            RequireAmount($"{name} frozenNumerator", numerator);
 
         // No clamp: a frozen share the allocator scales back would pay something nobody stated.
         if (series.FrozenPrincipalPct is { } frozen && !(frozen is >= 0.0 and <= 1.0))

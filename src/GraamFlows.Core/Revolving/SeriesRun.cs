@@ -80,6 +80,7 @@ internal sealed class SeriesRun
         Reserve = config.Reserve;
         CarriedFinance = config.CarriedFinance;
         FrozenPrincipalPct = config.FrozenPrincipalPct;
+        FrozenNumerator = config.FrozenNumerator;
         AccumulationMonths = config.AccumulationMonthsRun;
         Latches = tests.Select(t => new TriggerLatch(t, actionLag, config.TriggerStates.GetValueOrDefault(t.Name))).ToList();
         History = config.History.ToDictionary(h => h.Key, h => h.Value.ToList());
@@ -110,6 +111,7 @@ internal sealed class SeriesRun
     public double ReserveRequired { get; set; }
     public double CarriedFinance { get; set; }
     public double? FrozenPrincipalPct { get; set; }
+    public double? FrozenNumerator { get; set; }
     public int AccumulationMonths { get; set; }
     public double ControlledThisMonth { get; set; }
     public List<TriggerLatch> Latches { get; }
@@ -117,6 +119,12 @@ internal sealed class SeriesRun
 
     public double Finance { get; set; }
     public double Principal { get; set; }
+
+    /// <summary>The part of <see cref="Finance" /> that is investor collections, before reallocation.</summary>
+    public double InvestorFinance { get; set; }
+
+    /// <summary>What group reallocation gave the series. Null if the program does not reallocate.</summary>
+    public double? ReallocatedFinance { get; set; }
 
     /// <summary>Cash a dry run spent, which is what the series still needs.</summary>
     public double Spent { get; set; }
@@ -168,6 +176,8 @@ internal sealed class SeriesRun
         FeesAccrued += amount;
     }
 
+    public double FeesDue => _feeDue.Values.Sum();
+
     /// <summary>
     ///     The series as the run closed it, in the shape a run opens on, so a run cut in two matches
     ///     the same months run as one.
@@ -187,7 +197,8 @@ internal sealed class SeriesRun
             }).ToList(),
             Phase = Phase,
             FrozenPrincipalPct = FrozenPrincipalPct,
-            FreezePending = Phase != SeriesPhase.Revolving && FrozenPrincipalPct == null,
+            FrozenNumerator = FrozenNumerator,
+            FreezePending = Phase != SeriesPhase.Revolving && FrozenPrincipalPct == null && FrozenNumerator == null,
             FundingAccount = Funding.Balance,
             FundingDeficit = Funding.Deficit,
             Reserve = Reserve,
@@ -219,6 +230,8 @@ internal sealed class SeriesRun
 
         FeesAccrued = 0.0;
         FeesPaid = 0.0;
+        InvestorFinance = 0.0;
+        ReallocatedFinance = null;
         Surplus = 0.0;
         ExcessOut = 0.0;
         ExcessIn = 0.0;

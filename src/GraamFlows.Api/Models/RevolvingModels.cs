@@ -57,6 +57,12 @@ public class RevolvingProgramDto
     /// <summary>Months between a test tripping and its action. Required if there are triggers.</summary>
     public int? ActionLag { get; set; }
 
+    /// <summary>FROZEN_PERCENT or FROZEN_NUMERATOR. Required, with no default.</summary>
+    public string? PrincipalFreeze { get; set; }
+
+    /// <summary>Steps that run across a group each month. Absent means there are none.</summary>
+    public List<RevolvingStepDto>? GroupSteps { get; set; }
+
     public List<RevolvingStepDto> FinanceSteps { get; set; } = new();
     public List<RevolvingStepDto> PrincipalSteps { get; set; } = new();
     public List<RevolvingTriggerDto>? Triggers { get; set; }
@@ -122,8 +128,11 @@ public class RevolvingSeriesStateDto
 {
     public string? Phase { get; set; }
 
-    /// <summary>Percent. Required once a series has left revolving.</summary>
+    /// <summary>Percent. Required once a series has left revolving, under FROZEN_PERCENT.</summary>
     public double? FrozenPrincipalPct { get; set; }
+
+    /// <summary>Dollars. Required once a series has left revolving, under FROZEN_NUMERATOR.</summary>
+    public double? FrozenNumerator { get; set; }
 
     public double? FundingAccount { get; set; }
     public double? FundingDeficit { get; set; }
@@ -402,6 +411,10 @@ public class RevolvingSeriesPeriodDto
     public double FloatingPct { get; set; }
     public double PrincipalPct { get; set; }
     public double FinanceAllocation { get; set; }
+
+    /// <summary>What group reallocation gave the series. Null if the program does not reallocate.</summary>
+    public double? ReallocatedFinance { get; set; }
+
     public double PrincipalAllocation { get; set; }
     public double InvestorDefault { get; set; }
     public double InvestedAmount { get; set; }
