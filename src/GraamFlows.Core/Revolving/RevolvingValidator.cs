@@ -194,7 +194,7 @@ internal static class RevolvingValidator
         }
 
         RequireStepsForClaims(program, series);
-        RequireGroupWhereItMatters(series);
+        RequireGroupWhereItMatters(program, series);
         ValidateFigures(series);
 
         if (series.AccumulationStart != null || series.Phase == SeriesPhase.Accumulating)
@@ -258,10 +258,17 @@ internal static class RevolvingValidator
     }
 
     /// <summary>An empty group would be a group of its own, joining every series that omits one.</summary>
-    private static void RequireGroupWhereItMatters(RevolvingSeries series)
+    private static void RequireGroupWhereItMatters(RevolvingProgram program, RevolvingSeries series)
     {
-        if (string.IsNullOrWhiteSpace(series.Group) && (series.PrincipalSharing || series.ExcessSharing))
+        if (!string.IsNullOrWhiteSpace(series.Group))
+            return;
+
+        if (series.PrincipalSharing || series.ExcessSharing)
             throw new RevolvingConfigException($"Series '{series.Name}' shares cash but states no group.");
+
+        if (program.GroupSteps.Count > 0)
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' states no group, and program '{program.Name}' reallocates finance across one.");
     }
 
     private static void ValidateFigures(RevolvingSeries series)
@@ -300,6 +307,9 @@ internal static class RevolvingValidator
 
         if (series.AccumulationMonthsRun < 0)
             throw new RevolvingConfigException($"{name} has a negative accumulationMonthsRun.");
+
+        if (series.FrozenNumerator is { } numerator)
+            RequireAmount($"{name} frozenNumerator", numerator);
 
         // No clamp: a frozen share the allocator scales back would pay something nobody stated.
         if (series.FrozenPrincipalPct is { } frozen && !(frozen is >= 0.0 and <= 1.0))

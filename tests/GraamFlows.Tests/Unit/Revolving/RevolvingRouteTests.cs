@@ -413,6 +413,8 @@ public class RevolvingRouteTests
         { r => r.Series[0].State = new RevolvingSeriesStateDto { FundingDeficit = double.NaN }, "fundingDeficit" },
         { r => r.Series[0].State = new RevolvingSeriesStateDto { Reserve = -1.0 }, "reserve" },
         { r => r.Series[0].State = new RevolvingSeriesStateDto { AccumulationMonthsRun = -1 }, "accumulationMonthsRun" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { FrozenNumerator = -1.0 }, "frozenNumerator" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { FrozenNumerator = double.NaN }, "frozenNumerator" },
         {
             r => r.Series[0].State = new RevolvingSeriesStateDto
             {
@@ -527,6 +529,14 @@ public class RevolvingRouteTests
             {
                 r.Series[0].Group = "";
                 r.Series[0].ExcessSharing = true;
+            },
+            "states no group"
+        },
+        {
+            r =>
+            {
+                r.Series[0].Group = "";
+                r.Program.GroupSteps = new List<RevolvingStepDto> { new() { Verb = "REALLOCATE_GROUP_FINANCE" } };
             },
             "states no group"
         },
