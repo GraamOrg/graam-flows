@@ -247,6 +247,12 @@ public sealed record RevolvingSeries
     /// <summary>Required from the statement once a series has left revolving.</summary>
     public double? FrozenPrincipalPct { get; init; }
 
+    /// <summary>
+    ///     From a closing: the series left revolving with nothing invested, so nothing froze. Its first
+    ///     allocation freezes it, as in a run not cut.
+    /// </summary>
+    public bool FreezePending { get; init; }
+
     public double FundingAccount { get; init; }
     public double FundingDeficit { get; init; }
     public double Reserve { get; init; }

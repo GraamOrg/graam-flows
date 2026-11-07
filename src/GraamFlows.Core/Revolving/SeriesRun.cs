@@ -187,6 +187,7 @@ internal sealed class SeriesRun
             }).ToList(),
             Phase = Phase,
             FrozenPrincipalPct = FrozenPrincipalPct,
+            FreezePending = Phase != SeriesPhase.Revolving && FrozenPrincipalPct == null,
             FundingAccount = Funding.Balance,
             FundingDeficit = Funding.Deficit,
             Reserve = Reserve,

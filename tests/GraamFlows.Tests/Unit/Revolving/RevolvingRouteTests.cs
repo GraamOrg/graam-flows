@@ -173,6 +173,37 @@ public class RevolvingRouteTests
     }
 
     [Fact]
+    public void ASeriesWithAFreezePendingIsAcceptedAndOneWithoutIsNot()
+    {
+        var pending = new RevolvingSeriesStateDto { Phase = "ACCUMULATING", FundingDeficit = 0.0, FreezePending = true };
+        var missing = new RevolvingSeriesStateDto { Phase = "ACCUMULATING" };
+        void Accumulating(RevolvingRequest r, RevolvingSeriesStateDto state)
+        {
+            r.Periods = 1;
+            r.Series[0].AccumulationStart = new DateTime(2026, 7, 1);
+            r.Series[0].State = state;
+        }
+
+        Ok(Request(r => Accumulating(r, pending))).Series["S"].Closing.State.FreezePending.Should().BeNull();
+        Error(Request(r => Accumulating(r, missing))).Should().Contain("frozen");
+    }
+
+    [Fact]
+    public void AClosingWithNothingFrozenSaysSo()
+    {
+        var closing = Ok(Request(r =>
+        {
+            r.Periods = 1;
+            r.Series[0].AccumulationStart = new DateTime(2026, 8, 1);
+            r.Series[0].Classes[0].WrittenDown = 400_000.0;
+            r.Drivers!.Yield = new RevolvingDriverDto { Values = new[] { 0.0 } };
+        })).Series["S"].Closing;
+
+        closing.State.Phase.Should().Be("ACCUMULATING");
+        closing.State.FreezePending.Should().BeTrue();
+    }
+
+    [Fact]
     public void AForecastReturnsPeriodsSeriesAndTrancheRows()
     {
         // A rich yield, so the shrinking floating % leaves no default uncovered near the end.

@@ -224,7 +224,7 @@ internal static class RevolvingValidator
                 $"Series '{series.Name}' expects to pay on {expected:yyyy-MM-dd}, before it starts accumulating "
                 + $"on {start:yyyy-MM-dd}.");
 
-        if (series.Phase != SeriesPhase.Revolving && HasAmount(series) && series.FrozenPrincipalPct == null)
+        if (series.Phase != SeriesPhase.Revolving && !series.FreezePending && series.FrozenPrincipalPct == null)
             throw new RevolvingConfigException(
                 $"Series '{series.Name}' starts in {PhaseNames.ToWire(series.Phase)} and must state its frozen "
                 + "principal percentage.");
@@ -262,15 +262,6 @@ internal static class RevolvingValidator
     {
         if (string.IsNullOrWhiteSpace(series.Group) && (series.PrincipalSharing || series.ExcessSharing))
             throw new RevolvingConfigException($"Series '{series.Name}' shares cash but states no group.");
-    }
-
-    /// <summary>
-    ///     A series with nothing invested and nothing held takes no allocation, so it can leave revolving
-    ///     with no frozen value. It is set if the series is reinstated, as in a run not cut.
-    /// </summary>
-    private static bool HasAmount(RevolvingSeries series)
-    {
-        return series.FundingAccount >= SeriesRun.Cent || series.Classes.Any(c => c.Balance - c.WrittenDown >= SeriesRun.Cent);
     }
 
     /// <summary>A class with no balance or no rate accrues nothing, so it needs no step to pay it.</summary>
