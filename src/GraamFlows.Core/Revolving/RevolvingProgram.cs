@@ -102,17 +102,41 @@ public static class PrincipalFreezeParser
 /// <param name="From">the classes REALLOCATE_PRINCIPAL takes from, most junior first.</param>
 /// <param name="WhenPaid">classes that must be paid in full before PAY_CLASS runs.</param>
 /// <param name="Phases">the phases the step runs in. Null means all of them.</param>
+/// <param name="Covers">on a de-linked note series, what REALLOCATE_PRINCIPAL pays. Null is interest.</param>
 public sealed record WaterfallStep(
     WaterfallVerb Verb,
     string? Class = null,
     string? Fee = null,
     IReadOnlyList<string>? From = null,
     IReadOnlyList<string>? WhenPaid = null,
-    IReadOnlyList<SeriesPhase>? Phases = null)
+    IReadOnlyList<SeriesPhase>? Phases = null,
+    ReallocationCovers? Covers = null)
 {
     public bool RunsIn(SeriesPhase phase)
     {
         return Phases == null || Phases.Contains(phase);
+    }
+}
+
+/// <summary>What REALLOCATE_PRINCIPAL pays on a de-linked note series.</summary>
+public enum ReallocationCovers
+{
+    Interest,
+    Fee
+}
+
+public static class ReallocationCoversParser
+{
+    public static ReallocationCovers? Parse(string? covers)
+    {
+        return covers?.Trim().ToUpperInvariant() switch
+        {
+            null => null,
+            "INTEREST" => ReallocationCovers.Interest,
+            "FEE" => ReallocationCovers.Fee,
+            _ => throw new RevolvingConfigException(
+                $"Unknown reallocation covers '{covers}'. Supported: INTEREST and FEE.")
+        };
     }
 }
 
@@ -195,6 +219,23 @@ public sealed record TriggerTest
     public double? ReserveAmount { get; init; }
 }
 
+/// <summary>
+///     A de-linked note series. Each engine series is then one tranche of one class. The tranches
+///     share one finance bucket and one principal bucket, and every step names a class of the whole
+///     note series rather than a class of a series.
+/// </summary>
+public sealed record DelinkedNotes
+{
+    /// <summary>The classes, senior first.</summary>
+    public required IReadOnlyList<string> ClassOrder { get; init; }
+
+    /// <summary>
+    ///     Finance otherwise the transferor's covers interest on what the principal funding accounts
+    ///     held at the close of the month before, less what those accounts earned.
+    /// </summary>
+    public bool SegregatedFinance { get; init; }
+}
+
 /// <summary>One program's rules: everything the series of a trust have in common.</summary>
 public sealed record RevolvingProgram
 {
@@ -224,6 +265,9 @@ public sealed record RevolvingProgram
 
     /// <summary>Percent of the pool required as the transferor amount. Reported only.</summary>
     public double? RequiredTransferorPct { get; init; }
+
+    /// <summary>Set on a de-linked note series. Null is a series stack.</summary>
+    public DelinkedNotes? Delinked { get; init; }
 }
 
 public sealed record RevolvingClass
@@ -315,6 +359,29 @@ public sealed record RevolvingSeries
     /// <summary>Months of accumulation already run, so a mid-period statement keeps its schedule.</summary>
     public int AccumulationMonthsRun { get; init; }
 
+    /// <summary>
+    ///     On a tranche: percent of its adjusted amount it requires of each junior class. On a middle
+    ///     class, of the part of it the senior classes do not claim.
+    /// </summary>
+    public IReadOnlyDictionary<string, double> RequiredSubordination { get; init; } =
+        new Dictionary<string, double>();
+
+    /// <summary>On a tranche: what it has already used of each junior class, from the statement.</summary>
+    public IReadOnlyDictionary<string, double> Usage { get; init; } = new Dictionary<string, double>();
+
+    /// <summary>
+    ///     On a tranche: its nominal liquidation amount at the close of the month before the first
+    ///     monthly period. Null is its amount at the statement date, right for a new tranche, and the
+    ///     run discloses it on any other.
+    /// </summary>
+    public double? PriorNumerator { get; init; }
+
+    /// <summary>
+    ///     On a tranche: its funding account at the close of the month before the first period. Null
+    ///     is 0, right for a new tranche, and the run discloses it on any other.
+    /// </summary>
+    public double? PriorFunding { get; init; }
+
     /// <summary>Finance waiting for the series' first waterfall, from the close of the last run.</summary>
     public double CarriedFinance { get; init; }
 
@@ -390,6 +457,15 @@ public sealed record ActualPeriod
 
     /// <summary>Days in the monthly period. Null uses the calendar month.</summary>
     public int? Days { get; init; }
+
+    /// <summary>The pool the allocator divides by, where the trust prints one. Null uses the measure.</summary>
+    public double? AllocationBalance { get; init; }
+
+    /// <summary>Earnings on cash in the interest funding accounts, where the caller has them.</summary>
+    public double InterestAccountEarnings { get; init; }
+
+    /// <summary>Earnings on cash in the principal funding accounts, where the caller has them.</summary>
+    public double PrincipalAccountEarnings { get; init; }
 }
 
 /// <summary>

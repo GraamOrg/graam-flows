@@ -149,6 +149,55 @@ public class RevolvingHttpTests : IClassFixture<WebApplicationFactory<Program>>
         testsSeen.Should().BeTrue();
     }
 
+    private static JsonObject NoteBody() => JsonNode.Parse("""
+        {
+          "program": {
+            "name": "Example note trust",
+            "recovery_bucket": "PRINCIPAL_UP_TO_NEW_DEFAULTS",
+            "pool_measure": "PERIOD_START",
+            "principal_freeze": "FROZEN_NUMERATOR",
+            "delinked": { "class_order": ["class_a", "class_b"] },
+            "finance_steps": [
+              { "verb": "PAY_INTEREST", "class": "class_a" },
+              { "verb": "PAY_INTEREST", "class": "class_b" },
+              { "verb": "COVER_DEFAULTS", "class": "class_a" },
+              { "verb": "RELEASE_TRANSFEROR" }
+            ],
+            "principal_steps": [{ "verb": "DEPOSIT_PFA" }, { "verb": "RELEASE_TRANSFEROR" }]
+          },
+          "statement_date": "2026-07-31",
+          "periods": 1,
+          "pool_balance": 2000.0,
+          "drivers": { "payment_rate": 40.0, "new_receivables_rate": 40.0, "yield": 0.0, "charge_off_rate": 10.0 },
+          "funding_earnings_rate": [0.0],
+          "series": [
+            {
+              "name": "A", "group": "notes",
+              "classes": [{ "key": "class_a", "balance": 860.0, "coupon": 0.0 }],
+              "writedown_order": ["class_a"], "funded_classes": ["class_a"],
+              "required_subordination": { "class_b": 8.0 },
+              "state": { "prior_numerator": 860.0, "prior_funding": 0.0, "usage": { "class_b": 1.0 } }
+            },
+            {
+              "name": "B", "group": "notes",
+              "classes": [{ "key": "class_b", "balance": 140.0, "coupon": 0.0 }],
+              "writedown_order": ["class_b"], "funded_classes": ["class_b"],
+              "state": { "prior_numerator": 140.0, "prior_funding": 0.0 }
+            }
+          ]
+        }
+        """)!.AsObject();
+
+    [Fact]
+    public async Task ClassKeysUnderRequiredAndUsageComeThroughAsSent()
+    {
+        var month = await Post(NoteBody());
+
+        var row = month["series"]!["A"]!["periods"]![0]!["tranche"]!;
+        row["requiredSubordination"]!["class_b"]!.GetValue<double>().Should().BeApproximately(68.8, 1e-9);
+        row["usage"]!["class_b"]!.GetValue<double>().Should().BeGreaterThan(1.0);
+    }
+
     [Fact]
     public async Task AnUnknownNameInAStateIsRefusedAsSent()
     {
