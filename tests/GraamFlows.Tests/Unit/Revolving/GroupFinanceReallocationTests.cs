@@ -202,8 +202,7 @@ public class GroupFinanceReallocationTests
     {
         var month = Month(RunSeptember(Reallocating()), "2026-1");
 
-        // Its 7.2796% base rate is not asserted: 2026-1 closed on September 22, and that first
-        // month's printed rate does not come from any whole day count tried.
+        // Its 7.2796% base rate comes from its closing date: see FirstPeriodTests.
         Math.Round(month.PortfolioYieldPct, 4).Should().Be(31.6945);
     }
 
@@ -254,6 +253,28 @@ public class GroupFinanceReallocationTests
         {
             Classes = series.Classes.Select(c => c.Key == "A" ? c with { WrittenDown = writtenDown } : c).ToList()
         };
+    }
+
+    [Fact]
+    public void AFirstPayTwoMonthsOutClaimsItsInterestOnceInTheGroup()
+    {
+        // Each series is allocated 10,000 a month. Two carries its first month, so 30,000 reaches
+        // the group in November against interest of 5,000 and Two's 60 days of 10,000. That leaves
+        // 15,000 to split evenly. Counting Two's first month as well would claim 15,000 and move
+        // 2,500 between the series.
+        var two = Plain("Two", 1_000_000.0, 6.0) with
+        {
+            ClosingDate = new DateTime(2026, 9, 15),
+            FirstPayDate = new DateTime(2026, 11, 15)
+        };
+        var run = CardProgram.Run(Reallocating(), 4_000_000.0, new[] { Plain("One", 1_000_000.0, 6.0), two },
+            CardProgram.Drivers(0.40, 0.40, 0.01, 0.0, 0.0), 2, new DateTime(2026, 8, 31));
+
+        var result = CardProgram.Execute(run);
+
+        var november = result.Series.ToDictionary(s => s.Name, s => s.Periods[1]);
+        november["One"].ReallocatedFinance!.Value.Should().BeApproximately(5_000.0 + 7_500.0, 1e-6);
+        november["Two"].ReallocatedFinance!.Value.Should().BeApproximately(10_000.0 + 7_500.0, 1e-6);
     }
 
     [Fact]

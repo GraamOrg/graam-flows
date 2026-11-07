@@ -41,9 +41,12 @@ public static class RevolvingMetrics
         return Annualized(interestAndFees, invested, accrualDays);
     }
 
-    /// <summary>A paid-off series can leave floating-point dust invested, which has no rate.</summary>
+    /// <summary>
+    ///     A paid-off series can leave floating-point dust invested, and a series awaiting its first
+    ///     period has no interest days yet. Neither has a rate.
+    /// </summary>
     private static double Annualized(double amount, double invested, int days)
     {
-        return invested >= SeriesRun.Cent ? amount / invested * 365.0 / days * 100.0 : 0.0;
+        return invested >= SeriesRun.Cent && days > 0 ? amount / invested * 365.0 / days * 100.0 : 0.0;
     }
 }
