@@ -5,7 +5,8 @@ namespace GraamFlows.Api.Models;
 
 // Rates on this contract are percents, as everywhere on this API: paymentRate 50.9 is 50.9%.
 // Verbs, tests and phases are strings so that an unknown one is refused by name, not by the
-// JSON binder.
+// JSON binder. A figure the run needs is nullable here so that one left out is refused by name
+// instead of binding to 0.
 
 public class RevolvingRequest
 {
@@ -20,8 +21,8 @@ public class RevolvingRequest
     /// <summary>Months to run. Defaults to the length of <see cref="ActualPeriods" />.</summary>
     public int? Periods { get; set; }
 
-    /// <summary>Principal receivables at the statement date.</summary>
-    public double PoolBalance { get; set; }
+    /// <summary>Principal receivables at the statement date. Required.</summary>
+    public double? PoolBalance { get; set; }
 
     public RevolvingDriversDto? Drivers { get; set; }
 
@@ -30,9 +31,16 @@ public class RevolvingRequest
 
     public List<RevolvingSeriesDto> Series { get; set; } = new();
 
-    /// <summary>Annual percent the funding accounts earn: a number or a monthly vector.</summary>
+    /// <summary>
+    ///     Annual percent the funding accounts earn: a number or a vector. Accounts earn in replayed
+    ///     months too, so a vector is read by run month, unlike the forecast drivers.
+    /// </summary>
     public double[]? FundingEarningsRate { get; set; }
 
+    /// <summary>
+    ///     Curves by index, as <c>[monthOffset, rate]</c>. Offset 0 is the run's first month, replayed
+    ///     or forecast, which is the month after <see cref="StatementDate" />.
+    /// </summary>
     public Dictionary<string, List<double[]>>? MarketRates { get; set; }
 }
 
@@ -145,16 +153,25 @@ public class RevolvingHistoryDto
 public class RevolvingClassDto
 {
     public string? Key { get; set; }
-    public double Balance { get; set; }
+
+    /// <summary>Required.</summary>
+    public double? Balance { get; set; }
+
     public double? OriginalBalance { get; set; }
-    public double Coupon { get; set; }
+
+    /// <summary>Required on a fixed class. A floating class ignores it.</summary>
+    public double? Coupon { get; set; }
 
     /// <summary>The index of a floating class, which then pays index + margin.</summary>
     public string? Index { get; set; }
 
-    public double Margin { get; set; }
+    /// <summary>Required on a floating class.</summary>
+    public double? Margin { get; set; }
 
-    /// <summary>30/360 if absent, or Actual/360.</summary>
+    /// <summary>
+    ///     30/360 or Actual/360. Absent means 30/360 on a fixed class. A floating class must state it:
+    ///     it moves every month's interest, and floaters are rarely 30/360.
+    /// </summary>
     public string? DayCount { get; set; }
 
     public double? WrittenDown { get; set; }
@@ -165,14 +182,16 @@ public class RevolvingFeeDto
 {
     public string? Name { get; set; }
 
-    /// <summary>Annual percent of the adjusted invested amount.</summary>
-    public double Rate { get; set; }
+    /// <summary>Annual percent of the adjusted invested amount. Required.</summary>
+    public double? Rate { get; set; }
 }
 
 /// <summary>
 ///     Forecast drivers. Each is a number or a monthly vector, as a percent of the month's beginning
 ///     principal receivables, or <c>{"annual": ...}</c> for an annual percent that converts as
-///     <c>annual × days / 365</c>.
+///     <c>annual × days / 365</c>. A vector is read by forecast month: its first value is the first
+///     month after any <see cref="RevolvingRequest.ActualPeriods" />, and a short one holds its last.
+///     A month's value must come to between 0% and 100% of beginning principal receivables.
 /// </summary>
 public class RevolvingDriversDto
 {
@@ -240,17 +259,18 @@ public class RevolvingDriverConverter : JsonConverter<RevolvingDriverDto>
     }
 }
 
+/// <summary>A printed month. The two collections, new receivables and charge-offs are required.</summary>
 public class ActualPeriodDto
 {
     public double? BeginningBalance { get; set; }
-    public double NewReceivables { get; set; }
-    public double PrincipalCollections { get; set; }
+    public double? NewReceivables { get; set; }
+    public double? PrincipalCollections { get; set; }
 
     /// <summary>Finance charge collections, excluding recoveries.</summary>
-    public double FinanceCollections { get; set; }
+    public double? FinanceCollections { get; set; }
 
     public double Recoveries { get; set; }
-    public double ChargeOffs { get; set; }
+    public double? ChargeOffs { get; set; }
     public double Dilution { get; set; }
     public double? EndingBalance { get; set; }
     public int? Days { get; set; }
