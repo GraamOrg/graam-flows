@@ -186,8 +186,11 @@ public sealed record SeriesResult
     /// <summary>The series as the run closed it. A next run opens on this, and on nothing else.</summary>
     public required RevolvingSeries Closing { get; init; }
 
-    /// <summary>It owes nothing, so a next run can leave it out.</summary>
+    /// <summary>Nothing owed and nothing held, so a next run can leave it out.</summary>
     public bool Retired { get; init; }
+
+    /// <summary>Still owed, and no series in this run can pay it. See the closing's docs.</summary>
+    public bool Stranded { get; init; }
 }
 
 public sealed record RevolvingResult

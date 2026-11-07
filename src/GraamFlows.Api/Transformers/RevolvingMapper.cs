@@ -77,6 +77,7 @@ public static class RevolvingMapper
         return new RevolvingClosingDto
         {
             Retired = series.Retired,
+            Stranded = series.Stranded,
             State = new RevolvingSeriesStateDto
             {
                 Phase = PhaseNames.ToWire(closing.Phase),

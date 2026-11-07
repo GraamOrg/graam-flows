@@ -209,8 +209,16 @@ internal sealed class SeriesRun
     /// </summary>
     public bool Paid => Classes.All(c => c.Outstanding < Cent) && Funding.Balance < Cent;
 
-    /// <summary>Paid, and owes nothing else, so it leaves the waterfall.</summary>
-    public bool Retired => Paid && Classes.All(c => c.InterestDue < Cent) && FeesDue < Cent;
+    /// <summary>
+    ///     Nothing owed and nothing held, so leaving it out of a run changes nothing. A written-down
+    ///     class still has its outstanding amount, which can be reinstated, so it is not retired.
+    /// </summary>
+    public bool Retired => Funding.Balance < Cent && Reserve < Cent && CarriedFinance < Cent && FeesDue < Cent
+                           && Classes.All(c => c.Outstanding < Cent && c.InterestDue < Cent && c.DefaultDue < Cent);
+
+    /// <summary>It has an amount that takes an allocation, or holds cash of its own.</summary>
+    public bool CanReceive => AdjustedInvested >= Cent || (!Paid && PriorNumerator >= Cent)
+                              || Funding.Balance >= Cent || Reserve >= Cent || CarriedFinance >= Cent;
 
     public double FundingRoom => Math.Max(0.0,
         Config.FundedClasses.Sum(key => ClassFor(key).Invested) - Funding.Balance);
