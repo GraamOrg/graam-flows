@@ -74,7 +74,9 @@ internal sealed class SeriesRun
     private readonly Dictionary<string, ClassRun> _byKey;
     private readonly Dictionary<string, double> _feeDue;
 
-    public SeriesRun(RevolvingSeries config, int actionLag, IReadOnlyList<TriggerTest> tests)
+    /// <param name="sharedHistory">the one history a note series' tranches read. Null is the series' own.</param>
+    public SeriesRun(RevolvingSeries config, int actionLag, IReadOnlyList<TriggerTest> tests,
+        Dictionary<TriggerMetric, List<double>>? sharedHistory = null)
     {
         Config = config;
         Machine = new SeriesPhaseMachine(config.Phase);
@@ -87,7 +89,7 @@ internal sealed class SeriesRun
         FrozenNumerator = config.FrozenNumerator;
         AccumulationMonths = config.AccumulationMonthsRun;
         Latches = tests.Select(t => new TriggerLatch(t, actionLag)).ToList();
-        History = config.History.ToDictionary(h => h.Key, h => h.Value.ToList());
+        History = sharedHistory ?? config.History.ToDictionary(h => h.Key, h => h.Value.ToList());
         PriorNumerator = config.PriorNumerator;
         PriorFunding = config.PriorFunding ?? 0.0;
         Usage = config.Usage.ToDictionary(u => u.Key, u => u.Value);

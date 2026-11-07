@@ -32,6 +32,21 @@ internal static class RevolvingValidator
                 throw new RevolvingConfigException($"Series '{series.Name}' appears twice in the run.");
             ValidateSeries(program, series);
         }
+
+        if (program.Delinked != null)
+            RequireOneNoteHistory(run.Series);
+    }
+
+    /// <summary>The tests read the whole note series, so one history stands for every tranche.</summary>
+    private static void RequireOneNoteHistory(IReadOnlyList<RevolvingSeries> tranches)
+    {
+        var seeded = tranches.Where(t => t.History.Count > 0).ToList();
+        foreach (var other in seeded.Skip(1))
+            if (other.History.Count != seeded[0].History.Count
+                || other.History.Any(h => !seeded[0].History.TryGetValue(h.Key, out var months)
+                                          || !months.SequenceEqual(h.Value)))
+                throw new RevolvingConfigException(
+                    $"Series '{other.Name}' and '{seeded[0].Name}' state different history, and a note series has one.");
     }
 
     private static void ValidateRun(RevolvingRun run)
