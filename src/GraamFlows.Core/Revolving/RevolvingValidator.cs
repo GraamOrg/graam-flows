@@ -13,6 +13,7 @@ internal static class RevolvingValidator
             throw new RevolvingConfigException($"Program '{program.Name}' states no principalFreeze.");
 
         ValidateRun(run);
+        ValidateProgramFigures(program);
         ValidateSteps(program.Name, "group", program.GroupSteps, WaterfallVerbs.RunsOnGroup);
         ValidateSteps(program.Name, "finance", program.FinanceSteps, WaterfallVerbs.RunsOnFinance);
         ValidateSteps(program.Name, "principal", program.PrincipalSteps, WaterfallVerbs.RunsOnPrincipal);
@@ -55,6 +56,66 @@ internal static class RevolvingValidator
 
         if (run.Drivers is { HoldPool: false, NewReceivablesRate: null })
             throw new RevolvingConfigException("Forecast drivers must state newReceivablesRate or holdPool.");
+
+        RequireAmount("poolBalance", run.PoolBalance);
+        if (run.Drivers is { } drivers)
+            ValidateDrivers(drivers);
+
+        for (var month = 0; month < run.ActualPeriods.Count; month++)
+            ValidateActual(month, run.ActualPeriods[month]);
+
+        foreach (var rate in run.FundingEarningsRate ?? Array.Empty<double>())
+            RequirePercent("fundingEarningsRate", rate);
+    }
+
+    private static void ValidateDrivers(PoolDriverPath drivers)
+    {
+        RequireShare("paymentRate", drivers.PaymentRate);
+        RequireShare("newReceivablesRate", drivers.NewReceivablesRate);
+        RequireShare("yield", drivers.Yield);
+        RequireShare("chargeOffRate", drivers.ChargeOffRate);
+        RequireShare("recoveryRate", drivers.RecoveryRate);
+        RequireShare("dilutionRate", drivers.DilutionRate);
+    }
+
+    /// <summary>A driver is a share of the month's beginning balance, annual or not.</summary>
+    private static void RequireShare(string name, PoolDriver? driver)
+    {
+        foreach (var value in driver?.Values ?? Array.Empty<double>())
+        {
+            // 31 days is the most an annual rate can be worth in a month.
+            var share = driver!.Annual ? PoolLedger.MonthlyShare(value, 31) : value;
+            if (!double.IsFinite(share) || share < 0.0 || share > 1.0)
+                throw new RevolvingConfigException(
+                    $"Driver {name} is {value * 100.0}%. A month's value must come to between 0% and 100% "
+                    + "of beginning principal receivables.");
+        }
+    }
+
+    private static void ValidateActual(int month, ActualPeriod actual)
+    {
+        var name = $"actualPeriods[{month}]";
+        if (actual.Beginning is { } beginning)
+            RequireAmount($"{name}.beginningBalance", beginning);
+        RequireAmount($"{name}.newReceivables", actual.NewReceivables);
+        RequireAmount($"{name}.principalCollections", actual.PrincipalCollections);
+        RequireAmount($"{name}.financeCollections", actual.FinanceCollections);
+        RequireAmount($"{name}.recoveries", actual.Recoveries);
+        RequireAmount($"{name}.chargeOffs", actual.ChargeOffs);
+        RequireAmount($"{name}.dilution", actual.Dilution);
+        if (actual.Ending is { } ending)
+            RequireAmount($"{name}.endingBalance", ending);
+
+        if (actual.Days <= 0)
+            throw new RevolvingConfigException($"{name}.days is {actual.Days}. It must be at least 1.");
+    }
+
+    private static void ValidateProgramFigures(RevolvingProgram program)
+    {
+        if (program.SeriesRequiredTransferorPct is { } seriesPct)
+            RequirePercent("seriesRequiredTransferorPct", seriesPct);
+        if (program.RequiredTransferorPct is { } transferorPct)
+            RequirePercent("requiredTransferorPct", transferorPct);
     }
 
     private static void ValidateSteps(string program, string list, IReadOnlyList<WaterfallStep> steps,
@@ -104,6 +165,11 @@ internal static class RevolvingValidator
 
         if (test.Action == TriggerAction.FundReserve && test.ReserveAmount == null)
             throw new RevolvingConfigException($"FUND_RESERVE trigger '{test.Name}' must state its reserveAmount.");
+
+        if (test.Level is { } level)
+            RequireFinite($"Trigger '{test.Name}' level", level);
+        if (test.ReserveAmount is { } reserve)
+            RequireAmount($"Trigger '{test.Name}' reserveAmount", reserve);
     }
 
     private static void ValidateSeries(RevolvingProgram program, RevolvingSeries series)
@@ -127,6 +193,10 @@ internal static class RevolvingValidator
                 RequireClass(series, keys, key, step.Verb.ToString());
         }
 
+        RequireStepsForClaims(program, series);
+        RequireGroupWhereItMatters(program, series);
+        ValidateFigures(series);
+
         if (series.AccumulationStart != null || series.Phase == SeriesPhase.Accumulating)
         {
             if (series.ExpectedDate == null)
@@ -140,6 +210,11 @@ internal static class RevolvingValidator
         if (series.ExpectedDate != null && series.AccumulationStart == null && series.Phase == SeriesPhase.Revolving)
             throw new RevolvingConfigException(
                 $"Series '{series.Name}' has an expectedDate but no accumulationStart, so it would never pay.");
+
+        if (series is { AccumulationStart: { } start, ExpectedDate: { } expected } && expected < start)
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' expects to pay on {expected:yyyy-MM-dd}, before it starts accumulating "
+                + $"on {start:yyyy-MM-dd}.");
 
         if (series.ClosingDate is { } closing)
         {
@@ -163,6 +238,111 @@ internal static class RevolvingValidator
 
         if (program.PrincipalFreeze == PrincipalFreeze.FrozenNumerator && series.FrozenNumerator == null)
             throw new RevolvingConfigException($"{starts} and must state frozenNumerator.");
+    }
+
+    /// <summary>
+    ///     An amount that accrues with no step to pay it adds to base rate and to what is owed, and
+    ///     never leaves. A program that means that must say so, so this is refused.
+    /// </summary>
+    private static void RequireStepsForClaims(RevolvingProgram program, RevolvingSeries series)
+    {
+        var interest = program.FinanceSteps.Where(s => s.Verb == WaterfallVerb.PayInterest).Select(s => s.Class).ToHashSet();
+        foreach (var c in series.Classes.Where(c => !interest.Contains(c.Key)))
+            throw new RevolvingConfigException(
+                $"Class '{c.Key}' of series '{series.Name}' has no PAY_INTEREST step, so its interest would "
+                + "accrue and never be paid.");
+
+        var names = new HashSet<string>();
+        var fees = program.FinanceSteps.Where(s => s.Verb == WaterfallVerb.PayFee).Select(s => s.Fee).ToHashSet();
+        foreach (var fee in series.Fees)
+        {
+            if (string.IsNullOrWhiteSpace(fee.Name))
+                throw new RevolvingConfigException($"Series '{series.Name}' has a fee with no name.");
+            if (!names.Add(fee.Name))
+                throw new RevolvingConfigException($"Series '{series.Name}' states fee '{fee.Name}' twice.");
+            if (!fees.Contains(fee.Name))
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' states fee '{fee.Name}' and no PAY_FEE step pays it, so it would "
+                    + "accrue into base rate and never be paid.");
+        }
+    }
+
+    /// <summary>An empty group would be a group of its own, joining every series that omits one.</summary>
+    private static void RequireGroupWhereItMatters(RevolvingProgram program, RevolvingSeries series)
+    {
+        if (!string.IsNullOrWhiteSpace(series.Group))
+            return;
+
+        if (series.PrincipalSharing || series.ExcessSharing)
+            throw new RevolvingConfigException($"Series '{series.Name}' shares cash but states no group.");
+
+        if (program.GroupSteps.Count > 0)
+            throw new RevolvingConfigException(
+                $"Series '{series.Name}' states no group, and program '{program.Name}' reallocates finance across one.");
+    }
+
+    private static void ValidateFigures(RevolvingSeries series)
+    {
+        var name = $"Series '{series.Name}'";
+        foreach (var c in series.Classes)
+        {
+            var label = $"{name} class '{c.Key}'";
+            if (c.Index == null && c.Coupon == null)
+                throw new RevolvingConfigException($"{label} is fixed and states no coupon.");
+            if (c.Coupon is { } coupon)
+                RequirePercent($"{label} coupon", coupon);
+            RequireFinite($"{label} margin", c.Margin);
+            RequireAmount($"{label} balance", c.Balance);
+            if (c.OriginalBalance is { } original)
+                RequireAmount($"{label} originalBalance", original);
+            RequireAmount($"{label} writtenDown", c.WrittenDown);
+            RequireAmount($"{label} interestShortfall", c.InterestShortfall);
+            if (c.WrittenDown > c.Balance + SeriesRun.Cent)
+                throw new RevolvingConfigException(
+                    $"{label} has {c.WrittenDown:F2} written down of a {c.Balance:F2} balance.");
+        }
+
+        foreach (var fee in series.Fees)
+            RequirePercent($"{name} fee '{fee.Name}' rate", fee.RatePct);
+        foreach (var amount in series.ControlledAmounts)
+            RequireAmount($"{name} controlledAmount", amount);
+
+        RequireAmount($"{name} requiredReserve", series.RequiredReserve);
+        RequireAmount($"{name} fundingAccount", series.FundingAccount);
+        RequireAmount($"{name} fundingDeficit", series.FundingDeficit);
+        RequireAmount($"{name} reserve", series.Reserve);
+        foreach (var (metric, months) in series.History)
+        foreach (var value in months)
+            RequireFinite($"{name} history of {metric}", value);
+
+        if (series.AccumulationMonthsRun < 0)
+            throw new RevolvingConfigException($"{name} has a negative accumulationMonthsRun.");
+
+        if (series.FrozenNumerator is { } numerator)
+            RequireAmount($"{name} frozenNumerator", numerator);
+
+        // No clamp: a frozen share the allocator scales back would pay something nobody stated.
+        if (series.FrozenPrincipalPct is { } frozen && !(frozen is >= 0.0 and <= 1.0))
+            throw new RevolvingConfigException(
+                $"{name} frozenPrincipalPct is {frozen * 100.0}. It must be a percent from 0 to 100.");
+    }
+
+    private static void RequireFinite(string name, double value)
+    {
+        if (!double.IsFinite(value))
+            throw new RevolvingConfigException($"{name} is {value}. It must be a finite number.");
+    }
+
+    private static void RequireAmount(string name, double value)
+    {
+        if (!double.IsFinite(value) || value < 0.0)
+            throw new RevolvingConfigException($"{name} is {value}. It must be a finite amount of at least 0.");
+    }
+
+    private static void RequirePercent(string name, double value)
+    {
+        if (!(value is >= 0.0 and <= 100.0))
+            throw new RevolvingConfigException($"{name} is {value}. It must be a percent from 0 to 100.");
     }
 
     private static void RequireClass(RevolvingSeries series, HashSet<string> keys, string key, string where)

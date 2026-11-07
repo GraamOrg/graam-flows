@@ -15,6 +15,8 @@ public static class RevolvingMapper
     public static RevolvingRun ToRun(RevolvingRequest request)
     {
         var actuals = (request.ActualPeriods ?? new List<ActualPeriodDto>()).Select(ToActual).ToList();
+        var pool = request.PoolBalance
+                   ?? throw new RevolvingConfigException("The request states no poolBalance.");
         var periods = request.Periods ?? actuals.Count;
         return new RevolvingRun
         {
@@ -22,7 +24,7 @@ public static class RevolvingMapper
             StatementDate = request.StatementDate,
             DistributionDay = request.DistributionDay ?? 15,
             Periods = periods,
-            PoolBalance = request.PoolBalance,
+            PoolBalance = pool,
             Drivers = request.Drivers == null || periods <= actuals.Count ? null : ToDrivers(request.Drivers),
             ActualPeriods = actuals,
             Series = request.Series.Select(ToSeries).ToList(),
@@ -135,7 +137,7 @@ public static class RevolvingMapper
             ExcessSharing = dto.ExcessSharing,
             Classes = dto.Classes.Select(c => ToClass(name, c)).ToList(),
             Fees = (dto.Fees ?? new List<RevolvingFeeDto>())
-                .Select(f => new RevolvingFee(f.Name ?? "", f.Rate)).ToList(),
+                .Select(f => ToFee(name, f)).ToList(),
             WritedownOrder = dto.WritedownOrder ?? new List<string>(),
             FundedClasses = dto.FundedClasses ?? new List<string>(),
             AccumulationStart = dto.AccumulationStart,
@@ -153,6 +155,13 @@ public static class RevolvingMapper
             AccumulationMonthsRun = state?.AccumulationMonthsRun ?? 0,
             History = ToHistory(state?.History)
         };
+    }
+
+    private static RevolvingFee ToFee(string series, RevolvingFeeDto dto)
+    {
+        var rate = dto.Rate ?? throw new RevolvingConfigException(
+            $"Fee '{dto.Name}' of series '{series}' states no rate.");
+        return new RevolvingFee(dto.Name ?? "", rate);
     }
 
     private static IReadOnlyDictionary<TriggerMetric, IReadOnlyList<double>> ToHistory(RevolvingHistoryDto? dto)
@@ -178,36 +187,50 @@ public static class RevolvingMapper
                     $"Class '{key}' of series '{series}' has unknown index '{dto.Index}'. "
                     + $"Supported: {MarketRateResolver.LegalIndexNames}.");
             index = parsed;
+
+            if (dto.Margin == null)
+                throw new RevolvingConfigException($"Floating class '{key}' of series '{series}' states no margin.");
+
+            if (string.IsNullOrWhiteSpace(dto.DayCount))
+                throw new RevolvingConfigException(
+                    $"Floating class '{key}' of series '{series}' states no dayCount. 30/360 is the default "
+                    + "for a fixed class only: state 30/360 or Actual/360.");
         }
 
         return new RevolvingClass
         {
             Key = key,
-            Balance = dto.Balance,
+            Balance = dto.Balance ?? throw new RevolvingConfigException(
+                $"Class '{key}' of series '{series}' states no balance."),
             OriginalBalance = dto.OriginalBalance,
             Coupon = dto.Coupon,
             Index = index,
-            Margin = dto.Margin,
+            Margin = dto.Margin ?? 0.0,
             Basis = AccrualBasisParser.Parse(dto.DayCount),
             WrittenDown = dto.WrittenDown ?? 0.0,
             InterestShortfall = dto.InterestShortfall ?? 0.0
         };
     }
 
-    private static ActualPeriod ToActual(ActualPeriodDto dto)
+    private static ActualPeriod ToActual(ActualPeriodDto dto, int month)
     {
         return new ActualPeriod
         {
             Beginning = dto.BeginningBalance,
-            NewReceivables = dto.NewReceivables,
-            PrincipalCollections = dto.PrincipalCollections,
-            FinanceCollections = dto.FinanceCollections,
+            NewReceivables = Stated(month, "newReceivables", dto.NewReceivables),
+            PrincipalCollections = Stated(month, "principalCollections", dto.PrincipalCollections),
+            FinanceCollections = Stated(month, "financeCollections", dto.FinanceCollections),
             Recoveries = dto.Recoveries,
-            ChargeOffs = dto.ChargeOffs,
+            ChargeOffs = Stated(month, "chargeOffs", dto.ChargeOffs),
             Dilution = dto.Dilution,
             Ending = dto.EndingBalance,
             Days = dto.Days
         };
+    }
+
+    private static double Stated(int month, string name, double? value)
+    {
+        return value ?? throw new RevolvingConfigException($"actualPeriods[{month}] states no {name}.");
     }
 
     private static PoolDriverPath ToDrivers(RevolvingDriversDto dto)
