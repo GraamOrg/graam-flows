@@ -272,7 +272,7 @@ internal static class RevolvingValidator
                     + $"{closing:yyyy-MM}.");
         }
 
-        if (series.Phase != SeriesPhase.Revolving && HasAmount(series))
+        if (series.Phase != SeriesPhase.Revolving && !series.FreezePending)
             RequireFrozenValue(program, series);
     }
 
@@ -456,15 +456,6 @@ internal static class RevolvingValidator
         if (program.GroupSteps.Count > 0)
             throw new RevolvingConfigException(
                 $"Series '{series.Name}' states no group, and program '{program.Name}' reallocates finance across one.");
-    }
-
-    /// <summary>
-    ///     A series with nothing invested and nothing held takes no allocation, so it can leave revolving
-    ///     with no frozen value. It is set if the series is reinstated, as in a run not cut.
-    /// </summary>
-    private static bool HasAmount(RevolvingSeries series)
-    {
-        return series.FundingAccount >= SeriesRun.Cent || series.Classes.Any(c => c.Balance - c.WrittenDown >= SeriesRun.Cent);
     }
 
     /// <summary>A class with no balance or no rate accrues nothing, so it needs no step to pay it.</summary>

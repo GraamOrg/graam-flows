@@ -172,6 +172,12 @@ public class RevolvingSeriesStateDto
     /// <summary>Finance waiting for a series' first waterfall.</summary>
     public double? CarriedFinance { get; set; }
 
+    /// <summary>
+    ///     From a closing: the series left revolving with nothing invested, so nothing froze. Its first
+    ///     allocation freezes it. A statement states the frozen value instead.
+    /// </summary>
+    public bool? FreezePending { get; set; }
+
     /// <summary>Each fee's accrued and unpaid amount, by fee name.</summary>
     public Dictionary<string, double>? FeesDue { get; set; }
 
