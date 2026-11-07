@@ -348,6 +348,7 @@ public class RevolvingRouteTests
         { r => r.Series[0].Classes[0].WrittenDown = -1.0, "writtenDown" },
         { r => r.Series[0].Classes[0].WrittenDown = 400_001.0, "written down" },
         { r => r.Series[0].Classes[0].InterestShortfall = double.NaN, "interestShortfall" },
+        { r => r.Series[0].Classes[0].InterestShortfall = -0.01, "interestShortfall" },
         { r => r.Series[0].ControlledAmount = new[] { -1.0 }, "controlledAmount" },
         { r => r.Series[0].RequiredReserve = -1.0, "requiredReserve" },
         { r => r.Series[0].State = new RevolvingSeriesStateDto { FundingAccount = -1.0 }, "fundingAccount" },
@@ -406,7 +407,8 @@ public class RevolvingRouteTests
         { r => r.Drivers!.Yield = new RevolvingDriverDto { Values = new[] { 200.0 }, Annual = true } },
         { r => r.Series[0].Classes[0].Coupon = 0.0 },
         { r => r.Series[0].ExpectedDate = r.Series[0].AccumulationStart },
-        { r => r.Series[0].Classes[0].WrittenDown = 400_000.0 }
+        { r => r.Series[0].Classes[0].WrittenDown = 400_000.0 },
+        { r => r.Series[0].Classes[0].InterestShortfall = -5.8e-11 }
     };
 
     [Theory]
