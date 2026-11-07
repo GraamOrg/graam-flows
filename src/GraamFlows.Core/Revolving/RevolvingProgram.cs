@@ -286,6 +286,13 @@ public sealed record RevolvingSeries
     /// <summary>The first distribution the series' waterfall runs on. Null means the first one.</summary>
     public DateTime? FirstPayDate { get; init; }
 
+    /// <summary>
+    ///     The day the series closed. Interest for the first distribution runs from here instead of
+    ///     for a whole month, so that period can be shorter or longer than a month. It needs
+    ///     <see cref="FirstPayDate" />. Null means a whole month.
+    /// </summary>
+    public DateTime? ClosingDate { get; init; }
+
     public double RequiredReserve { get; init; }
 
     public SeriesPhase Phase { get; init; } = SeriesPhase.Revolving;

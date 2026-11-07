@@ -67,11 +67,11 @@ public static class RevolvingEngine
             foreach (var s in _series)
             {
                 s.OpenMonth();
-                readings[s] = ReadTriggers(s, dates.Period);
+                readings[s] = Issued(s, dates) ? ReadTriggers(s, dates.Period) : Array.Empty<TriggerReading>();
                 MoveByDate(s, dates);
             }
 
-            var live = _series.Where(s => !s.Exhausted).ToList();
+            var live = _series.Where(s => !s.Exhausted && Issued(s, dates)).ToList();
             var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure, _program.PrincipalFreeze!.Value,
                     live.Select(s => new SeriesClaim(s.Config.Name, s.AdjustedInvested, s.Phase,
                         s.FrozenPrincipalPct, s.FrozenNumerator)).ToList())
@@ -133,7 +133,7 @@ public static class RevolvingEngine
                                              + s.FeesPaid + s.Funding.Balance + s.Reserve + s.CarriedFinance);
             RevolvingCashProof.Require(_program.Name, dates.Period, cashIn, cashOut);
 
-            var invested = _series.Sum(s => s.AdjustedInvested);
+            var invested = _series.Where(s => Issued(s, dates)).Sum(s => s.AdjustedInvested);
             _rows.Add(month with
             {
                 TransferorAmount = pool.Ending - invested,
@@ -205,6 +205,15 @@ public static class RevolvingEngine
                 s.Machine.MoveTo(SeriesPhase.Accumulating);
         }
 
+        /// <summary>
+        ///     A series takes no allocation before the monthly period it closes in, whichever day of it
+        ///     that is. One that pays in this distribution is in, so its first waterfall has cash.
+        /// </summary>
+        private static bool Issued(SeriesRun s, RevolvingPeriodDates dates)
+        {
+            return s.Config.ClosingDate is not { } closing || closing <= dates.PeriodEnd || RunsWaterfall(s, dates);
+        }
+
         private static bool RunsWaterfall(SeriesRun s, RevolvingPeriodDates dates)
         {
             return s.Config.FirstPayDate is not { } first
@@ -216,11 +225,15 @@ public static class RevolvingEngine
             var invested = s.TotalInvested;
             var adjusted = s.AdjustedInvested;
 
-            var accrues = !s.Exhausted;
+            var closing = ClosingInThisPeriod(s, dates);
+            var accrues = !s.Exhausted && !AwaitsFirstPeriod(s, dates);
+            s.InterestDays = !accrues ? 0
+                : closing is { } from ? (dates.DistributionDate - from).Days
+                : dates.AccrualDays;
             foreach (var c in s.Classes)
-                AccrueInterest(c, dates, accrues);
+                AccrueInterest(c, dates, closing, accrues);
             foreach (var fee in s.Config.Fees)
-                s.AccrueFee(fee, adjusted);
+                s.AccrueFee(fee, Issued(s, dates) ? adjusted : 0.0);
 
             var earnings = s.Funding.Earnings(EarningsRatePct(dates.Period));
             var finance = pool.FinanceCash * allocation.FloatingPct;
@@ -267,15 +280,51 @@ public static class RevolvingEngine
             return new MonthOpen(invested, finance, principal, investorDefault, earnings);
         }
 
+        /// <summary>The series' closing date, in the one month its interest runs from there.</summary>
+        private static DateTime? ClosingInThisPeriod(SeriesRun s, RevolvingPeriodDates dates)
+        {
+            return s.Config is { ClosingDate: { } closing, FirstPayDate: { } first }
+                   && (dates.DistributionDate.Year, dates.DistributionDate.Month) == (first.Year, first.Month)
+                ? closing
+                : null;
+        }
+
+        /// <summary>
+        ///     With a closing date, the first distribution's accrual is the whole first period however
+        ///     many months away it is, so the months before it add nothing.
+        /// </summary>
+        private static bool AwaitsFirstPeriod(SeriesRun s, RevolvingPeriodDates dates)
+        {
+            return s.Config.ClosingDate != null && !RunsWaterfall(s, dates);
+        }
+
         /// <param name="accrues">false reads the month's rate and adds no interest.</param>
-        private void AccrueInterest(ClassRun c, RevolvingPeriodDates dates, bool accrues)
+        private void AccrueInterest(ClassRun c, RevolvingPeriodDates dates, DateTime? closing, bool accrues)
         {
             var config = c.Config;
             c.IndexValue = config.Index is { } index ? _rates.GetRate(index, dates.PeriodStart) : null;
             c.RatePct = c.IndexValue is { } value ? value + config.Margin : config.Coupon!.Value;
-            var fraction = config.Basis == AccrualBasis.Actual360 ? dates.AccrualDays / 360.0 : 1.0 / 12.0;
-            c.InterestAccrued = accrues ? c.Outstanding * c.RatePct / 100.0 * fraction : 0.0;
+            c.InterestAccrued = accrues
+                ? c.Outstanding * c.RatePct / 100.0 * AccrualFraction(config.Basis, dates, closing)
+                : 0.0;
             c.InterestDue += c.InterestAccrued;
+        }
+
+        /// <summary>
+        ///     A month's accrual. From closing, 30/360 counts to the stated distribution day, not the
+        ///     business day it rolled to, which is how a printed first period runs.
+        /// </summary>
+        private double AccrualFraction(AccrualBasis basis, RevolvingPeriodDates dates, DateTime? closing)
+        {
+            if (closing is not { } from)
+                return basis == AccrualBasis.Actual360 ? dates.AccrualDays / 360.0 : 1.0 / 12.0;
+
+            if (basis == AccrualBasis.Actual360)
+                return (dates.DistributionDate - from).Days / 360.0;
+
+            var pay = dates.DistributionDate;
+            var days = 360 * (pay.Year - from.Year) + 30 * (pay.Month - from.Month) + (_run.DistributionDay - from.Day);
+            return days / 360.0;
         }
 
         /// <summary>A class bears its share of the series' default amount.</summary>
@@ -418,9 +467,13 @@ public static class RevolvingEngine
             var yieldPct = RevolvingMetrics.PortfolioYieldPct(
                 (s.ReallocatedFinance ?? open.Finance) + open.Earnings + s.ExcessIn - open.InvestorDefault,
                 open.Invested, dates.Days);
-            var baseRatePct = RevolvingMetrics.BaseRatePct(
-                s.Classes.Sum(c => c.InterestAccrued) + s.FeesAccrued, open.Invested, dates.AccrualDays);
-            if (open.Invested >= SeriesRun.Cent)
+
+            // Interest and fees annualize on their own days, which differ only in a series' first
+            // month. That reproduces all 11 first months from 2023 to 2026 on the American Express
+            // trust to the 4 decimals printed.
+            var baseRatePct = RevolvingMetrics.BaseRatePct(s.Classes.Sum(c => c.InterestAccrued), open.Invested, s.InterestDays)
+                              + RevolvingMetrics.BaseRatePct(s.FeesAccrued, open.Invested, dates.AccrualDays);
+            if (open.Invested >= SeriesRun.Cent && s.InterestDays > 0)
             {
                 Remember(s, TriggerMetric.PortfolioYield, yieldPct);
                 Remember(s, TriggerMetric.BaseRate, baseRatePct);
@@ -444,7 +497,7 @@ public static class RevolvingEngine
                     CouponPct = c.RatePct,
                     IndexValue = c.IndexValue,
                     Margin = c.Config.Margin,
-                    AccrualDays = dates.AccrualDays
+                    AccrualDays = s.InterestDays
                 });
 
             _seriesRows[s].Add(new SeriesPeriod

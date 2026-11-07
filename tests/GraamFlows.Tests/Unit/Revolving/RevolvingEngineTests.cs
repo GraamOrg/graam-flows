@@ -1190,6 +1190,7 @@ public class RevolvingEngineTests
         };
         var waiting = CardProgram.Series("Waiting", 400.0, 50.0, 50.0) with
         {
+            ClosingDate = new DateTime(2026, 7, 20),
             FirstPayDate = new DateTime(2026, 12, 15)
         };
         var drivers = CardProgram.Drivers(0.4, 0.4, 0.0005, 0.002, 0.0) with
