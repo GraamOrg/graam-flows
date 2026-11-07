@@ -841,7 +841,13 @@ public class RevolvingEngineTests
     {
         var program = CardProgram.Program() with
         {
-            FinanceSteps = new WaterfallStep[] { new(WaterfallVerb.PayInterest, "A") },
+            FinanceSteps = new WaterfallStep[]
+            {
+                new(WaterfallVerb.PayInterest, "A"),
+                new(WaterfallVerb.PayInterest, "B"),
+                new(WaterfallVerb.PayInterest, "C"),
+                new(WaterfallVerb.PayFee, Fee: "servicing")
+            },
             PrincipalSteps = new WaterfallStep[] { new(WaterfallVerb.ReleaseTransferor) }
         };
 
@@ -939,6 +945,135 @@ public class RevolvingEngineTests
         periods[1].Pool.PrincipalCollections.Should().BeApproximately(400_000.0, 1e-6);
     }
 
+    private static RevolvingRun ReplayThenForecast(int actuals, int forecast, params double[] paymentRates)
+    {
+        var quiet = new ActualPeriod
+        {
+            NewReceivables = 0.0,
+            PrincipalCollections = 0.0,
+            FinanceCollections = 0.0,
+            ChargeOffs = 0.0
+        };
+        var drivers = CardProgram.Drivers(0.40, null, 0.02, 0.0, 0.0) with { PaymentRate = new PoolDriver(paymentRates) };
+        return CardProgram.Run(CardProgram.Program(), 1_000_000.0,
+            new[] { CardProgram.Series("S", 300_000.0, 50_000.0, 50_000.0) }, drivers, actuals + forecast) with
+        {
+            ActualPeriods = Enumerable.Repeat(quiet, actuals).ToList()
+        };
+    }
+
+    [Fact]
+    public void AForecastVectorStartsOnTheFirstMonthAfterTheReplay()
+    {
+        var periods = CardProgram.Execute(ReplayThenForecast(2, 2, 0.10, 0.20, 0.30, 0.40)).Periods;
+
+        periods[2].Pool.PrincipalCollections.Should().BeApproximately(100_000.0, 1e-6);
+        periods[3].Pool.PrincipalCollections.Should().BeApproximately(200_000.0, 1e-6);
+    }
+
+    [Fact]
+    public void AForecastVectorIsNotUsedUpByTheMonthsReplayed()
+    {
+        var rates = Enumerable.Range(1, 12).Select(month => month / 100.0).ToArray();
+
+        var periods = CardProgram.Execute(ReplayThenForecast(12, 2, rates)).Periods;
+
+        periods[12].Pool.PrincipalCollections.Should().BeApproximately(10_000.0, 1e-6);
+        periods[13].Pool.PrincipalCollections.Should().BeApproximately(20_000.0, 1e-6);
+    }
+
+    [Fact]
+    public void AShortForecastVectorHoldsItsLastValueAfterTheReplay()
+    {
+        var periods = CardProgram.Execute(ReplayThenForecast(1, 3, 0.10, 0.20)).Periods;
+
+        periods[3].Pool.PrincipalCollections.Should().BeApproximately(200_000.0, 1e-6);
+    }
+
+    /// <summary>
+    ///     Twelve months of deposits that round to just short of the funded classes, with too little
+    ///     finance to cover the defaults, so Class C ends written down and dust stays invested.
+    /// </summary>
+    private static SeriesResult AccumulatesAndWritesOff()
+    {
+        const double a = 333_333.33;
+        const double b = 50_000.0;
+        const double c = 50_000.0;
+        var series = CardProgram.Series("S", a, b, c) with
+        {
+            AccumulationStart = new DateTime(2026, 8, 1),
+            ExpectedDate = new DateTime(2027, 8, 15),
+            ControlledAmounts = new[] { (a + b) / 12.0 }
+        };
+
+        return Only(CardProgram.Execute(CardProgram.Run(CardProgram.Program(), (a + b + c) * 2.0, new[] { series },
+            CardProgram.Drivers(0.40, null, 0.01, 0.002, 0.0), 18)), "S");
+    }
+
+    [Fact]
+    public void ARateOnDustIsZero()
+    {
+        RevolvingMetrics.BaseRatePct(1.0, 1e-10, 30).Should().Be(0.0);
+        RevolvingMetrics.PortfolioYieldPct(1.0, 1e-10, 30).Should().Be(0.0);
+    }
+
+    [Fact]
+    public void DustLeftInAPaidOffSeriesReportsNoRate()
+    {
+        var series = AccumulatesAndWritesOff();
+
+        series.Periods.Should().Contain(p => p.InvestedAmount > 0.0 && p.InvestedAmount < OneCent);
+        series.Periods.Should().OnlyContain(p => Math.Abs(p.BaseRatePct) < 100.0 && Math.Abs(p.ExcessSpreadPct) < 100.0);
+    }
+
+    [Fact]
+    public void AWrittenDownClassIsNotPaidInFullOnTheExpectedDate()
+    {
+        var series = AccumulatesAndWritesOff();
+
+        series.Classes["C"][^1].CumWritedown.Should().BeGreaterThan(1_000.0);
+        series.PhasePath.Select(m => m.Phase).Should().Equal(SeriesPhase.Accumulating, SeriesPhase.EarlyAmortization);
+    }
+
+    [Fact]
+    public void AnExhaustedSeriesStopsAccruingOnWhatWasWrittenOff()
+    {
+        var rows = AccumulatesAndWritesOff().Classes["C"];
+
+        rows[11].InterestAccrued.Should().BeGreaterThan(0.0);
+        rows.Skip(12).Should().OnlyContain(row => row.InterestAccrued == 0.0);
+        rows[^1].InterestDueUnpaid.Should().Be(rows[11].InterestDueUnpaid);
+    }
+
+    [Fact]
+    public void AWrittenDownClassInALiveSeriesAccruesOnItsOutstandingBalance()
+    {
+        // The filing charges interest on the outstanding principal balance, which a write-down leaves.
+        var seeded = CardProgram.Series("S", 300_000.0, 50_000.0, 50_000.0);
+        var series = seeded with
+        {
+            Classes = seeded.Classes.Select(c => c.Key == "B" ? c with { WrittenDown = 20_000.0 } : c).ToList()
+        };
+
+        var rows = Only(CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 1_000_000.0, new[] { series },
+            CardProgram.Drivers(), 1)), "S").Classes["B"];
+
+        rows[0].InterestAccrued.Should().BeApproximately(50_000.0 * 0.055 / 12.0, 1e-9);
+    }
+
+    [Fact]
+    public void ACashProofThatComesToNaNFails()
+    {
+        // Every figure is legal and finite, and their sums overflow: infinity less infinity is NaN,
+        // and any comparison with NaN is false.
+        var run = CardProgram.Run(CardProgram.Program(), 1.5e308,
+            new[] { CardProgram.Series("S", 3e307, 3e307, 3e307) }, CardProgram.Drivers(0.90, null, 0.90, 0.0, 0.0), 1);
+
+        var prove = () => CardProgram.Execute(run);
+
+        prove.Should().Throw<InvalidOperationException>().WithMessage("*collected*placed*");
+    }
+
     [Fact]
     public void EveryCollectedDollarLandsAcrossStressedRuns()
     {
@@ -1026,6 +1161,19 @@ public class RevolvingEngineTests
                                                                               + closing - accounts;
 
             placed.Should().BeApproximately(collected, OneCent, because);
+
+            // The transferor's figures are what the engine left over, so the sum above cannot see a
+            // series taking more than its share. These can.
+            month.TransferorFinance.Should().BeGreaterThanOrEqualTo(-OneCent, because);
+            month.TransferorPrincipal.Should().BeGreaterThanOrEqualTo(-OneCent, because);
+            rows.Sum(r => r.FinanceAllocation).Should().BeLessThanOrEqualTo(month.Pool.FinanceCash + OneCent, because);
+            rows.Sum(r => r.PrincipalAllocation).Should().BeLessThanOrEqualTo(month.Pool.PrincipalCash + OneCent, because);
+            foreach (var r in rows)
+            {
+                r.FinanceAllocation.Should().BeApproximately(month.Pool.FinanceCash * r.FloatingPct / 100.0, OneCent, because);
+                r.PrincipalAllocation.Should().BeApproximately(month.Pool.PrincipalCash * r.PrincipalPct / 100.0, OneCent, because);
+            }
+
             rows.Sum(r => r.SharedPrincipalIn).Should().BeLessThanOrEqualTo(
                 rows.Sum(r => r.SharedPrincipalOut) + OneCent, because);
             rows.Sum(r => r.SharedExcessIn).Should().BeLessThanOrEqualTo(
