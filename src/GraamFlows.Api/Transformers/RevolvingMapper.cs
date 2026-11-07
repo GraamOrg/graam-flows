@@ -198,9 +198,16 @@ public static class RevolvingMapper
             CarriedFinance = state?.CarriedFinance ?? 0.0,
             FeesDue = state?.FeesDue ?? new Dictionary<string, double>(),
             TriggerStates = (state?.TriggerState ?? new Dictionary<string, RevolvingTriggerStateDto>())
-                .ToDictionary(t => t.Key, t => new TriggerState(t.Value.Latched, t.Value.MonthsToAct, t.Value.GoodMonths)),
+                .ToDictionary(t => t.Key, t => ToTriggerState(name, t.Key, t.Value)),
             History = ToHistory(state?.History)
         };
+    }
+
+    private static TriggerState ToTriggerState(string series, string test, RevolvingTriggerStateDto? dto)
+    {
+        return dto == null
+            ? throw new RevolvingConfigException($"Series '{series}' states triggerState on test '{test}' with no value.")
+            : new TriggerState(dto.Latched, dto.MonthsToAct, dto.GoodMonths);
     }
 
     private static RevolvingFee ToFee(string series, RevolvingFeeDto dto)

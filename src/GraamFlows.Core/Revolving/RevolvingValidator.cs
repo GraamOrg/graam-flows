@@ -236,9 +236,15 @@ internal static class RevolvingValidator
             if (closing >= firstPay)
                 throw new RevolvingConfigException(
                     $"Series '{series.Name}' closes on {closing:yyyy-MM-dd}, on or after its first pay date.");
+
+            // A series not yet issued has no months to accumulate in.
+            if (series.AccumulationStart is { } begins && begins < new DateTime(closing.Year, closing.Month, 1))
+                throw new RevolvingConfigException(
+                    $"Series '{series.Name}' starts accumulating on {begins:yyyy-MM-dd}, before the month it closes in, "
+                    + $"{closing:yyyy-MM}.");
         }
 
-        if (series.Phase != SeriesPhase.Revolving)
+        if (series.Phase != SeriesPhase.Revolving && HasAmount(series))
             RequireFrozenValue(program, series);
     }
 
@@ -291,6 +297,15 @@ internal static class RevolvingValidator
         if (program.GroupSteps.Count > 0)
             throw new RevolvingConfigException(
                 $"Series '{series.Name}' states no group, and program '{program.Name}' reallocates finance across one.");
+    }
+
+    /// <summary>
+    ///     A series with nothing invested and nothing held takes no allocation, so it can leave revolving
+    ///     with no frozen value. It is set if the series is reinstated, as in a run not cut.
+    /// </summary>
+    private static bool HasAmount(RevolvingSeries series)
+    {
+        return series.FundingAccount >= SeriesRun.Cent || series.Classes.Any(c => c.Balance - c.WrittenDown >= SeriesRun.Cent);
     }
 
     /// <summary>A class with no balance or no rate accrues nothing, so it needs no step to pay it.</summary>
