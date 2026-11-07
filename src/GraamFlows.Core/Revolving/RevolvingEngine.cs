@@ -85,7 +85,10 @@ public static class RevolvingEngine
                 MoveByDate(s, dates);
             }
 
-            var live = _series.Where(s => !Finished(s) && Issued(s, dates)).ToList();
+            // Who the month's waterfall serves, fixed before anything is paid, and who of them is
+            // allocated. A tranche the month's opening pays off still bears this month's default.
+            var owing = _series.Where(s => !s.Retired && Issued(s, dates)).ToList();
+            var live = owing.Where(s => !Finished(s)).ToList();
             foreach (var s in live)
                 s.Numerator = Delinked ? s.PriorNumerator ?? s.AdjustedInvested : s.AdjustedInvested;
             var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure, _program.PrincipalFreeze!.Value,
@@ -123,7 +126,6 @@ public static class RevolvingEngine
                 segregated = SegregatedFinance(live, earnings + month.PrincipalAccountEarnings,
                     pool.FinanceCash - allocatedFinance, dates);
                 allocatedFinance += segregated;
-                var owing = _series.Where(s => !s.Retired && Issued(s, dates)).ToList();
                 notes = RunNotes(owing, opened, allocations, accountEarnings + segregated, dates);
             }
             else
@@ -785,7 +787,8 @@ public static class RevolvingEngine
                 Classes = s.Classes.ToDictionary(c => c.Config.Key, c => (IReadOnlyList<ClassPeriod>)_classRows[c]),
                 PhasePath = _phasePaths[s],
                 Closing = s.Closing(_run.Periods),
-                Retired = Delinked ? s.Retired : s.Exhausted,
+                Retired = s.Retired,
+                Stranded = Stranded(s),
                 FirstTrip = first == null
                     ? null
                     : new FirstTrip(first.Test.Name, first.FirstTrip!.Value,
@@ -793,9 +796,33 @@ public static class RevolvingEngine
             };
         }
 
+        /// <summary>
+        ///     Owed, and no month of this run's series can pay it. A note series has one finance
+        ///     bucket, and it is allocated only on an amount. A series in a stack can also be paid from
+        ///     its group, by reallocation or by excess both sides share.
+        /// </summary>
+        private bool Stranded(SeriesRun s)
+        {
+            if (s.Retired || s.CanReceive)
+                return false;
+
+            return !_series.Any(other => Delinked ? other.CanReceive : other != s && PaysInto(other, s));
+        }
+
+        private bool PaysInto(SeriesRun from, SeriesRun to)
+        {
+            return from.CanReceive && from.Config.Group == to.Config.Group
+                                   && (_program.GroupSteps.Count > 0 || (from.Config.ExcessSharing && to.Config.ExcessSharing));
+        }
+
         private IReadOnlyList<string> Disclosures()
         {
             var disclosures = new List<string>();
+            foreach (var s in _series.Where(Stranded))
+                disclosures.Add($"Series '{s.Config.Name}' closes still owed and nothing in this run can pay it: "
+                                + $"{s.Classes.Sum(c => c.InterestDue) + s.FeesDue:F2} of interest and fees, "
+                                + $"{s.Classes.Sum(c => c.WrittenDown):F2} written down.");
+
             if (_run.FundingEarningsRate == null || _run.FundingEarningsRate.Count == 0)
                 disclosures.Add("No funding account earnings rate was supplied, so funding accounts earned 0.");
 

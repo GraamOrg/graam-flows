@@ -1309,6 +1309,91 @@ public class DelinkedNotesTests
     }
 
     [Fact]
+    public void ATranchePaidWhileHoldingAReserveIsNotRetiredUntilItIsReleased()
+    {
+        var first = PaidInTheFirstMonth(5.0, 1);
+        var second = PaidInTheFirstMonth(5.0, 2);
+
+        Named(first, "A1").Retired.Should().BeFalse();
+        Named(second, "A1").Retired.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ATranchePaidAtTheMonthsOpeningStillBearsItsDefault()
+    {
+        // Early amortization pays A0 out of its account as the month opens. It has no coupon and no
+        // fee, so nothing else is owed, and its $43 of the month's default must still be charged.
+        var paid = Bare("A0", "A", 430.0) with
+        {
+            Phase = SeriesPhase.EarlyAmortization,
+            FrozenNumerator = 430.0,
+            FundingAccount = 430.0,
+            PriorNumerator = 430.0,
+            PriorFunding = 0.0,
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 }
+        };
+        var result = RunShort(ShortMonth(0.0, 200.0), paid, Bare("A1", "A", 430.0), Stack()[1], Stack()[2]);
+
+        var notes = Notes(result);
+        notes.UncoveredDefault.Should().BeApproximately(100.0, 1e-9);
+        var charged = result.Series.SelectMany(s => s.Classes.Values).Sum(c => c[0].Writedown);
+        (charged + notes.UnchargedDefault).Should().BeApproximately(100.0, 1e-9);
+        notes.UnchargedDefault.Should().BeApproximately(43.0, 1e-9);
+        Named(result, "A0").Closing.Classes[0].DefaultDue.Should().Be(0.0);
+    }
+
+    private static RevolvingResult LastTrancheOwed(params RevolvingSeries[] others)
+    {
+        // Paid from its account as the month opens, and owed more than any month allocates it.
+        var paid = Bare("A0", "A", 1_000.0, 5.0) with
+        {
+            Classes = new[] { new RevolvingClass { Key = "A", Balance = 1_000.0, Coupon = 5.0, InterestShortfall = 500.0 } },
+            Phase = SeriesPhase.EarlyAmortization,
+            FrozenNumerator = 1_000.0,
+            FundingAccount = 1_000.0,
+            PriorNumerator = 1_000.0,
+            PriorFunding = 0.0,
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 }
+        };
+        return NoteProgram.Forecast(NoteProgram.Program(), 5_000.0, others.Prepend(paid).ToArray(),
+            CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 6);
+    }
+
+    [Fact]
+    public void TheLastTrancheOwedWithNothingLeftIsStrandedAndDisclosed()
+    {
+        var result = LastTrancheOwed();
+
+        Named(result, "A0").Retired.Should().BeFalse();
+        Named(result, "A0").Stranded.Should().BeTrue();
+        result.Disclosures.Should().Contain(d => d.Contains("'A0' closes still owed") && d.Contains("504.17 of interest"));
+    }
+
+    [Fact]
+    public void ATrancheOwedWhileAnotherStillHasAnAmountIsNotStranded()
+    {
+        var result = LastTrancheOwed(Bare("A1", "A", 1_000.0), Stack()[1], Stack()[2]);
+
+        Named(result, "A0").Stranded.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ATrancheWrittenOffWithNothingLeftInTheProgramIsStranded()
+    {
+        var gone = Reduced("C", 0.0) with { PriorNumerator = 0.0, PriorFunding = 0.0 };
+        var goneB = Reduced("B", 0.0) with { PriorNumerator = 0.0, PriorFunding = 0.0 };
+        var goneA = Reduced("A", 0.0) with
+        {
+            PriorNumerator = 0.0,
+            PriorFunding = 0.0,
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 }
+        };
+        var result = RunShort(ShortMonth(100.0, 0.0), goneA, goneB, gone);
+
+        result.Series.Should().AllSatisfy(s => s.Stranded.Should().BeTrue());
+    }
+
+    [Fact]
     public void ATrancheOfTwoClassesIsRefused()
     {
         var two = NoteProgram.Tranche("A", "A", 860.0) with

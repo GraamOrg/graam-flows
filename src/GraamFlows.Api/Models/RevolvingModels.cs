@@ -215,8 +215,19 @@ public class RevolvingClosingDto
     public RevolvingSeriesStateDto State { get; set; } = new();
     public Dictionary<string, RevolvingClassClosingDto> Classes { get; set; } = new();
 
-    /// <summary>It owes nothing, so a next run can leave it out.</summary>
+    /// <summary>
+    ///     Nothing owed and nothing held: no interest, fee, default or write-down, and no reserve,
+    ///     funding account or carried finance. A next run can leave it out and nothing changes.
+    /// </summary>
     public bool Retired { get; set; }
+
+    /// <summary>
+    ///     Still owed, and nothing in this run can pay it: no series it can be paid from has an amount
+    ///     that takes an allocation, or holds cash. Trust collections belong to the transferor from
+    ///     here. A loop that runs until the series are done must stop on retired or stranded, or it
+    ///     waits forever. Send a stranded series on if a later series joins, since that can pay it.
+    /// </summary>
+    public bool Stranded { get; set; }
 }
 
 /// <summary>Monthly percents from the statements, oldest first, for the trigger tests.</summary>

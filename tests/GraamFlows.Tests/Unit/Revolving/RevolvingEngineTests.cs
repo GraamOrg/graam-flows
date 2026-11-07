@@ -1459,6 +1459,72 @@ public class RevolvingEngineTests
         result.Series[0].Classes["A"][0].InterestAccrued.Should().BeApproximately(400.0 * 0.05 / 12.0, 1e-9);
     }
 
+    private static RevolvingSeries WrittenOff(string name, bool sharing, double interest = 0.0, double reserve = 0.0)
+    {
+        var series = CardProgram.Series(name, 100.0, 10.0, 10.0) with { ExcessSharing = sharing, Reserve = reserve };
+        return series with
+        {
+            Classes = series.Classes.Select(c => c with { WrittenDown = c.Balance, InterestShortfall = c.Key == "A" ? interest : 0.0 }).ToList()
+        };
+    }
+
+    private static RevolvingResult OwedAndWrittenOff(params RevolvingSeries[] series) =>
+        CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, series, CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1));
+
+    [Fact]
+    public void ASeriesWrittenOffIsNotRetired()
+    {
+        OwedAndWrittenOff(WrittenOff("Owed", true), CardProgram.Series("Live", 400.0, 50.0, 50.0)).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesOwedInterestIsNotRetired()
+    {
+        var paid = CardProgram.Series("Owed", 0.0, 0.0, 0.0);
+        paid = paid with { Classes = paid.Classes.Select(c => c with { InterestShortfall = 5.0 }).ToList() };
+
+        OwedAndWrittenOff(paid).Series[0].Retired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ASeriesPaidAndHoldingNothingIsRetired()
+    {
+        OwedAndWrittenOff(CardProgram.Series("Paid", 0.0, 0.0, 0.0)).Series[0].Retired.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public void AWrittenOffSeriesIsStrandedOnlyWhenNoExcessCanReachIt(bool sharing, bool liveInGroup, bool stranded)
+    {
+        var other = CardProgram.Series("Live", 400.0, 50.0, 50.0, group: liveInGroup ? "1" : "2");
+
+        OwedAndWrittenOff(WrittenOff("Owed", sharing, 5.0), other).Series[0].Stranded.Should().Be(stranded);
+    }
+
+    [Fact]
+    public void AWrittenOffSeriesIsReachedByReallocationWithoutSharing()
+    {
+        var series = new[] { WrittenOff("Owed", false, 5.0), CardProgram.Series("Live", 400.0, 50.0, 50.0) };
+        var run = CardProgram.Run(CardProgram.Program(), 2_000.0, series, CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+        var reallocating = run with
+        {
+            Program = run.Program with { GroupSteps = new[] { new WaterfallStep(WaterfallVerb.ReallocateGroupFinance) } }
+        };
+
+        CardProgram.Execute(reallocating).Series[0].Stranded.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AReserveReleasedPaysWhatItCanAndTheRestIsStranded()
+    {
+        var result = OwedAndWrittenOff(WrittenOff("Owed", false, 5.0, 3.0));
+
+        result.Series[0].Classes["A"][0].InterestPaid.Should().BeApproximately(3.0, 1e-9);
+        result.Series[0].Stranded.Should().BeTrue();
+    }
+
     [Fact]
     public void EveryCollectedDollarLandsAcrossStressedRuns()
     {

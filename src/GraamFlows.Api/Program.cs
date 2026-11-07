@@ -172,6 +172,9 @@ static string SnakeToCamel(string name)
 
 public partial class Program
 {
-    /// <summary>Fields of a revolving request keyed by a fee's or a test's own name.</summary>
-    private static readonly IReadOnlySet<string> RevolvingNamedFields = new HashSet<string> { "feesDue", "triggerState" };
+    /// <summary>Fields of a revolving request keyed by a fee's, a test's or a class's own name.</summary>
+    private static readonly IReadOnlySet<string> RevolvingNamedFields = new HashSet<string>
+    {
+        "feesDue", "triggerState", "usage", "requiredSubordination"
+    };
 }

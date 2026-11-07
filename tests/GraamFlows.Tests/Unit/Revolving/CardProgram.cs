@@ -131,7 +131,11 @@ internal static class CardProgram
     ///     The months of a run, one request at a time on the printed figures it produced, each opening
     ///     on the last one's close and nothing else.
     /// </summary>
-    public static IReadOnlyList<RevolvingResult> MonthByMonth(RevolvingRun run, RevolvingResult whole)
+    /// <param name="run">the run.</param>
+    /// <param name="whole">its result.</param>
+    /// <param name="leaveOutRetired">send no series the last month's close called retired.</param>
+    public static IReadOnlyList<RevolvingResult> MonthByMonth(RevolvingRun run, RevolvingResult whole,
+        bool leaveOutRetired = false)
     {
         var months = new List<RevolvingResult>();
         var series = run.Series;
@@ -148,7 +152,10 @@ internal static class CardProgram
                 Series = series
             });
             months.Add(month);
-            series = month.Series.Select(s => s.Closing).ToList();
+            series = month.Series.Where(s => !(leaveOutRetired && s.Retired)).Select(s => s.Closing).ToList();
+            if (series.Count == 0)
+                break;
+
             statement = new DateTime(statement.Year, statement.Month, 1).AddMonths(2).AddDays(-1);
         }
 
@@ -192,7 +199,7 @@ internal static class CardProgram
                 cutNotes.PrincipalReallocated.Should().BeApproximately(notes.PrincipalReallocated, tiny, because);
             }
 
-            foreach (var series in whole.Series)
+            foreach (var series in whole.Series.Where(w => months[i].Series.Any(s => s.Name == w.Name)))
             {
                 var cut = months[i].Series.Single(s => s.Name == series.Name);
                 var want = series.Periods[i];
