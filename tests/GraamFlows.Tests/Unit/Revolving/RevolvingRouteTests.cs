@@ -211,6 +211,27 @@ public class RevolvingRouteTests
     }
 
     [Fact]
+    public void TheClosingSaysWhetherASeriesIsRetiredOrStranded()
+    {
+        var written = Ok(Request(r =>
+        {
+            r.Periods = 1;
+            r.Drivers!.Yield = new RevolvingDriverDto { Values = new[] { 0.0 } };
+            r.Series[0].Classes[0].WrittenDown = 400_000.0;
+        }));
+        var paid = Ok(Request(r =>
+        {
+            r.Periods = 1;
+            r.Series[0].Classes[0].Balance = 0.0;
+        }));
+
+        written.Series["S"].Closing.Stranded.Should().BeTrue();
+        written.Series["S"].Closing.Retired.Should().BeFalse();
+        paid.Series["S"].Closing.Retired.Should().BeTrue();
+        paid.Series["S"].Closing.Stranded.Should().BeFalse();
+    }
+
+    [Fact]
     public void AForecastReturnsPeriodsSeriesAndTrancheRows()
     {
         // A rich yield, so the shrinking floating % leaves no default uncovered near the end.

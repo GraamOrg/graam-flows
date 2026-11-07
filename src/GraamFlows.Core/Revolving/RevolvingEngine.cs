@@ -367,7 +367,7 @@ public static class RevolvingEngine
             var notes = new NoteMonth(_program.Delinked!, owing);
             Subordination.Measure(notes, s => s.OpeningAdjusted);
 
-            // A retired tranche holds no claim, but its released reserve is still finance to apply.
+            // Cash joins the one bucket whoever the waterfall serves, as a reserve released before issue.
             foreach (var s in _series)
             {
                 notes.Finance += s.Finance;
