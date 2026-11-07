@@ -37,7 +37,7 @@ internal sealed class ClassRun
     {
         BeginInvested = Invested;
         BeginOutstanding = Outstanding;
-        RatePct = Config.Coupon;
+        RatePct = Config.Coupon ?? 0.0;
         InterestAccrued = 0.0;
         InterestPaid = 0.0;
         PrincipalPaid = 0.0;
@@ -153,7 +153,7 @@ internal sealed class SeriesRun
     public double ReserveDeposit { get; set; }
     public double ReserveRelease { get; set; }
 
-    /// <summary>Actual days this month's interest ran: the interest period, or from closing.</summary>
+    /// <summary>Actual days this month's interest ran: the interest period, from closing, or none.</summary>
     public int InterestDays { get; set; }
 
     public SeriesPhase Phase => Machine.Phase;
@@ -190,7 +190,14 @@ internal sealed class SeriesRun
     /// <summary>The allocator's numerator: invested amounts less what the account already holds.</summary>
     public double AdjustedInvested => Math.Max(0.0, TotalInvested - Funding.Balance);
 
-    public bool PaidInFull => Classes.All(c => c.Invested < Cent) && Funding.Balance < Cent;
+    /// <summary>
+    ///     Nothing is invested and the account is empty, so the series takes no allocation and stops
+    ///     accruing. Reporting a rate on dust, or interest on a balance written off, is meaningless.
+    /// </summary>
+    public bool Exhausted => Classes.All(c => c.Invested < Cent) && Funding.Balance < Cent;
+
+    /// <summary>Exhausted with nothing written off. A write-down is a loss, not a payment.</summary>
+    public bool PaidInFull => Exhausted && Classes.All(c => c.WrittenDown < Cent);
 
     /// <summary>
     ///     Owes nothing. A tranche written down to nothing is not retired: it gets no allocation, but

@@ -77,6 +77,13 @@ public class RevolvingRouteTests
         return request;
     }
 
+    private static void Floating(RevolvingClassDto dto)
+    {
+        dto.Index = "Sofr30Avg";
+        dto.Margin = 1.0;
+        dto.DayCount = "Actual/360";
+    }
+
     private static ActionResult<RevolvingResponse> Post(RevolvingRequest request)
     {
         return new RevolvingController(NullLogger<RevolvingController>.Instance).Execute(request);
@@ -97,7 +104,8 @@ public class RevolvingRouteTests
     [Fact]
     public void AForecastReturnsPeriodsSeriesAndTrancheRows()
     {
-        var response = Ok(Request());
+        // A rich yield, so the shrinking floating % leaves no default uncovered near the end.
+        var response = Ok(Request(r => r.Drivers!.Yield = new RevolvingDriverDto { Values = new[] { 60.0 }, Annual = true }));
 
         response.Periods.Should().HaveCount(12);
         var series = response.Series["S"];
@@ -268,7 +276,7 @@ public class RevolvingRouteTests
     [Fact]
     public void AFloatingClassWithNoCurveIsRefused()
     {
-        Error(Request(r => r.Series[0].Classes[0].Index = "Sofr30Avg")).Should().Contain("supplied no curve");
+        Error(Request(r => Floating(r.Series[0].Classes[0]))).Should().Contain("supplied no curve");
     }
 
     [Fact]
@@ -276,7 +284,7 @@ public class RevolvingRouteTests
     {
         var error = Error(Request(r =>
         {
-            r.Series[0].Classes[0].Index = "Sofr30Avg";
+            Floating(r.Series[0].Classes[0]);
             r.MarketRates = new Dictionary<string, List<double[]>> { ["Sofr90Avg"] = new() { new[] { 0.0, 4.0 } } };
         }));
 
@@ -288,8 +296,7 @@ public class RevolvingRouteTests
     {
         var response = Ok(Request(r =>
         {
-            r.Series[0].Classes[0].Index = "Sofr30Avg";
-            r.Series[0].Classes[0].Margin = 1.0;
+            Floating(r.Series[0].Classes[0]);
             r.MarketRates = new Dictionary<string, List<double[]>>
             {
                 ["Sofr30Avg"] = new() { new[] { 0.0, 4.0 }, new[] { 12.0, 16.0 } }
@@ -299,6 +306,279 @@ public class RevolvingRouteTests
         var rows = response.TrancheCashflows["S/A"];
         rows[1].Coupon.Should().BeApproximately(rows[0].Coupon + 1.0, 1e-9);
         response.MarketRateResolution!.IndexSource.Should().Be(MarketRateSource.Supplied);
+    }
+
+    private static readonly Dictionary<string, List<double[]>> SteppedCurve = new()
+    {
+        ["Sofr30Avg"] = new() { new[] { 0.0, 4.0 }, new[] { 1.0, 5.0 }, new[] { 2.0, 6.0 }, new[] { 3.0, 7.0 } }
+    };
+
+    [Fact]
+    public void OffsetZeroOfACurveIsTheFirstMonthOfTheRun()
+    {
+        var rows = Ok(Request(r =>
+        {
+            Floating(r.Series[0].Classes[0]);
+            r.MarketRates = SteppedCurve;
+        })).TrancheCashflows["S/A"];
+
+        rows.Take(5).Select(row => row.IndexValue).Should().Equal(4.0, 5.0, 6.0, 7.0, 7.0);
+        rows.Take(3).Select(row => row.Coupon).Should().Equal(5.0, 6.0, 7.0);
+    }
+
+    [Fact]
+    public void OffsetZeroOfACurveIsTheFirstReplayedMonthOfAReplay()
+    {
+        var rows = Ok(Request(r =>
+        {
+            Floating(r.Series[0].Classes[0]);
+            r.MarketRates = SteppedCurve;
+            r.ActualPeriods = new List<ActualPeriodDto> { Printed(), Printed() };
+            r.Periods = 3;
+        })).TrancheCashflows["S/A"];
+
+        rows.Select(row => row.IndexValue).Should().Equal(4.0, 5.0, 6.0);
+    }
+
+    [Fact]
+    public void AClassWithNoBalanceHasAFactorOfZeroNotNaN()
+    {
+        var response = Ok(Request(r =>
+        {
+            r.Program.FinanceSteps.Insert(1, new RevolvingStepDto { Verb = "PAY_INTEREST", Class = "B" });
+            r.Series[0].Classes.Add(new RevolvingClassDto { Key = "B", Balance = 0.0, Coupon = 5.5 });
+            r.Series[0].WritedownOrder!.Insert(0, "B");
+        }));
+
+        response.TrancheCashflows["S/B"].Should().OnlyContain(row => row.Factor == 0.0);
+    }
+
+    private static ActualPeriodDto Printed()
+    {
+        return new ActualPeriodDto
+        {
+            NewReceivables = 400_000.0,
+            PrincipalCollections = 400_000.0,
+            FinanceCollections = 20_000.0,
+            ChargeOffs = 2_000.0
+        };
+    }
+
+    private static RevolvingSeriesStateDto Past(double frozenPct)
+    {
+        return new RevolvingSeriesStateDto { Phase = "EARLY_AMORTIZATION", FrozenPrincipalPct = frozenPct };
+    }
+
+    private static RevolvingDriverDto Monthly(double value)
+    {
+        return new RevolvingDriverDto { Values = new[] { value } };
+    }
+
+    private static void Replaying(RevolvingRequest r, Action<ActualPeriodDto> month)
+    {
+        var printed = Printed();
+        month(printed);
+        r.ActualPeriods = new List<ActualPeriodDto> { Printed(), printed };
+        r.Periods = 2;
+    }
+
+    public static TheoryData<Action<RevolvingRequest>, string> OutOfRange => new()
+    {
+        { r => r.PoolBalance = -1.0, "poolBalance" },
+        { r => r.PoolBalance = double.NaN, "poolBalance" },
+        { r => r.PoolBalance = double.PositiveInfinity, "poolBalance" },
+        { r => r.Series[0].State = Past(-10.0), "frozenPrincipalPct" },
+        { r => r.Series[0].State = Past(500.0), "frozenPrincipalPct" },
+        { r => r.Series[0].State = Past(double.NaN), "frozenPrincipalPct" },
+        { r => r.Drivers!.Yield = Monthly(-5.0), "yield" },
+        { r => r.Drivers!.Yield = Monthly(double.NaN), "yield" },
+        { r => r.Drivers!.Yield = new RevolvingDriverDto { Values = new[] { 1_200.0 }, Annual = true }, "yield" },
+        { r => r.Drivers!.PaymentRate = Monthly(300.0), "paymentRate" },
+        { r => r.Drivers!.ChargeOffRate = Monthly(-1.0), "chargeOffRate" },
+        { r => r.Drivers!.RecoveryRate = Monthly(double.NaN), "recoveryRate" },
+        { r => r.Drivers!.DilutionRate = Monthly(101.0), "dilutionRate" },
+        { r => r.FundingEarningsRate = new[] { -1.0 }, "fundingEarningsRate" },
+        { r => r.Series[0].Classes[0].Coupon = -1.0, "coupon" },
+        { r => r.Series[0].Classes[0].Coupon = double.NaN, "coupon" },
+        { r => r.Series[0].Classes[0].Coupon = 101.0, "coupon" },
+        { r => r.Series[0].Classes[0].Margin = double.NaN, "margin" },
+        { r => r.Series[0].Classes[0].Balance = -1.0, "balance" },
+        { r => r.Series[0].Classes[0].OriginalBalance = double.NaN, "originalBalance" },
+        { r => r.Series[0].Classes[0].WrittenDown = -1.0, "writtenDown" },
+        { r => r.Series[0].Classes[0].WrittenDown = 400_001.0, "written down" },
+        { r => r.Series[0].Classes[0].InterestShortfall = double.NaN, "interestShortfall" },
+        { r => r.Series[0].Classes[0].InterestShortfall = -0.01, "interestShortfall" },
+        { r => r.Series[0].ControlledAmount = new[] { -1.0 }, "controlledAmount" },
+        { r => r.Series[0].RequiredReserve = -1.0, "requiredReserve" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { FundingAccount = -1.0 }, "fundingAccount" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { FundingDeficit = double.NaN }, "fundingDeficit" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { Reserve = -1.0 }, "reserve" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { AccumulationMonthsRun = -1 }, "accumulationMonthsRun" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { FrozenNumerator = -1.0 }, "frozenNumerator" },
+        { r => r.Series[0].State = new RevolvingSeriesStateDto { FrozenNumerator = double.NaN }, "frozenNumerator" },
+        {
+            r => r.Series[0].State = new RevolvingSeriesStateDto
+            {
+                History = new RevolvingHistoryDto { BaseRate = new[] { double.NaN } }
+            },
+            "history"
+        },
+        { r => r.Program.RequiredTransferorPct = 101.0, "requiredTransferorPct" },
+        { r => r.Program.SeriesRequiredTransferorPct = -1.0, "seriesRequiredTransferorPct" },
+        { r => r.Program.Triggers![0] = LevelTest(double.NaN), "level" },
+        { r => Replaying(r, m => m.NewReceivables = -1.0), "actualPeriods[1].newReceivables" },
+        { r => Replaying(r, m => m.PrincipalCollections = double.NaN), "actualPeriods[1].principalCollections" },
+        { r => Replaying(r, m => m.FinanceCollections = -1.0), "actualPeriods[1].financeCollections" },
+        { r => Replaying(r, m => m.ChargeOffs = double.NaN), "actualPeriods[1].chargeOffs" },
+        { r => Replaying(r, m => m.Recoveries = -1.0), "actualPeriods[1].recoveries" },
+        { r => Replaying(r, m => m.Dilution = -1.0), "actualPeriods[1].dilution" },
+        { r => Replaying(r, m => m.BeginningBalance = double.NaN), "actualPeriods[1].beginningBalance" },
+        { r => Replaying(r, m => m.EndingBalance = -1.0), "actualPeriods[1].endingBalance" },
+        { r => Replaying(r, m => m.Days = 0), "actualPeriods[1].days" },
+        { r => Replaying(r, m => m.Days = -1), "actualPeriods[1].days" },
+        { r => r.Series[0].ExpectedDate = new DateTime(2026, 10, 15), "before it starts accumulating" }
+    };
+
+    private static RevolvingTriggerDto LevelTest(double level)
+    {
+        return new RevolvingTriggerDto
+        {
+            Name = "LEVEL",
+            Metric = "EXCESS_SPREAD",
+            Window = 3,
+            Comparison = "BELOW",
+            Level = level,
+            Action = "EARLY_AMORTIZATION"
+        };
+    }
+
+    [Theory]
+    [MemberData(nameof(OutOfRange))]
+    public void AFigureOutOfRangeIsRefusedByName(Action<RevolvingRequest> change, string named)
+    {
+        Error(Request(change)).Should().Contain(named);
+    }
+
+    public static TheoryData<Action<RevolvingRequest>> AtTheEdge => new()
+    {
+        { r => r.Series[0].State = Past(0.0) },
+        { r => r.Series[0].State = Past(100.0) },
+        { r => r.Drivers!.PaymentRate = Monthly(100.0) },
+        { r => r.Drivers!.Yield = Monthly(0.0) },
+        { r => r.Drivers!.Yield = new RevolvingDriverDto { Values = new[] { 200.0 }, Annual = true } },
+        { r => r.Series[0].Classes[0].Coupon = 0.0 },
+        { r => r.Series[0].ExpectedDate = r.Series[0].AccumulationStart },
+        { r => r.Series[0].Classes[0].WrittenDown = 400_000.0 },
+        { r => r.Series[0].Classes[0].InterestShortfall = -5.8e-11 }
+    };
+
+    [Theory]
+    [MemberData(nameof(AtTheEdge))]
+    public void AFigureAtTheEdgeOfItsRangeRuns(Action<RevolvingRequest> change)
+    {
+        Ok(Request(change)).Periods.Should().NotBeEmpty();
+    }
+
+    public static TheoryData<Action<RevolvingRequest>, string> LeftOut => new()
+    {
+        { r => r.PoolBalance = null, "poolBalance" },
+        { r => r.Series[0].Classes[0].Coupon = null, "states no coupon" },
+        { r => r.Series[0].Classes[0].Balance = null, "states no balance" },
+        { r => Replaying(r, m => m.NewReceivables = null), "actualPeriods[1] states no newReceivables" },
+        { r => Replaying(r, m => m.PrincipalCollections = null), "actualPeriods[1] states no principalCollections" },
+        { r => Replaying(r, m => m.FinanceCollections = null), "actualPeriods[1] states no financeCollections" },
+        { r => Replaying(r, m => m.ChargeOffs = null), "actualPeriods[1] states no chargeOffs" },
+        { r => r.Series[0].Fees = new List<RevolvingFeeDto> { new() { Name = "servicing", Rate = 2.0 } }, "no PAY_FEE step" },
+        {
+            r =>
+            {
+                r.Program.FinanceSteps.Add(new RevolvingStepDto { Verb = "PAY_FEE", Fee = "servicing" });
+                r.Series[0].Fees = new List<RevolvingFeeDto> { new() { Rate = 2.0 } };
+            },
+            "fee with no name"
+        },
+        {
+            r =>
+            {
+                r.Program.FinanceSteps.Add(new RevolvingStepDto { Verb = "PAY_FEE", Fee = "servicing" });
+                r.Series[0].Fees = new List<RevolvingFeeDto> { new() { Name = "servicing" } };
+            },
+            "states no rate"
+        },
+        {
+            r =>
+            {
+                r.Program.FinanceSteps.Add(new RevolvingStepDto { Verb = "PAY_FEE", Fee = "servicing" });
+                r.Series[0].Fees = new List<RevolvingFeeDto>
+                {
+                    new() { Name = "servicing", Rate = 2.0 },
+                    new() { Name = "servicing", Rate = 1.0 }
+                };
+            },
+            "twice"
+        },
+        { r => r.Program.FinanceSteps.RemoveAll(s => s.Verb == "PAY_INTEREST"), "no PAY_INTEREST step" },
+        {
+            r =>
+            {
+                r.Series[0].Group = null;
+                r.Series[0].PrincipalSharing = true;
+            },
+            "states no group"
+        },
+        {
+            r =>
+            {
+                r.Series[0].Group = "";
+                r.Series[0].ExcessSharing = true;
+            },
+            "states no group"
+        },
+        {
+            r =>
+            {
+                r.Series[0].Group = "";
+                r.Program.GroupSteps = new List<RevolvingStepDto> { new() { Verb = "REALLOCATE_GROUP_FINANCE" } };
+            },
+            "states no group"
+        },
+        {
+            r =>
+            {
+                Floating(r.Series[0].Classes[0]);
+                r.Series[0].Classes[0].Margin = null;
+                r.MarketRates = SteppedCurve;
+            },
+            "states no margin"
+        },
+        {
+            r =>
+            {
+                Floating(r.Series[0].Classes[0]);
+                r.Series[0].Classes[0].DayCount = null;
+                r.MarketRates = SteppedCurve;
+            },
+            "states no dayCount"
+        }
+    };
+
+    [Theory]
+    [MemberData(nameof(LeftOut))]
+    public void AFigureTheRunNeedsIsRefusedByNameWhenLeftOut(Action<RevolvingRequest> change, string named)
+    {
+        Error(Request(change)).Should().Contain(named);
+    }
+
+    [Fact]
+    public void ASeriesThatSharesNothingNeedsNoGroup()
+    {
+        Ok(Request(r => r.Series[0].Group = null)).Periods.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void ADefaultedDayCountStaysOnAFixedClass()
+    {
+        Ok(Request()).TrancheCashflows["S/A"][0].Interest.Should().BeApproximately(400_000.0 * 0.05 / 12.0, 1e-9);
     }
 
     [Fact]

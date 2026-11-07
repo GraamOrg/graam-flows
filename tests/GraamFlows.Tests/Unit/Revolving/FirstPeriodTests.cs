@@ -93,8 +93,8 @@ public class FirstPeriodTests
             Classes = new[]
             {
                 new RevolvingClass { Key = "A", Balance = 1_000_000.0, Coupon = 3.6, Basis = AccrualBasis.Actual360 },
-                new RevolvingClass { Key = "B", Balance = 0.0 },
-                new RevolvingClass { Key = "C", Balance = 0.0 }
+                new RevolvingClass { Key = "B", Balance = 0.0, Coupon = 0.0 },
+                new RevolvingClass { Key = "C", Balance = 0.0, Coupon = 0.0 }
             },
             ClosingDate = new DateTime(2023, 9, 19),
             FirstPayDate = new DateTime(2023, 10, 15)
@@ -103,6 +103,80 @@ public class FirstPeriodTests
         var series = Run(plain, new DateTime(2023, 8, 31), 1);
 
         Accrued(series, "A").Should().BeApproximately(1_000_000.0 * 0.036 * 27.0 / 360.0, OneCent);
+    }
+
+    /// <summary>$1mm at 6%, closing Sep 15, first paying Nov 15, on a statement of Aug 31.</summary>
+    private static SeriesResult TwoMonthsOut(AccrualBasis basis = AccrualBasis.Thirty360, int periods = 2,
+        IReadOnlyList<TriggerTest>? triggers = null)
+    {
+        var plain = CardProgram.Series("Stub", 1_000_000.0, 0.0, 0.0, 6.0);
+        var series = plain with
+        {
+            Classes = plain.Classes.Select(c => c with { Basis = basis }).ToList(),
+            Fees = Array.Empty<RevolvingFee>(),
+            ClosingDate = new DateTime(2026, 9, 15),
+            FirstPayDate = new DateTime(2026, 11, 15)
+        };
+        var run = CardProgram.Run(CardProgram.Program(triggers: triggers), 25_000_000.0, new[] { series },
+            CardProgram.Drivers(), periods, new DateTime(2026, 8, 31));
+        return CardProgram.Execute(run).Series.Single();
+    }
+
+    [Fact]
+    public void AFirstPayTwoMonthsOutPaysItsDaysOnce()
+    {
+        var series = TwoMonthsOut();
+
+        Accrued(series, "A", 0).Should().Be(0.0);
+        Accrued(series, "A", 1).Should().BeApproximately(10_000.0, OneCent);
+        series.Classes["A"].Sum(row => row.InterestPaid).Should().BeApproximately(10_000.0, OneCent);
+        series.Classes["A"][1].InterestDueUnpaid.Should().BeApproximately(0.0, OneCent);
+        series.Classes["A"][1].AccrualDays.Should().Be(62);
+    }
+
+    [Fact]
+    public void AFirstPayTwoMonthsOutOnActualThreeSixtyPaysItsDaysOnce()
+    {
+        // Sep 15 to Nov 16, the rolled date, is 62 days.
+        var series = TwoMonthsOut(AccrualBasis.Actual360);
+
+        series.Classes["A"].Sum(row => row.InterestPaid)
+            .Should().BeApproximately(1_000_000.0 * 0.06 * 62.0 / 360.0, OneCent);
+    }
+
+    [Fact]
+    public void AMonthBeforeTheFirstPeriodReadsItsRateAndReportsNoInterestDays()
+    {
+        var row = TwoMonthsOut().Classes["A"][0];
+
+        row.CouponPct.Should().Be(6.0);
+        row.AccrualDays.Should().Be(0);
+    }
+
+    [Fact]
+    public void AMonthBeforeTheFirstPeriodHasNoRate()
+    {
+        // No interest days: this must not divide by zero.
+        TwoMonthsOut().Periods[0].BaseRatePct.Should().Be(0.0);
+    }
+
+    [Fact]
+    public void AMonthBeforeTheFirstPeriodIsNotInTheTriggerHistory()
+    {
+        var test = new TriggerTest
+        {
+            Name = "BASE_RATE",
+            Metric = TriggerMetric.BaseRate,
+            Window = 1,
+            Comparison = TriggerComparison.Above,
+            Level = 50.0,
+            Action = TriggerAction.EarlyAmortization
+        };
+
+        var series = TwoMonthsOut(periods: 3, triggers: new[] { test });
+
+        series.Periods[1].Triggers[0].Evaluated.Should().BeFalse();
+        series.Periods[2].Triggers[0].Evaluated.Should().BeTrue();
     }
 
     [Fact]
