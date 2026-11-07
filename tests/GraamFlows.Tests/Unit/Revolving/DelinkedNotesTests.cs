@@ -864,8 +864,8 @@ public class DelinkedNotesTests
     {
         // Finance cannot pay the fee, charge-offs fall on the classes and are reimbursed, a test trips
         // and acts at its lag, a reserve test cures, and a tranche closes and awaits its first pay.
-        var maturing = NoteProgram.Accumulating(NoteProgram.Tranche("A1", "A", 300.0, 4.0), 300.0, 100.0, 300.0, 0.0,
-            new[] { 100.0 }, new DateTime(2026, 7, 1), new DateTime(2026, 12, 15));
+        var maturing = NoteProgram.Accumulating(NoteProgram.Tranche("A1", "A", 300.0, 4.0), 300.0, 100.0, 300.0, 50.0,
+            new[] { 20.0, 40.0, 60.0, 80.0 }, new DateTime(2026, 7, 1), new DateTime(2026, 12, 15));
         var waiting = NoteProgram.Tranche("A2", "A", 300.0, 5.0) with
         {
             ClosingDate = new DateTime(2026, 7, 20),
