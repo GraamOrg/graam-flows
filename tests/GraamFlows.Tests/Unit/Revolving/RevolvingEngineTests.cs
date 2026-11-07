@@ -1111,7 +1111,12 @@ public class RevolvingEngineTests
     {
         // One series is short of its fee, then fails its test. The other has yet to pay, so its
         // finance waits and its interest, fee and default accrue. A recovery lets a reserve test cure.
-        var paying = CardProgram.Series("Paying", 400.0, 50.0, 50.0);
+        var paying = CardProgram.Series("Paying", 400.0, 50.0, 50.0) with
+        {
+            AccumulationStart = new DateTime(2026, 8, 1),
+            ExpectedDate = new DateTime(2027, 6, 15),
+            ControlledAmounts = new[] { 10.0, 20.0, 30.0, 40.0 }
+        };
         var waiting = CardProgram.Series("Waiting", 400.0, 50.0, 50.0) with
         {
             FirstPayDate = new DateTime(2026, 12, 15)
