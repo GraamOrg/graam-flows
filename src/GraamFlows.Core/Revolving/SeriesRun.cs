@@ -201,6 +201,7 @@ internal sealed class SeriesRun
             Phase = Phase,
             FrozenPrincipalPct = FrozenPrincipalPct,
             FrozenNumerator = FrozenNumerator,
+            FreezePending = Phase != SeriesPhase.Revolving && FrozenPrincipalPct == null && FrozenNumerator == null,
             FundingAccount = Funding.Balance,
             FundingDeficit = Funding.Deficit,
             Reserve = Reserve,

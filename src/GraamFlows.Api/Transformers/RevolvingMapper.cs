@@ -85,6 +85,7 @@ public static class RevolvingMapper
                 Reserve = closing.Reserve,
                 AccumulationMonthsRun = closing.AccumulationMonthsRun,
                 CarriedFinance = closing.CarriedFinance,
+                FreezePending = closing.FreezePending ? true : null,
                 FeesDue = closing.FeesDue.ToDictionary(f => f.Key, f => f.Value),
                 TriggerState = closing.TriggerStates.ToDictionary(t => t.Key, t => new RevolvingTriggerStateDto
                 {
@@ -196,6 +197,7 @@ public static class RevolvingMapper
             Reserve = state?.Reserve ?? 0.0,
             AccumulationMonthsRun = state?.AccumulationMonthsRun ?? 0,
             CarriedFinance = state?.CarriedFinance ?? 0.0,
+            FreezePending = state?.FreezePending ?? false,
             FeesDue = state?.FeesDue ?? new Dictionary<string, double>(),
             TriggerStates = (state?.TriggerState ?? new Dictionary<string, RevolvingTriggerStateDto>())
                 .ToDictionary(t => t.Key, t => ToTriggerState(name, t.Key, t.Value)),
