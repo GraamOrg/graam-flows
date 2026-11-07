@@ -71,7 +71,7 @@ public static class RevolvingEngine
                 MoveByDate(s, dates);
             }
 
-            var live = _series.Where(s => Delinked ? !s.Retired : !s.Exhausted).ToList();
+            var live = _series.Where(s => !Finished(s)).ToList();
             foreach (var s in live)
                 s.Numerator = Delinked ? s.PriorNumerator ?? s.AdjustedInvested : s.AdjustedInvested;
             var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure, _program.PrincipalFreeze!.Value,
@@ -207,9 +207,9 @@ public static class RevolvingEngine
         ///     Tests read the months before this one, so a test tripped on seeded history can act in
         ///     the first projected month.
         /// </summary>
-        private static IReadOnlyList<TriggerReading> ReadTriggers(SeriesRun s, int period)
+        private IReadOnlyList<TriggerReading> ReadTriggers(SeriesRun s, int period)
         {
-            if (s.Exhausted)
+            if (Finished(s))
                 return Array.Empty<TriggerReading>();
 
             var readings = new List<TriggerReading>(s.Latches.Count);
@@ -245,7 +245,7 @@ public static class RevolvingEngine
 
             // A tranche is allocated collections from the month it is issued, and owes nothing
             // until its first payment month, when its whole first period falls due at once.
-            var accrues = Delinked ? RunsWaterfall(s, dates) : !s.Exhausted && !AwaitsFirstPeriod(s, dates);
+            var accrues = !Finished(s) && !AwaitsFirstPeriod(s, dates);
             s.InterestDays = !accrues ? 0
                 : closing is { } from ? (dates.DistributionDate - from).Days
                 : dates.AccrualDays;
@@ -302,6 +302,15 @@ public static class RevolvingEngine
         private bool Delinked => _program.Delinked != null;
 
         /// <summary>
+        ///     Out of the month's allocation and accruals. A note tranche written off stays in: it is
+        ///     owed its amount back from finance.
+        /// </summary>
+        private bool Finished(SeriesRun s)
+        {
+            return Delinked ? s.Retired : s.Exhausted;
+        }
+
+        /// <summary>
         ///     Interest on what the funding accounts held at the close of the month before, less what
         ///     they earned, from finance that would otherwise be the transferor's. It starts by itself
         ///     in the second month of deposits, and a tranche paid off has none.
@@ -321,7 +330,9 @@ public static class RevolvingEngine
         {
             var notes = new NoteMonth(_program.Delinked!, live);
             Subordination.Measure(notes, s => s.OpeningAdjusted);
-            foreach (var s in live)
+
+            // A retired tranche holds no claim, but its released reserve is still finance to apply.
+            foreach (var s in _series)
             {
                 notes.Finance += s.Finance;
                 notes.Principal += s.Principal;
@@ -455,7 +466,7 @@ public static class RevolvingEngine
 
         private double RequiredReserve(SeriesRun s, int period)
         {
-            if (s.Exhausted)
+            if (Finished(s))
                 return 0.0;
 
             return s.Latches
