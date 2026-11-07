@@ -1615,6 +1615,16 @@ public class RevolvingEngineTests
     }
 
     [Fact]
+    public void AStackReleasesAWrittenOffSeriesReserveThroughItsSteps()
+    {
+        // Only a note tranche draws its reserve for principal. Here it runs through the finance steps.
+        var result = CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { WrittenOff("Owed", false, 5.0, 50.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.0, 0.0, 0.0), 1));
+
+        result.Series[0].Classes["A"][0].PrincipalPaid.Should().Be(0.0);
+    }
+
+    [Fact]
     public void EveryCollectedDollarLandsAcrossStressedRuns()
     {
         var random = new Random(6122);
