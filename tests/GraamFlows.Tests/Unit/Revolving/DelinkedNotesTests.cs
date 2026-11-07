@@ -474,6 +474,63 @@ public class DelinkedNotesTests
     }
 
     [Fact]
+    public void ATrancheFundedBeforeItsExpectedDatePaysOnThatDate()
+    {
+        // $800 fills on Sep 15, a month early, so Oct 15 has no deposit to make.
+        var tranche = NoteProgram.Accumulating(NoteProgram.Tranche("A", "A", 800.0, 0.0), 800.0, 700.0, 800.0, 0.0,
+            new[] { 100.0 }, new DateTime(2026, 8, 1), new DateTime(2026, 10, 15));
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 4_000.0,
+            new[] { tranche, NoteProgram.Tranche("B", "B", 70.0, 0.0), NoteProgram.Tranche("C", "C", 70.0, 0.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 3);
+
+        var rows = Named(result, "A").Classes["A"];
+        rows[0].PrincipalPaid.Should().Be(0.0);
+        rows[1].PrincipalPaid.Should().Be(800.0);
+        Named(result, "A").PhasePath.Should().NotContain(m => m.Phase == SeriesPhase.EarlyAmortization);
+        Named(result, "A").PhasePath.Should().Contain(m => m.Phase == SeriesPhase.Amortizing);
+    }
+
+    [Fact]
+    public void AnAmortizingTrancheWithABalanceTargetsItsWholeAmount()
+    {
+        var tranche = NoteProgram.Tranche("A", "A", 860.0, 0.0) with
+        {
+            Phase = SeriesPhase.Amortizing,
+            FrozenNumerator = 860.0
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { tranche, NoteProgram.Tranche("B", "B", 70.0, 0.0), NoteProgram.Tranche("C", "C", 70.0, 0.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        // Principal is pooled: the notes' half of 800, as in early amortization.
+        Named(result, "A").Classes["A"][0].PrincipalPaid.Should().BeApproximately(400.0, 1e-6);
+    }
+
+    [Fact]
+    public void AnAmortizingTranchePaysWhatItsAccountHoldsAndThenWhatFinanceReimbursed()
+    {
+        // $100 outstanding, $10 written down, $90 in the account. Finance reimburses the $10, which
+        // leaves $10 still to pay once the account has paid.
+        var tranche = NoteProgram.Tranche("A", "A", 100.0, 0.0) with
+        {
+            Phase = SeriesPhase.Amortizing,
+            FrozenNumerator = 100.0,
+            FundingAccount = 90.0,
+            PriorNumerator = 100.0,
+            PriorFunding = 0.0,
+            Classes = new[] { new RevolvingClass { Key = "A", Balance = 100.0, Coupon = 0.0, WrittenDown = 10.0 } }
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { tranche, NoteProgram.Tranche("B", "B", 70.0, 0.0), NoteProgram.Tranche("C", "C", 70.0, 0.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 2);
+
+        var rows = Named(result, "A").Classes["A"];
+        rows.Sum(r => r.PrincipalPaid).Should().BeApproximately(100.0, 1e-6);
+        rows[^1].EndBalance.Should().BeApproximately(0.0, 1e-6);
+        rows[^1].CumWritedown.Should().Be(0.0);
+    }
+
+    [Fact]
     public void ATrancheOfTwoClassesIsRefused()
     {
         var two = NoteProgram.Tranche("A", "A", 860.0) with
