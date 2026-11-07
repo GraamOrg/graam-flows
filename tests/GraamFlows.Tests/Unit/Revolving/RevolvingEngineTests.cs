@@ -1403,6 +1403,26 @@ public class RevolvingEngineTests
     }
 
     [Fact]
+    public void ASeriesWrittenOffButHoldingItsAccountStillAccruesInterest()
+    {
+        // Nothing is invested, and the account still holds cash that can pay the class.
+        var series = CardProgram.Series("S", 400.0, 50.0, 50.0) with
+        {
+            Phase = SeriesPhase.Accumulating,
+            FrozenPrincipalPct = 0.25,
+            FundingAccount = 100.0,
+            AccumulationStart = new DateTime(2026, 7, 1),
+            ExpectedDate = new DateTime(2027, 7, 15),
+            ControlledAmounts = new[] { 10.0 }
+        };
+        series = series with { Classes = series.Classes.Select(c => c with { WrittenDown = c.Balance }).ToList() };
+        var result = CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { series },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1));
+
+        result.Series[0].Classes["A"][0].InterestAccrued.Should().BeApproximately(400.0 * 0.05 / 12.0, 1e-9);
+    }
+
+    [Fact]
     public void EveryCollectedDollarLandsAcrossStressedRuns()
     {
         var random = new Random(6122);

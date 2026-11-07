@@ -198,6 +198,9 @@ public class RevolvingRouteTests
             one.Periods[0].TransferorFinance.Should().BeApproximately(whole.Periods[i].TransferorFinance, 1e-6, $"month {i}");
 
             var closed = one.Series["S"].Closing;
+            closed.State.History!.ExcessSpread.Should().NotBeNull();
+            closed.State.History.PortfolioYield.Should().NotBeNull();
+            closed.State.History.BaseRate.Should().NotBeNull();
             state = JsonSerializer.Deserialize<RevolvingSeriesStateDto>(JsonSerializer.Serialize(closed.State, camel), Options);
             classes = closed.Classes;
             statement = new DateTime(statement.Year, statement.Month, 1).AddMonths(2).AddDays(-1);

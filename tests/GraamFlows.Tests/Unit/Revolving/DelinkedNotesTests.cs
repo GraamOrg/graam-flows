@@ -1265,6 +1265,50 @@ public class DelinkedNotesTests
     }
 
     [Fact]
+    public void ATrancheNotYetIssuedBearsNoCharge()
+    {
+        // Class C closes in November, so there is no Class C yet to take August's $100 charge.
+        var late = Stack()[2] with
+        {
+            ClosingDate = new DateTime(2026, 11, 20),
+            FirstPayDate = new DateTime(2026, 12, 15)
+        };
+        var drivers = CardProgram.Drivers(0.4, 0.4, 0.0, 0.1, 0.0);
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0, new[] { Stack()[0], Stack()[1], late }, drivers, 1);
+
+        Named(result, "C").Periods[0].InvestedAmount.Should().Be(70.0);
+        Named(result, "C").Classes["C"][0].Writedown.Should().Be(0.0);
+        Named(result, "B").Classes["B"][0].Writedown.Should().BeGreaterThan(0.0);
+    }
+
+    [Fact]
+    public void AMonthWithNoNumeratorAddsNoHistory()
+    {
+        RevolvingSeries Late(RevolvingSeries t) => t with
+        {
+            ClosingDate = new DateTime(2026, 11, 20),
+            FirstPayDate = new DateTime(2026, 12, 15)
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0, Stack().Select(Late).ToArray(),
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 2);
+
+        result.Series.Should().AllSatisfy(s => s.Closing.History.Should().BeEmpty());
+    }
+
+    [Fact]
+    public void TheWeightedCouponReadsWhatWasOutstandingAsTheMonthOpened()
+    {
+        // A1 pays in this month, and its 2% still counts: half the notes at 2%, half at 6%.
+        var paying = NoteProgram.Accumulating(Bare("A1", "A", 430.0, 2.0), 430.0, 430.0, 430.0, 0.0, new[] { 10.0 },
+            new DateTime(2026, 8, 1), new DateTime(2026, 10, 15));
+        var result = RunShort(ShortMonth(100.0, 0.0), paying, Bare("A2", "A", 430.0, 6.0), Bare("B", "B", 70.0, 4.0),
+            Bare("C", "C", 70.0, 4.0));
+
+        Named(result, "A1").Classes["A"][0].PrincipalPaid.Should().Be(430.0);
+        Notes(result).CouponPct.Should().BeApproximately((430.0 * 2.0 + 430.0 * 6.0 + 140.0 * 4.0) / 1_000.0, 1e-9);
+    }
+
+    [Fact]
     public void ATrancheOfTwoClassesIsRefused()
     {
         var two = NoteProgram.Tranche("A", "A", 860.0) with
