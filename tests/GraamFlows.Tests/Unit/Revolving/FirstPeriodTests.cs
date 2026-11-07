@@ -41,6 +41,70 @@ public class FirstPeriodTests
         Run(Series("2026-1", 1_250_000_000.0, 53_572_000.0, 125_001_000.0, 4.99, 5.39, 6.989,
             new DateTime(2026, 9, 22), new DateTime(2026, 10, 15)), new DateTime(2026, 8, 31));
 
+    private static RevolvingResult JoinsLater(DateTime closing, DateTime firstPay) =>
+        CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 2_000.0,
+            new[]
+            {
+                CardProgram.Series("Old", 500.0, 50.0, 50.0),
+                CardProgram.Series("Late", 500.0, 50.0, 50.0) with { ClosingDate = closing, FirstPayDate = firstPay }
+            },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 5));
+
+    [Fact]
+    public void ASeriesTakesNothingBeforeTheMonthItCloses()
+    {
+        // It closes Nov 20, so August, September and October are not its months. November is.
+        var result = JoinsLater(new DateTime(2026, 11, 20), new DateTime(2026, 12, 15));
+
+        var late = result.Series.Single(s => s.Name == "Late");
+        late.Periods.Take(3).Should().AllSatisfy(p =>
+        {
+            p.FinanceAllocation.Should().Be(0.0);
+            p.PrincipalAllocation.Should().Be(0.0);
+            p.CarriedFinance.Should().Be(0.0);
+            p.FeesAccrued.Should().Be(0.0);
+            p.FloatingPct.Should().Be(0.0);
+        });
+        late.Periods[3].FinanceAllocation.Should().BeGreaterThan(0.0);
+        late.Periods[3].FeesAccrued.Should().BeGreaterThan(0.0);
+    }
+
+    [Fact]
+    public void TheTransferorHoldsAmountsOfASeriesNotYetIssued()
+    {
+        var result = JoinsLater(new DateTime(2026, 11, 20), new DateTime(2026, 12, 15));
+
+        result.Periods[0].TransferorAmount.Should().BeApproximately(2_000.0 - 600.0, 1e-6);
+        result.Periods[3].TransferorAmount.Should().BeApproximately(2_000.0 - 1_200.0, 1e-6);
+    }
+
+    [Fact]
+    public void ASeriesNotYetIssuedLeavesTheOthersTheirShare()
+    {
+        var result = JoinsLater(new DateTime(2026, 11, 20), new DateTime(2026, 12, 15));
+
+        result.Series.Single(s => s.Name == "Old").Periods[0].FloatingPct.Should().BeApproximately(30.0, 1e-9);
+    }
+
+    [Fact]
+    public void ASeriesPayingBeforeItsClosingMonthEndsStillHasCash()
+    {
+        // Closed Nov 2 and paying Nov 16, on October's collections: its first waterfall is not empty.
+        var result = JoinsLater(new DateTime(2026, 11, 2), new DateTime(2026, 11, 15));
+
+        var late = result.Series.Single(s => s.Name == "Late");
+        late.Periods[1].FinanceAllocation.Should().Be(0.0);
+        late.Periods[2].FinanceAllocation.Should().BeGreaterThan(0.0);
+    }
+
+    [Fact]
+    public void ASeriesClosingInsideTheFirstMonthCountsFromIt()
+    {
+        var result = JoinsLater(new DateTime(2026, 8, 30), new DateTime(2026, 10, 15));
+
+        result.Series.Single(s => s.Name == "Late").Periods[0].FinanceAllocation.Should().BeGreaterThan(0.0);
+    }
+
     [Fact]
     public void AShortFirstPeriodPaysFromClosing()
     {
