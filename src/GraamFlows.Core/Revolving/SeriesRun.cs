@@ -11,6 +11,7 @@ internal sealed class ClassRun
         Outstanding = config.Balance;
         WrittenDown = config.WrittenDown;
         InterestDue = config.InterestShortfall;
+        DefaultDue = config.DefaultDue;
     }
 
     public RevolvingClass Config { get; }
@@ -74,13 +75,14 @@ internal sealed class SeriesRun
         Machine = new SeriesPhaseMachine(config.Phase);
         Classes = config.Classes.Select(c => new ClassRun(c)).ToList();
         _byKey = Classes.ToDictionary(c => c.Config.Key);
-        _feeDue = config.Fees.ToDictionary(f => f.Name, _ => 0.0);
+        _feeDue = config.Fees.ToDictionary(f => f.Name, f => config.FeesDue.GetValueOrDefault(f.Name));
         Funding = new FundingAccount(config.FundingAccount, config.FundingDeficit);
         Reserve = config.Reserve;
+        CarriedFinance = config.CarriedFinance;
         FrozenPrincipalPct = config.FrozenPrincipalPct;
         FrozenNumerator = config.FrozenNumerator;
         AccumulationMonths = config.AccumulationMonthsRun;
-        Latches = tests.Select(t => new TriggerLatch(t, actionLag)).ToList();
+        Latches = tests.Select(t => new TriggerLatch(t, actionLag, config.TriggerStates.GetValueOrDefault(t.Name))).ToList();
         History = config.History.ToDictionary(h => h.Key, h => h.Value.ToList());
     }
 
@@ -178,6 +180,37 @@ internal sealed class SeriesRun
     }
 
     public double FeesDue => _feeDue.Values.Sum();
+
+    /// <summary>
+    ///     The series as the run closed it, in the shape a run opens on, so a run cut in two matches
+    ///     the same months run as one.
+    /// </summary>
+    /// <param name="nextPeriod">the month after the run's last.</param>
+    public RevolvingSeries Closing(int nextPeriod)
+    {
+        return Config with
+        {
+            Classes = Classes.Select(c => c.Config with
+            {
+                Balance = c.Outstanding,
+                OriginalBalance = c.Config.OriginalBalance ?? c.Config.Balance,
+                WrittenDown = c.WrittenDown,
+                InterestShortfall = c.InterestDue,
+                DefaultDue = c.DefaultDue
+            }).ToList(),
+            Phase = Phase,
+            FrozenPrincipalPct = FrozenPrincipalPct,
+            FrozenNumerator = FrozenNumerator,
+            FundingAccount = Funding.Balance,
+            FundingDeficit = Funding.Deficit,
+            Reserve = Reserve,
+            AccumulationMonthsRun = AccumulationMonths,
+            CarriedFinance = CarriedFinance,
+            FeesDue = new Dictionary<string, double>(_feeDue),
+            TriggerStates = Latches.Where(l => l.Latched).ToDictionary(l => l.Test.Name, l => l.Closing(nextPeriod)),
+            History = History.ToDictionary(h => h.Key, h => (IReadOnlyList<double>)h.Value.ToList())
+        };
+    }
 
     /// <summary>A fee the series does not state is 0.</summary>
     public double FeeDue(string name)
