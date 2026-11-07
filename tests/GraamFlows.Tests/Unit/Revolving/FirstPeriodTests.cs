@@ -93,8 +93,8 @@ public class FirstPeriodTests
             Classes = new[]
             {
                 new RevolvingClass { Key = "A", Balance = 1_000_000.0, Coupon = 3.6, Basis = AccrualBasis.Actual360 },
-                new RevolvingClass { Key = "B", Balance = 0.0 },
-                new RevolvingClass { Key = "C", Balance = 0.0 }
+                new RevolvingClass { Key = "B", Balance = 0.0, Coupon = 0.0 },
+                new RevolvingClass { Key = "C", Balance = 0.0, Coupon = 0.0 }
             },
             ClosingDate = new DateTime(2023, 9, 19),
             FirstPayDate = new DateTime(2023, 10, 15)
