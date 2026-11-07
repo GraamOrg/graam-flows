@@ -167,7 +167,7 @@ internal sealed class SeriesRun
     /// <summary>On a tranche, its funding account at the close of the month before this one.</summary>
     public double PriorFunding { get; set; }
 
-    /// <summary>On a tranche, what the allocator took for it this month.</summary>
+    /// <summary>On a tranche, what the allocator took for it this month. A finished one has none.</summary>
     public double Numerator { get; set; }
 
     /// <summary>The adjusted amount as this month opened.</summary>
@@ -236,6 +236,7 @@ internal sealed class SeriesRun
 
     public void OpenMonth()
     {
+        Numerator = 0.0;
         OpeningAdjusted = AdjustedInvested;
         OpeningFunding = Funding.Balance;
         UsageThisMonth.Clear();

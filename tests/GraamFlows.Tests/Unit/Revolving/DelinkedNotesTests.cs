@@ -590,6 +590,47 @@ public class DelinkedNotesTests
         (charged + notes.UnchargedDefault).Should().BeApproximately(100.0, 1e-6);
     }
 
+    private static RevolvingResult PaidInTheFirstMonth(double reserve, int periods)
+    {
+        var paying = NoteProgram.Accumulating(NoteProgram.Tranche("A1", "A", 800.0, 0.0), 800.0, 700.0, 800.0, 0.0,
+            new[] { 100.0 }, new DateTime(2026, 8, 1), new DateTime(2026, 9, 15)) with
+        {
+            Reserve = reserve,
+            RequiredReserve = reserve
+        };
+        return NoteProgram.Forecast(NoteProgram.Program(), 4_000.0,
+            new[]
+            {
+                paying, NoteProgram.Tranche("A2", "A", 60.0, 0.0), NoteProgram.Tranche("B", "B", 70.0, 0.0),
+                NoteProgram.Tranche("C", "C", 70.0, 0.0)
+            },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), periods);
+    }
+
+    [Fact]
+    public void ARetiredTranchesReserveIsReleasedIntoFinance()
+    {
+        var withReserve = PaidInTheFirstMonth(5.0, 3);
+        var without = PaidInTheFirstMonth(0.0, 3);
+
+        var rows = Named(withReserve, "A1").Periods;
+        rows[0].Reserve.Should().Be(5.0);
+        rows[1].Reserve.Should().Be(0.0);
+        rows[1].ReserveRelease.Should().Be(5.0);
+        (Notes(withReserve, 1).ExcessDollars - Notes(without, 1).ExcessDollars).Should().BeApproximately(5.0, 1e-6);
+    }
+
+    [Fact]
+    public void ARetiredTrancheOwesNoFeeAndHasNoNumerator()
+    {
+        var rows = Named(PaidInTheFirstMonth(0.0, 3), "A1").Periods;
+
+        rows[0].FeesAccrued.Should().BeGreaterThan(0.0);
+        rows[1].FeesAccrued.Should().Be(0.0);
+        rows[2].FeesAccrued.Should().Be(0.0);
+        rows[1].Tranche!.Numerator.Should().Be(0.0);
+    }
+
     [Fact]
     public void ATrancheOfTwoClassesIsRefused()
     {
