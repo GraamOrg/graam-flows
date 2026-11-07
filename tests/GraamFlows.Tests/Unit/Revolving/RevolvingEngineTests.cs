@@ -897,7 +897,7 @@ public class RevolvingEngineTests
         var refuse = () => CardProgram.Execute(CardProgram.Run(CardProgram.Program(), 1_000_000.0, new[] { series },
             CardProgram.Drivers(), 1));
 
-        refuse.Should().Throw<RevolvingConfigException>().WithMessage("*'S'*frozen*");
+        refuse.Should().Throw<RevolvingConfigException>().WithMessage("*'S'*frozenPrincipalPct*");
     }
 
     [Theory]
@@ -918,6 +918,77 @@ public class RevolvingEngineTests
             new[] { CardProgram.Series("S", 300_000.0, 50_000.0, 50_000.0) }, null, 2));
 
         refuse.Should().Throw<RevolvingConfigException>().WithMessage("*no drivers*");
+    }
+
+    private static IReadOnlyList<SeriesPeriod> FallingPool(PrincipalFreeze freeze)
+    {
+        var series = CardProgram.Series("S", 300_000.0, 50_000.0, 50_000.0) with
+        {
+            AccumulationStart = new DateTime(2026, 10, 1),
+            ExpectedDate = new DateTime(2028, 6, 15),
+            ControlledAmounts = new[] { 10_000.0 }
+        };
+        var run = CardProgram.Run(CardProgram.Program(freeze: freeze), 1_000_000.0, new[] { series },
+            CardProgram.Drivers(0.40, 0.36, 0.02, 0.0, 0.0), 8);
+
+        return Only(CardProgram.Execute(run), "S").Periods;
+    }
+
+    [Fact]
+    public void AFrozenPercentHoldsWhileThePoolFalls()
+    {
+        var after = FallingPool(PrincipalFreeze.FrozenPercent).Where(p => p.Phase != SeriesPhase.Revolving).ToList();
+
+        after.Select(p => p.PrincipalPct).Distinct().Should().ContainSingle();
+    }
+
+    [Fact]
+    public void AFrozenNumeratorRisesWhileThePoolFalls()
+    {
+        var periods = FallingPool(PrincipalFreeze.FrozenNumerator);
+        var after = periods.Where(p => p.Phase != SeriesPhase.Revolving).ToList();
+
+        // The first month is the same under both. After that the numerator holds at 400,000 and the
+        // pool falls 4% a month, so the share rises by 1 / 0.96 a month.
+        after[0].PrincipalPct.Should().BeApproximately(FallingPool(PrincipalFreeze.FrozenPercent)[2].PrincipalPct, 1e-12);
+        foreach (var (earlier, later) in after.Zip(after.Skip(1)))
+            later.PrincipalPct.Should().BeApproximately(earlier.PrincipalPct / 0.96, 1e-9);
+        periods.Where(p => p.Phase == SeriesPhase.Revolving).Should().OnlyContain(p => p.PrincipalPct == p.FloatingPct);
+    }
+
+    [Fact]
+    public void ASeriesThatStartsPastRevolvingStatesTheValueItsProgramFreezes()
+    {
+        var series = Accumulating(1_000.0) with { Phase = SeriesPhase.Accumulating, FrozenPrincipalPct = 0.22 };
+        var program = CardProgram.Program(freeze: PrincipalFreeze.FrozenNumerator);
+
+        var refuse = () => CardProgram.Execute(CardProgram.Run(program, 500_000.0, new[] { series },
+            CardProgram.Drivers(), 1));
+
+        refuse.Should().Throw<RevolvingConfigException>().WithMessage("*'S'*frozenNumerator*");
+    }
+
+    [Fact]
+    public void AFrozenNumeratorFromTheStatementApplies()
+    {
+        var series = Accumulating(1_000.0) with { Phase = SeriesPhase.Accumulating, FrozenNumerator = 110_000.0 };
+        var program = CardProgram.Program(freeze: PrincipalFreeze.FrozenNumerator);
+
+        var month = Only(CardProgram.Execute(CardProgram.Run(program, 500_000.0, new[] { series },
+            CardProgram.Drivers(), 1)), "S").Periods[0];
+
+        month.PrincipalPct.Should().BeApproximately(22.0, 1e-9);
+    }
+
+    [Fact]
+    public void AProgramThatLeavesTheFreezeUnstatedIsRefusedByName()
+    {
+        var program = CardProgram.Program() with { PrincipalFreeze = null };
+
+        var refuse = () => CardProgram.Execute(CardProgram.Run(program, 1_000_000.0,
+            new[] { CardProgram.Series("S", 300_000.0, 50_000.0, 50_000.0) }, CardProgram.Drivers(), 1));
+
+        refuse.Should().Throw<RevolvingConfigException>().WithMessage("*Example card trust*principalFreeze*");
     }
 
     [Fact]
@@ -1163,18 +1234,23 @@ public class RevolvingEngineTests
             ControlledAmounts = new[] { 100.0 }
         };
         wiped = wiped with { Classes = wiped.Classes.Select(c => c with { WrittenDown = c.Balance }).ToList() };
-        var run = CardProgram.Run(CardProgram.Program(), 6_000.0,
-            new[] { wiped, CardProgram.Series("Live", 3_000.0, 300.0, 300.0) }, CardProgram.Drivers(), 6);
-        var whole = CardProgram.Execute(run);
+        foreach (var freeze in new[] { PrincipalFreeze.FrozenPercent, PrincipalFreeze.FrozenNumerator })
+        {
+            var run = CardProgram.Run(CardProgram.Program(freeze: freeze), 6_000.0,
+                new[] { wiped, CardProgram.Series("Live", 3_000.0, 300.0, 300.0) }, CardProgram.Drivers(), 6);
+            var whole = CardProgram.Execute(run);
 
-        var months = CardProgram.MonthByMonth(run, whole);
+            var months = CardProgram.MonthByMonth(run, whole);
 
-        CardProgram.RequireSameMonths(whole, months);
-        months[2].Series[0].Closing.Phase.Should().Be(SeriesPhase.Accumulating);
+            CardProgram.RequireSameMonths(whole, months);
+            months[2].Series[0].Closing.Phase.Should().Be(SeriesPhase.Accumulating);
+        }
     }
 
-    [Fact]
-    public void ASeriesReinstatedAfterLeavingRevolvingCanBeCutEveryMonth()
+    [Theory]
+    [InlineData(PrincipalFreeze.FrozenPercent)]
+    [InlineData(PrincipalFreeze.FrozenNumerator)]
+    public void ASeriesReinstatedAfterLeavingRevolvingCanBeCutEveryMonth(PrincipalFreeze freeze)
     {
         // No yield for three months, so it reaches accumulation with nothing frozen, and is reinstated
         // late in a month: it closes with an amount and no frozen value, which its next month sets.
@@ -1189,7 +1265,7 @@ public class RevolvingEngineTests
         {
             Yield = new PoolDriver(new[] { 0.0, 0.0, 0.0, 0.25 })
         };
-        var run = CardProgram.Run(CardProgram.Program(), 6_000.0,
+        var run = CardProgram.Run(CardProgram.Program(freeze: freeze), 6_000.0,
             new[] { wiped, CardProgram.Series("Live", 3_000.0, 300.0, 300.0) }, drivers, 8);
         var whole = CardProgram.Execute(run);
 
@@ -1199,6 +1275,7 @@ public class RevolvingEngineTests
         var reinstated = months.Select(m => m.Series[0].Closing).First(c => c.Classes[0].WrittenDown < c.Classes[0].Balance);
         reinstated.FreezePending.Should().BeTrue();
         reinstated.FrozenPrincipalPct.Should().BeNull();
+        reinstated.FrozenNumerator.Should().BeNull();
         months[^1].Series[0].Closing.FreezePending.Should().BeFalse();
     }
 
@@ -1209,6 +1286,26 @@ public class RevolvingEngineTests
         var run = CardProgram.Run(CardProgram.Program(), 2_000.0, new[] { series }, CardProgram.Drivers(), 1);
 
         ((Action)(() => CardProgram.Execute(run))).Should().Throw<RevolvingConfigException>().WithMessage("*frozen*");
+    }
+
+    [Fact]
+    public void ARunCutIntoMonthsKeepsAFrozenNumeratorAndGroupReallocation()
+    {
+        var stressed = StressedRun(1, CardProgram.YieldBelowBaseRate with { Window = 1 });
+        var run = stressed with
+        {
+            Program = stressed.Program with
+            {
+                PrincipalFreeze = PrincipalFreeze.FrozenNumerator,
+                GroupSteps = new[] { new WaterfallStep(WaterfallVerb.ReallocateGroupFinance) }
+            }
+        };
+        var whole = CardProgram.Execute(run);
+
+        var months = CardProgram.MonthByMonth(run, whole);
+
+        CardProgram.RequireSameMonths(whole, months);
+        months[^1].Series.Should().Contain(s => s.Closing.FrozenNumerator != null);
     }
 
     [Fact]
@@ -1407,7 +1504,8 @@ public class RevolvingEngineTests
             var program = CardProgram.Program(
                 random.Next(0, 2) == 0 ? RecoveryBucket.Finance : RecoveryBucket.PrincipalUpToNewDefaults,
                 random.Next(0, 2),
-                new[]
+                freeze: random.Next(0, 2) == 0 ? PrincipalFreeze.FrozenPercent : PrincipalFreeze.FrozenNumerator,
+                triggers: new[]
                 {
                     CardProgram.YieldBelowBaseRate,
                     new TriggerTest
@@ -1432,6 +1530,9 @@ public class RevolvingEngineTests
                 RecoveryRate = CardProgram.Flat(random.NextDouble() * 0.01),
                 DilutionRate = CardProgram.Flat(random.NextDouble() * 0.002)
             };
+
+            if (random.Next(0, 2) == 0)
+                program = program with { GroupSteps = new WaterfallStep[] { new(WaterfallVerb.ReallocateGroupFinance) } };
 
             var run = CardProgram.Run(program, pool, series, drivers, 24) with { FundingEarningsRate = new[] { 2.5 } };
             var result = CardProgram.Execute(run);
