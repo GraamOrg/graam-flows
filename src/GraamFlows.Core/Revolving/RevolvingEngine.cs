@@ -71,7 +71,7 @@ public static class RevolvingEngine
                 MoveByDate(s, dates);
             }
 
-            var live = _series.Where(s => !s.PaidInFull).ToList();
+            var live = _series.Where(s => !s.Exhausted).ToList();
             var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure,
                     live.Select(s => new SeriesClaim(s.Config.Name, s.AdjustedInvested, s.Phase, s.FrozenPrincipalPct)).ToList())
                 .ToDictionary(a => a.Series);
@@ -119,7 +119,8 @@ public static class RevolvingEngine
             var cashOut = transferorFinance + transferorPrincipal
                           + _series.Sum(s => s.Classes.Sum(c => c.InterestPaid + c.PrincipalPaid)
                                              + s.FeesPaid + s.Funding.Balance + s.Reserve + s.CarriedFinance);
-            if (Math.Abs(cashIn - cashOut) > SeriesRun.Cent)
+            // Written so that NaN fails: a comparison with NaN is false.
+            if (!(Math.Abs(cashIn - cashOut) <= SeriesRun.Cent))
                 throw new InvalidOperationException(
                     $"Period {dates.Period} of '{_program.Name}' collected {cashIn:F2} and placed {cashOut:F2}.");
 
@@ -143,7 +144,8 @@ public static class RevolvingEngine
                 return new ProgramPeriod
                 {
                     Dates = dates,
-                    Pool = PoolLedger.Roll(_pool, _run.Drivers!.For(dates.Period, dates.Days), bucket)
+                    Pool = PoolLedger.Roll(_pool,
+                        _run.Drivers!.For(dates.Period - _run.ActualPeriods.Count, dates.Days), bucket)
                 };
 
             var actual = _run.ActualPeriods[dates.Period];
@@ -173,7 +175,7 @@ public static class RevolvingEngine
         /// </summary>
         private static IReadOnlyList<TriggerReading> ReadTriggers(SeriesRun s, int period)
         {
-            if (s.PaidInFull)
+            if (s.Exhausted)
                 return Array.Empty<TriggerReading>();
 
             var readings = new List<TriggerReading>(s.Latches.Count);
@@ -205,8 +207,9 @@ public static class RevolvingEngine
             var invested = s.TotalInvested;
             var adjusted = s.AdjustedInvested;
 
+            var accrues = !s.Exhausted;
             foreach (var c in s.Classes)
-                AccrueInterest(c, dates);
+                AccrueInterest(c, dates, accrues);
             foreach (var fee in s.Config.Fees)
                 s.AccrueFee(fee, adjusted);
 
@@ -254,13 +257,14 @@ public static class RevolvingEngine
             return new MonthOpen(invested, finance, principal, investorDefault, earnings);
         }
 
-        private void AccrueInterest(ClassRun c, RevolvingPeriodDates dates)
+        /// <param name="accrues">false reads the month's rate and adds no interest.</param>
+        private void AccrueInterest(ClassRun c, RevolvingPeriodDates dates, bool accrues)
         {
             var config = c.Config;
             c.IndexValue = config.Index is { } index ? _rates.GetRate(index, dates.PeriodStart) : null;
-            c.RatePct = c.IndexValue is { } value ? value + config.Margin : config.Coupon;
+            c.RatePct = c.IndexValue is { } value ? value + config.Margin : config.Coupon!.Value;
             var fraction = config.Basis == AccrualBasis.Actual360 ? dates.AccrualDays / 360.0 : 1.0 / 12.0;
-            c.InterestAccrued = c.Outstanding * c.RatePct / 100.0 * fraction;
+            c.InterestAccrued = accrues ? c.Outstanding * c.RatePct / 100.0 * fraction : 0.0;
             c.InterestDue += c.InterestAccrued;
         }
 
@@ -276,7 +280,7 @@ public static class RevolvingEngine
 
         private double RequiredReserve(SeriesRun s, int period)
         {
-            if (s.PaidInFull)
+            if (s.Exhausted)
                 return 0.0;
 
             return s.Latches
@@ -405,7 +409,7 @@ public static class RevolvingEngine
                 open.Finance + open.Earnings + s.ExcessIn - open.InvestorDefault, open.Invested, dates.Days);
             var baseRatePct = RevolvingMetrics.BaseRatePct(
                 s.Classes.Sum(c => c.InterestAccrued) + s.FeesAccrued, open.Invested, dates.AccrualDays);
-            if (open.Invested > 0)
+            if (open.Invested >= SeriesRun.Cent)
             {
                 Remember(s, TriggerMetric.PortfolioYield, yieldPct);
                 Remember(s, TriggerMetric.BaseRate, baseRatePct);
@@ -419,7 +423,7 @@ public static class RevolvingEngine
                     DistributionDate = dates.DistributionDate,
                     BeginBalance = c.BeginInvested,
                     EndBalance = c.Invested,
-                    Factor = c.Invested / (c.Config.OriginalBalance ?? c.Config.Balance),
+                    Factor = FactorOf(c),
                     InterestAccrued = c.InterestAccrued,
                     InterestPaid = c.InterestPaid,
                     InterestDueUnpaid = c.InterestDue,
@@ -472,6 +476,13 @@ public static class RevolvingEngine
             if (s.Phase == SeriesPhase.Accumulating && s.Config.ExpectedDate is { } expected
                                                     && RevolvingWaterfall.OnOrAfterMonth(dates.DistributionDate, expected))
                 s.Machine.MoveTo(s.PaidInFull ? SeriesPhase.Amortizing : SeriesPhase.EarlyAmortization);
+        }
+
+        /// <summary>A rest-of-trust block can carry a class with no balance, which has no factor.</summary>
+        private static double FactorOf(ClassRun c)
+        {
+            var original = c.Config.OriginalBalance ?? c.Config.Balance;
+            return original > 0 ? c.Invested / original : 0.0;
         }
 
         private void TrackPhase(SeriesRun s, RevolvingPeriodDates dates)

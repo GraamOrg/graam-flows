@@ -142,7 +142,14 @@ internal sealed class SeriesRun
     /// <summary>The allocator's numerator: invested amounts less what the account already holds.</summary>
     public double AdjustedInvested => Math.Max(0.0, TotalInvested - Funding.Balance);
 
-    public bool PaidInFull => Classes.All(c => c.Invested < Cent) && Funding.Balance < Cent;
+    /// <summary>
+    ///     Nothing is invested and the account is empty, so the series takes no allocation and stops
+    ///     accruing. Reporting a rate on dust, or interest on a balance written off, is meaningless.
+    /// </summary>
+    public bool Exhausted => Classes.All(c => c.Invested < Cent) && Funding.Balance < Cent;
+
+    /// <summary>Exhausted with nothing written off. A write-down is a loss, not a payment.</summary>
+    public bool PaidInFull => Exhausted && Classes.All(c => c.WrittenDown < Cent);
 
     public double FundingRoom => Math.Max(0.0,
         Config.FundedClasses.Sum(key => ClassFor(key).Invested) - Funding.Balance);
