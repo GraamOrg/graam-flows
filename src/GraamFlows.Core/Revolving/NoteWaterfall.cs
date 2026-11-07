@@ -240,29 +240,31 @@ internal static class NoteWaterfall
     /// <summary>
     ///     Targeted deposits, senior class first and pro rata to target within a class. A junior
     ///     tranche takes only what leaves the senior tranches' required amounts standing. What it
-    ///     cannot take carries as a deposit shortfall.
+    ///     cannot take carries as a deposit shortfall. Any account then due pays, whether or not it
+    ///     took a deposit this month: one filled early has nothing left to take on its date.
     /// </summary>
     private static void DepositAll(NoteMonth month, DateTime distributionDate)
     {
         foreach (var key in month.Notes.ClassOrder)
         {
-            var targets = month.OfClass(key)
+            var tranches = month.OfClass(key).ToList();
+            var targets = tranches
                 .Select(t => (Tranche: t, Target: Target(t)))
                 .Where(x => x.Target > 0)
                 .ToList();
             var total = targets.Sum(x => x.Target);
-            if (total <= 0)
-                continue;
-
-            var room = key == month.SeniorClass ? double.PositiveInfinity : Subordination.DepositRoom(month, key);
-            var pay = Math.Min(month.Principal, Math.Min(total, room));
-            month.Principal -= pay;
-            foreach (var (tranche, target) in targets)
+            if (total > 0)
             {
-                tranche.Funding.Deposit(pay * target / total);
-                if (Pays(tranche, distributionDate))
-                    RevolvingWaterfall.ReleaseFunding(tranche);
+                var room = key == month.SeniorClass ? double.PositiveInfinity : Subordination.DepositRoom(month, key);
+                var pay = Math.Min(month.Principal, Math.Min(total, room));
+                month.Principal -= pay;
+                foreach (var (tranche, target) in targets)
+                    tranche.Funding.Deposit(pay * target / total);
+            }
 
+            foreach (var tranche in tranches.Where(t => t.Funding.Balance > 0 && Pays(t, distributionDate)))
+            {
+                RevolvingWaterfall.ReleaseFunding(tranche);
                 month.Principal += tranche.Principal;
                 tranche.Principal = 0.0;
             }
@@ -273,7 +275,7 @@ internal static class NoteWaterfall
     {
         return t.Phase switch
         {
-            SeriesPhase.EarlyAmortization => t.AdjustedInvested,
+            SeriesPhase.EarlyAmortization or SeriesPhase.Amortizing => t.AdjustedInvested,
             SeriesPhase.Accumulating => t.Funding.Demand(t.ControlledThisMonth, t.FundingRoom),
             _ => 0.0
         };
@@ -281,7 +283,7 @@ internal static class NoteWaterfall
 
     private static bool Pays(SeriesRun t, DateTime distributionDate)
     {
-        if (t.Phase == SeriesPhase.EarlyAmortization)
+        if (t.Phase is SeriesPhase.EarlyAmortization or SeriesPhase.Amortizing)
             return true;
 
         return t.Config.ExpectedDate is { } expected && RevolvingWaterfall.OnOrAfterMonth(distributionDate, expected);
