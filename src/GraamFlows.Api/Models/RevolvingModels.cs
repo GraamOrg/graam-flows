@@ -143,7 +143,48 @@ public class RevolvingSeriesStateDto
     public double? Reserve { get; set; }
     public int? AccumulationMonthsRun { get; set; }
 
+    /// <summary>Finance waiting for a series' first waterfall.</summary>
+    public double? CarriedFinance { get; set; }
+
+    /// <summary>Each fee's accrued and unpaid amount, by fee name.</summary>
+    public Dictionary<string, double>? FeesDue { get; set; }
+
+    /// <summary>The tests already tripped, by test name.</summary>
+    public Dictionary<string, RevolvingTriggerStateDto>? TriggerState { get; set; }
+
     public RevolvingHistoryDto? History { get; set; }
+}
+
+/// <summary>A tripped test as one run closes it and the next opens it.</summary>
+public class RevolvingTriggerStateDto
+{
+    public bool Latched { get; set; }
+
+    /// <summary>Months after the run's first before it acts. 0 acts in the first month.</summary>
+    public int MonthsToAct { get; set; }
+
+    /// <summary>Good months so far towards a FUND_RESERVE test's cure.</summary>
+    public int GoodMonths { get; set; }
+}
+
+/// <summary>A class as a run closed it: what the next request's class must state.</summary>
+public class RevolvingClassClosingDto
+{
+    public double Balance { get; set; }
+    public double OriginalBalance { get; set; }
+    public double WrittenDown { get; set; }
+    public double InterestShortfall { get; set; }
+    public double DefaultDue { get; set; }
+}
+
+/// <summary>
+///     A series as the run closed it. To cut a run, send <see cref="State" /> as the next request's
+///     <c>state</c> and each of <see cref="Classes" /> onto its class. Nothing else may carry.
+/// </summary>
+public class RevolvingClosingDto
+{
+    public RevolvingSeriesStateDto State { get; set; } = new();
+    public Dictionary<string, RevolvingClassClosingDto> Classes { get; set; } = new();
 }
 
 /// <summary>Monthly percents from the statements, oldest first, for the trigger tests.</summary>
@@ -180,6 +221,9 @@ public class RevolvingClassDto
 
     public double? WrittenDown { get; set; }
     public double? InterestShortfall { get; set; }
+
+    /// <summary>A default waiting for a series' first waterfall.</summary>
+    public double? DefaultDue { get; set; }
 }
 
 public class RevolvingFeeDto
@@ -335,6 +379,9 @@ public class RevolvingSeriesResultDto
     public List<RevolvingSeriesPeriodDto> Periods { get; set; } = new();
     public List<RevolvingPhaseMoveDto> PhasePath { get; set; } = new();
     public RevolvingFirstTripDto? FirstTrip { get; set; }
+
+    /// <summary>The series as the run closed it. A next run opens on this.</summary>
+    public RevolvingClosingDto Closing { get; set; } = new();
 }
 
 public class RevolvingPhaseMoveDto

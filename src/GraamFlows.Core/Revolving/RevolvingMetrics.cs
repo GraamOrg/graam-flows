@@ -1,5 +1,23 @@
 namespace GraamFlows.Revolving;
 
+/// <summary>Every month, every dollar collected must be placed.</summary>
+public static class RevolvingCashProof
+{
+    /// <summary>
+    ///     Well under a cent. On pools of $100bn, floating-point error alone reached about $0.0001, so
+    ///     this leaves it room and would still catch a tenth of a cent going astray.
+    /// </summary>
+    public const double Tolerance = 0.001;
+
+    public static void Require(string program, int period, double cashIn, double cashOut)
+    {
+        // Written so that NaN fails: a comparison with NaN is false.
+        if (!(Math.Abs(cashIn - cashOut) <= Tolerance))
+            throw new InvalidOperationException(
+                $"Period {period} of '{program}' collected {cashIn:F2} and placed {cashOut:F2}.");
+    }
+}
+
 /// <summary>
 ///     The monthly series rates the trigger tests read. Yield annualizes on the monthly period's
 ///     days and base rate on the interest period's days, which differ when a distribution date rolls

@@ -248,6 +248,9 @@ public sealed record RevolvingClass
 
     /// <summary>Interest due and unpaid, from the statement.</summary>
     public double InterestShortfall { get; init; }
+
+    /// <summary>A default waiting for the series' first waterfall, from the close of the last run.</summary>
+    public double DefaultDue { get; init; }
 }
 
 /// <param name="Name">what PAY_FEE calls it.</param>
@@ -306,6 +309,16 @@ public sealed record RevolvingSeries
 
     /// <summary>Months of accumulation already run, so a mid-period statement keeps its schedule.</summary>
     public int AccumulationMonthsRun { get; init; }
+
+    /// <summary>Finance waiting for the series' first waterfall, from the close of the last run.</summary>
+    public double CarriedFinance { get; init; }
+
+    /// <summary>Each fee's accrued and unpaid amount, from the close of the last run.</summary>
+    public IReadOnlyDictionary<string, double> FeesDue { get; init; } = new Dictionary<string, double>();
+
+    /// <summary>The tests already tripped at the close of the last run, by test name.</summary>
+    public IReadOnlyDictionary<string, TriggerState> TriggerStates { get; init; } =
+        new Dictionary<string, TriggerState>();
 
     /// <summary>Seeded monthly metric values, oldest first.</summary>
     public IReadOnlyDictionary<TriggerMetric, IReadOnlyList<double>> History { get; init; } =

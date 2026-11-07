@@ -131,10 +131,7 @@ public static class RevolvingEngine
             var cashOut = transferorFinance + transferorPrincipal
                           + _series.Sum(s => s.Classes.Sum(c => c.InterestPaid + c.PrincipalPaid)
                                              + s.FeesPaid + s.Funding.Balance + s.Reserve + s.CarriedFinance);
-            // Written so that NaN fails: a comparison with NaN is false.
-            if (!(Math.Abs(cashIn - cashOut) <= SeriesRun.Cent))
-                throw new InvalidOperationException(
-                    $"Period {dates.Period} of '{_program.Name}' collected {cashIn:F2} and placed {cashOut:F2}.");
+            RevolvingCashProof.Require(_program.Name, dates.Period, cashIn, cashOut);
 
             var invested = _series.Sum(s => s.AdjustedInvested);
             _rows.Add(month with
@@ -587,6 +584,7 @@ public static class RevolvingEngine
                 Periods = _seriesRows[s],
                 Classes = s.Classes.ToDictionary(c => c.Config.Key, c => (IReadOnlyList<ClassPeriod>)_classRows[c]),
                 PhasePath = _phasePaths[s],
+                Closing = s.Closing(_run.Periods),
                 FirstTrip = first == null
                     ? null
                     : new FirstTrip(first.Test.Name, first.FirstTrip!.Value,

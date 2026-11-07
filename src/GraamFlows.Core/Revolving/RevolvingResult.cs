@@ -106,6 +106,9 @@ public sealed record SeriesResult
     public required IReadOnlyDictionary<string, IReadOnlyList<ClassPeriod>> Classes { get; init; }
     public required IReadOnlyList<PhaseMove> PhasePath { get; init; }
     public FirstTrip? FirstTrip { get; init; }
+
+    /// <summary>The series as the run closed it. A next run opens on this, and on nothing else.</summary>
+    public required RevolvingSeries Closing { get; init; }
 }
 
 public sealed record RevolvingResult

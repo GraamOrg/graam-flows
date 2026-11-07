@@ -1,3 +1,4 @@
+using FluentAssertions;
 using GraamFlows.Objects.DataObjects;
 using GraamFlows.Revolving;
 
@@ -124,6 +125,86 @@ internal static class CardProgram
             Series = series,
             FundingEarningsRate = new[] { 0.0 }
         };
+    }
+
+    /// <summary>
+    ///     The months of a run, one request at a time on the printed figures it produced, each opening
+    ///     on the last one's close and nothing else.
+    /// </summary>
+    public static IReadOnlyList<RevolvingResult> MonthByMonth(RevolvingRun run, RevolvingResult whole)
+    {
+        var months = new List<RevolvingResult>();
+        var series = run.Series;
+        var statement = run.StatementDate;
+        foreach (var period in whole.Periods)
+        {
+            var month = Execute(run with
+            {
+                StatementDate = statement,
+                Periods = 1,
+                PoolBalance = period.Pool.Beginning,
+                Drivers = null,
+                ActualPeriods = new[] { Printed(period) },
+                Series = series
+            });
+            months.Add(month);
+            series = month.Series.Select(s => s.Closing).ToList();
+            statement = new DateTime(statement.Year, statement.Month, 1).AddMonths(2).AddDays(-1);
+        }
+
+        return months;
+    }
+
+    private static ActualPeriod Printed(ProgramPeriod period)
+    {
+        return new ActualPeriod
+        {
+            Beginning = period.Pool.Beginning,
+            NewReceivables = period.Pool.NewReceivables,
+            PrincipalCollections = period.Pool.PrincipalCollections,
+            FinanceCollections = period.Pool.FinanceCollections,
+            Recoveries = period.Pool.Recoveries,
+            ChargeOffs = period.Pool.ChargeOffs,
+            Dilution = period.Pool.Dilution,
+            Days = period.Dates.Days
+        };
+    }
+
+    /// <summary>Every month's rows, on the long run and on the months cut one by one.</summary>
+    public static void RequireSameMonths(RevolvingResult whole, IReadOnlyList<RevolvingResult> months)
+    {
+        for (var i = 0; i < months.Count; i++)
+        {
+            const double tiny = 1e-6;
+            var because = $"month {i}";
+            months[i].Periods[0].TransferorFinance.Should().BeApproximately(whole.Periods[i].TransferorFinance, tiny, because);
+            months[i].Periods[0].TransferorPrincipal.Should().BeApproximately(whole.Periods[i].TransferorPrincipal, tiny, because);
+            foreach (var series in whole.Series)
+            {
+                var cut = months[i].Series.Single(s => s.Name == series.Name);
+                var want = series.Periods[i];
+                var got = cut.Periods[0];
+                var named = $"{series.Name} {because}";
+                got.Phase.Should().Be(want.Phase, named);
+                got.FeesAccrued.Should().BeApproximately(want.FeesAccrued, tiny, named);
+                got.FeesPaid.Should().BeApproximately(want.FeesPaid, tiny, named);
+                got.CarriedFinance.Should().BeApproximately(want.CarriedFinance, tiny, named);
+                got.Reserve.Should().BeApproximately(want.Reserve, tiny, named);
+                got.ReserveRequired.Should().BeApproximately(want.ReserveRequired, tiny, named);
+                got.FundingAccount.Should().BeApproximately(want.FundingAccount, tiny, named);
+                got.FundingDeficit.Should().BeApproximately(want.FundingDeficit, tiny, named);
+                got.PrincipalPct.Should().BeApproximately(want.PrincipalPct, tiny, named);
+                foreach (var (key, rows) in series.Classes)
+                {
+                    var row = cut.Classes[key][0];
+                    row.InterestPaid.Should().BeApproximately(rows[i].InterestPaid, tiny, named);
+                    row.InterestDueUnpaid.Should().BeApproximately(rows[i].InterestDueUnpaid, tiny, named);
+                    row.PrincipalPaid.Should().BeApproximately(rows[i].PrincipalPaid, tiny, named);
+                    row.EndBalance.Should().BeApproximately(rows[i].EndBalance, tiny, named);
+                    row.CumWritedown.Should().BeApproximately(rows[i].CumWritedown, tiny, named);
+                }
+            }
+        }
     }
 
     public static RevolvingResult Execute(RevolvingRun run)
