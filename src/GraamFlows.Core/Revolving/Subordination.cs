@@ -4,8 +4,9 @@ namespace GraamFlows.Revolving;
 ///     Required subordinated amounts and their usage, for a de-linked note series.
 ///
 ///     A senior tranche's required amount of a junior class is a percentage of its adjusted amount.
-///     A middle class's required amount of the class below is the senior classes' claim on that
-///     class, plus its percentage of whatever part of the middle class the seniors do not claim.
+///     A middle class's required amount of a class below it is the classes above's claim on that
+///     class, plus its percentage of whatever part of the middle class they do not claim. So a
+///     middle class's figure already holds the seniors' claim, and is the claim on the class below.
 ///     Usage is what a tranche has spent of its required amount: charge-offs moved down to juniors,
 ///     and principal moved to pay it. Unused is the difference, and it caps every further move.
 ///     Reimbursing a junior class gives usage back.
@@ -19,27 +20,36 @@ internal static class Subordination
     public static void Measure(NoteMonth month, Func<SeriesRun, double> adjusted)
     {
         var order = month.Notes.ClassOrder;
+
+        // What the classes measured so far claim of each class below them, all told.
+        var claims = new Dictionary<string, double>();
         foreach (var t in month.OfClass(order[0]))
             foreach (var (junior, pct) in t.Config.RequiredSubordination)
+            {
                 t.Required[junior] = pct / 100.0 * adjusted(t);
+                claims[junior] = claims.GetValueOrDefault(junior) + t.Required[junior];
+            }
 
-        // Each class below the first holds up the class beneath it for the seniors' claim first.
         for (var rank = 1; rank + 1 < order.Count; rank++)
         {
-            var key = order[rank];
-            var below = order[rank + 1];
-            var tranches = month.OfClass(key).ToList();
+            var tranches = month.OfClass(order[rank]).ToList();
             var total = tranches.Sum(adjusted);
-            var seniors = order.Take(rank).SelectMany(month.OfClass).ToList();
-            var seniorClaimOnThis = seniors.Sum(s => s.Required.GetValueOrDefault(key));
-            var seniorClaimBelow = seniors.Sum(s => s.Required.GetValueOrDefault(below));
+            var onThisClass = claims.GetValueOrDefault(order[rank]);
+            var added = new Dictionary<string, double>();
             foreach (var t in tranches)
             {
                 var share = total > 0 ? adjusted(t) / total : 0.0;
-                var pct = t.Config.RequiredSubordination.GetValueOrDefault(below);
-                var free = Math.Max(0.0, adjusted(t) - share * seniorClaimOnThis);
-                t.Required[below] = adjusted(t) > 0 ? share * seniorClaimBelow + pct / 100.0 * free : 0.0;
+                var free = Math.Max(0.0, adjusted(t) - share * onThisClass);
+                foreach (var junior in order.Skip(rank + 1))
+                {
+                    var own = t.Config.RequiredSubordination.GetValueOrDefault(junior) / 100.0 * free;
+                    added[junior] = added.GetValueOrDefault(junior) + own;
+                    t.Required[junior] = adjusted(t) > 0 ? share * claims.GetValueOrDefault(junior) + own : 0.0;
+                }
             }
+
+            foreach (var (junior, amount) in added)
+                claims[junior] = claims.GetValueOrDefault(junior) + amount;
         }
     }
 

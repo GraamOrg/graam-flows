@@ -1,4 +1,5 @@
 using FluentAssertions;
+using GraamFlows.Objects.TypeEnum;
 using GraamFlows.Revolving;
 using Xunit;
 
@@ -357,29 +358,6 @@ public class DelinkedNotesTests
     }
 
     [Fact]
-    public void FinanceReimbursesADeficitSeniorClassFirstAndGivesUsageBack()
-    {
-        var charged = RunShort(ShortMonth(0.0, 200.0));
-        var usedA = Row(charged, "A").Usage["C"];
-        var deficitC = 70.0 - Named(charged, "C").Periods[0].InvestedAmount;
-
-        var tranches = Stack().Select(t => t.Name switch
-        {
-            "A" => t with { Usage = Row(charged, "A").Usage },
-            "B" => t with
-            {
-                Usage = Row(charged, "B").Usage,
-                Classes = new[] { t.Classes[0] with { WrittenDown = 70.0 - Named(charged, "B").Periods[0].InvestedAmount } }
-            },
-            _ => t with { Classes = new[] { t.Classes[0] with { WrittenDown = deficitC } } }
-        }).ToArray();
-        var result = RunShort(ShortMonth(1_000.0, 0.0), tranches);
-
-        Named(result, "C").Periods[0].InvestedAmount.Should().BeApproximately(70.0, 1e-6);
-        Row(result, "A").Usage["C"].Should().BeLessThan(usedA);
-    }
-
-    [Fact]
     public void AnUnpaidTrancheGoesToEarlyAmortizationAloneAndTheOthersStayRevolving()
     {
         // B matures while it is all of A's Class B subordination, so no deposit may be made.
@@ -429,21 +407,6 @@ public class DelinkedNotesTests
     }
 
     [Fact]
-    public void TheExcessSpreadTestReadsTheSeriesAndActsOnEveryTranche()
-    {
-        var history = new Dictionary<TriggerMetric, IReadOnlyList<double>>
-        {
-            [TriggerMetric.ExcessSpread] = new[] { -1.0, -1.0, -1.0 }
-        };
-        var tranches = Stack().Select(t => t with { History = history, FrozenNumerator = null }).ToArray();
-        var result = NoteProgram.Forecast(
-            NoteProgram.Program(triggers: new[] { NoteProgram.ExcessSpreadBelowZero }), 2_000.0, tranches,
-            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
-
-        result.Series.Should().AllSatisfy(s => s.Periods[0].Phase.Should().Be(SeriesPhase.EarlyAmortization));
-    }
-
-    [Fact]
     public void ATrancheInEarlyAmortizationTargetsItsWholeAmount()
     {
         var tranche = NoteProgram.Tranche("A", "A", 860.0, 0.0) with
@@ -457,20 +420,6 @@ public class DelinkedNotesTests
 
         // Principal is pooled: the notes' half of 800, and the tranche targets all of its 860.
         Named(result, "A").Classes["A"][0].PrincipalPaid.Should().BeApproximately(400.0, 1e-6);
-    }
-
-    [Fact]
-    public void ADeferredDepositShortfallCarriesOverOnATranche()
-    {
-        var tranche = NoteProgram.Accumulating(NoteProgram.Tranche("A", "A", 860.0, 0.0), 860.0, 0.0, 860.0, 0.0,
-            new[] { 500.0 }, new DateTime(2026, 8, 1), new DateTime(2027, 8, 15));
-        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
-            new[] { tranche, NoteProgram.Tranche("B", "B", 70.0, 0.0), NoteProgram.Tranche("C", "C", 70.0, 0.0) },
-            CardProgram.Drivers(0.1, 0.1, 0.05, 0.0, 0.0), 2);
-
-        var rows = Named(result, "A").Periods;
-        rows[0].FundingDeposit.Should().BeApproximately(100.0, 1e-6);
-        rows[0].FundingDeficit.Should().BeApproximately(400.0, 1e-6);
     }
 
     [Fact]
@@ -629,6 +578,481 @@ public class DelinkedNotesTests
         rows[1].FeesAccrued.Should().Be(0.0);
         rows[2].FeesAccrued.Should().Be(0.0);
         rows[1].Tranche!.Numerator.Should().Be(0.0);
+    }
+
+    private static RevolvingSeries Bare(string name, string key, double balance, double coupon = 0.0) =>
+        NoteProgram.Tranche(name, key, balance, coupon) with { Fees = Array.Empty<RevolvingFee>() };
+
+    [Fact]
+    public void FinanceReimbursesTheSeniorClassFirstAndWhatIsLeftGoesDown()
+    {
+        // Each class is $10 down, the pool is all notes, and finance is $15: A gets all of its $10,
+        // B the $5 left, and C nothing. Reimbursing B gives back A's usage of B, in proportion.
+        RevolvingSeries Down(string key, double balance) => Bare(key, key, balance) with
+        {
+            Classes = new[] { new RevolvingClass { Key = key, Balance = balance, Coupon = 0.0, WrittenDown = 10.0 } }
+        };
+        var a = Down("A", 860.0) with { Usage = new Dictionary<string, double> { ["B"] = 8.0, ["C"] = 2.0 } };
+        var month = NoteProgram.Month(970.0, 970.0, 0.0, 15.0, 0.0, 0.0, 30);
+        var result = RunShort(month, a, Down("B", 70.0), Down("C", 70.0));
+
+        Named(result, "A").Classes["A"][0].CumWritedown.Should().BeApproximately(0.0, 1e-9);
+        Named(result, "B").Classes["B"][0].CumWritedown.Should().BeApproximately(5.0, 1e-9);
+        Named(result, "C").Classes["C"][0].CumWritedown.Should().BeApproximately(10.0, 1e-9);
+        Row(result, "A").Usage["B"].Should().BeApproximately(4.0, 1e-9);
+        Row(result, "A").Usage["C"].Should().BeApproximately(2.0, 1e-9);
+    }
+
+    private static RevolvingResult SpreadBelowZero(params RevolvingSeries[] tranches) =>
+        NoteProgram.Forecast(
+            NoteProgram.Program(triggers: new[] { NoteProgram.ExcessSpreadBelowZero with { Window = 1 } }), 2_000.0,
+            tranches, CardProgram.Drivers(0.4, 0.4, 0.001, 0.0, 0.0), 2);
+
+    [Fact]
+    public void TheExcessSpreadTestReadsTheSeriesNotTheTranche()
+    {
+        // On its own Class A has no coupon and no fee, so its spread is positive. The series' is
+        // negative: about 1.2% of yield against 4.2% of coupon and 1.5% of fee.
+        var result = SpreadBelowZero(Bare("A", "A", 860.0),
+            NoteProgram.Tranche("B", "B", 70.0, 30.0), NoteProgram.Tranche("C", "C", 70.0, 30.0));
+
+        Notes(result).ExcessSpreadPct.Should().BeApproximately(0.1 * 365.0 / 31.0 - 5.7, 1e-9);
+        Named(result, "A").Periods[0].Phase.Should().Be(SeriesPhase.Revolving);
+        result.Series.Should().AllSatisfy(s => s.Periods[1].Phase.Should().Be(SeriesPhase.EarlyAmortization));
+    }
+
+    [Fact]
+    public void AHistorySeededOnOneTrancheActsOnEveryTranche()
+    {
+        var history = new Dictionary<TriggerMetric, IReadOnlyList<double>>
+        {
+            [TriggerMetric.ExcessSpread] = new[] { -1.0, -1.0, -1.0 }
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(triggers: new[] { NoteProgram.ExcessSpreadBelowZero }),
+            2_000.0,
+            new[] { Bare("A1", "A", 430.0) with { History = history }, Bare("A2", "A", 430.0), Stack()[1], Stack()[2] },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        result.Series.Should().AllSatisfy(s => s.Periods[0].Phase.Should().Be(SeriesPhase.EarlyAmortization));
+    }
+
+    [Fact]
+    public void TranchesSeededWithDifferentHistoryAreRefused()
+    {
+        var one = new Dictionary<TriggerMetric, IReadOnlyList<double>> { [TriggerMetric.ExcessSpread] = new[] { 1.0 } };
+        var two = new Dictionary<TriggerMetric, IReadOnlyList<double>> { [TriggerMetric.ExcessSpread] = new[] { 2.0 } };
+
+        var act = () => RunShort(ShortMonth(100.0, 0.0), Stack()[0] with { History = one }, Stack()[1] with { History = two },
+            Stack()[2]);
+
+        act.Should().Throw<RevolvingConfigException>().WithMessage("*different history*");
+    }
+
+    [Fact]
+    public void AFloaterAwaitingItsFirstPayCountsItsRateInTheWeightedCoupon()
+    {
+        // It owes nothing yet, and half the notes pay 4.0 + 2.0.
+        var floater = Bare("A1", "A", 500.0) with
+        {
+            ClosingDate = new DateTime(2026, 8, 20),
+            FirstPayDate = new DateTime(2026, 10, 15),
+            Classes = new[]
+            {
+                new RevolvingClass
+                {
+                    Key = "A", Balance = 500.0, Index = GraamFlows.Objects.TypeEnum.MarketDataInstEnum.Sofr30Avg,
+                    Margin = 2.0, Basis = AccrualBasis.Actual360
+                }
+            }
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { floater, Bare("A2", "A", 360.0, 3.0), Bare("B", "B", 70.0, 3.0), Bare("C", "C", 70.0, 3.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        Named(result, "A1").Classes["A"][0].InterestAccrued.Should().Be(0.0);
+        Notes(result).CouponPct.Should().BeApproximately(4.5, 1e-9);
+    }
+
+    private static RevolvingResult Segregating(RevolvingSeries accumulator, ActualPeriod month, DateTime? statement = null) =>
+        NoteProgram.Execute(NoteProgram.Program(segregated: true), statement ?? Aug2026, new[] { month },
+            new[] { accumulator, Bare("B", "B", 70.0), Bare("C", "C", 70.0) });
+
+    private static RevolvingSeries Holding(double coupon = 3.0, AccrualBasis basis = AccrualBasis.Thirty360) =>
+        NoteProgram.Accumulating(NoteProgram.Tranche("A", "A", 850.0, coupon), 850.0, 425.0, 637.5, 425.0,
+            new[] { 212.5 }, new DateTime(2026, 7, 1), new DateTime(2026, 12, 15)) with
+        {
+            Fees = Array.Empty<RevolvingFee>(),
+            Classes = new[] { new RevolvingClass { Key = "A", Balance = 850.0, Coupon = coupon, Basis = basis } }
+        };
+
+    [Fact]
+    public void SegregatedFinanceNetsWhatTheFundingAccountsWereSaidToEarn()
+    {
+        // $425 at 3% for a month is $1.0625.
+        var month = NoteProgram.Month(2_000.0, 2_000.0, 500.0, 200.0, 0.0, 0.0, 30);
+
+        Notes(Segregating(Holding(), month)).SegregatedFinance.Should().BeApproximately(1.0625, 1e-9);
+        Notes(Segregating(Holding(), month with { PrincipalAccountEarnings = 1.0 })).SegregatedFinance
+            .Should().BeApproximately(0.0625, 1e-9);
+        Notes(Segregating(Holding(), month with { InterestAccountEarnings = 1.0 })).SegregatedFinance
+            .Should().BeApproximately(1.0625, 1e-9);
+    }
+
+    [Fact]
+    public void SegregatedFinanceAccruesOnTheTranchesOwnBasis()
+    {
+        // Aug 17 to Sep 15 is 29 days, not a twelfth of a year.
+        var month = NoteProgram.Month(2_000.0, 2_000.0, 500.0, 200.0, 0.0, 0.0, 30);
+        var result = Segregating(Holding(basis: AccrualBasis.Actual360), month, new DateTime(2026, 7, 31));
+
+        var days = result.Periods[0].Dates.AccrualDays;
+        days.Should().Be(29);
+        Notes(result).SegregatedFinance.Should().BeApproximately(425.0 * 0.03 * days / 360.0, 1e-9);
+    }
+
+    [Fact]
+    public void SegregatedFinanceStopsAtWhatTheTransferorWasAllocated()
+    {
+        // The pool is $10 over the notes, so 1% of the finance is the transferor's: $1 of $100.
+        var month = NoteProgram.Month(990.0 + 10.0, 1_000.0, 0.0, 100.0, 0.0, 0.0, 30) with { AllocationBalance = 1_000.0 };
+        var tranche = NoteProgram.Accumulating(Bare("A", "A", 850.0, 12.0), 850.0, 0.0, 850.0, 400.0, new[] { 10.0 },
+            new DateTime(2026, 7, 1), new DateTime(2026, 12, 15));
+        var result = NoteProgram.Execute(NoteProgram.Program(segregated: true), Aug2026, new[] { month },
+            new[] { tranche, Bare("B", "B", 70.0), Bare("C", "C", 70.0) });
+
+        Notes(result).SegregatedFinance.Should().BeApproximately(1.0, 1e-9);
+    }
+
+    [Fact]
+    public void AFourClassStackReproducesAPublishedRequiredAmountExample()
+    {
+        // A prospectus's worked example for a four-class trust: $100mm of Class A over $10mm of
+        // Class B, $10mm of Class C and $11.148mm of Class D. It prints Class B's claim of C as
+        // $9,112,426 ($8,860,760 + $251,667), and Class D's encumbered amount as the three claims of
+        // $10,759,494, $305,595 and $82,452.
+        var program = NoteProgram.Program() with
+        {
+            Delinked = new DelinkedNotes { ClassOrder = new[] { "A", "B", "C", "D" } },
+            FinanceSteps = new WaterfallStep[]
+            {
+                new(WaterfallVerb.PayInterest, "A"), new(WaterfallVerb.PayInterest, "B"),
+                new(WaterfallVerb.PayInterest, "C"), new(WaterfallVerb.PayInterest, "D"),
+                new(WaterfallVerb.ReleaseTransferor)
+            },
+            PrincipalSteps = new WaterfallStep[] { new(WaterfallVerb.DepositPfa), new(WaterfallVerb.ReleaseTransferor) }
+        };
+        var tranches = new[]
+        {
+            Bare("A", "A", 100_000_000.0) with
+            {
+                RequiredSubordination = new Dictionary<string, double>
+                    { ["B"] = 6.96202532, ["C"] = 8.86075950, ["D"] = 10.75949368 }
+            },
+            Bare("B", "B", 10_000_000.0) with
+            {
+                RequiredSubordination = new Dictionary<string, double> { ["C"] = 8.28402367, ["D"] = 10.05917160 }
+            },
+            Bare("C", "C", 10_000_000.0) with
+            {
+                RequiredSubordination = new Dictionary<string, double> { ["D"] = 9.28961749 }
+            },
+            Bare("D", "D", 11_148_000.0)
+        };
+        var result = NoteProgram.Forecast(program, 400_000_000.0, tranches, CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        Row(result, "A").RequiredSubordination["D"].Should().BeApproximately(10_759_494.0, 1.0);
+        Row(result, "B").RequiredSubordination["C"].Should().BeApproximately(9_112_426.0, 1.0);
+        Row(result, "B").RequiredSubordination["D"].Should().BeApproximately(10_759_494.0 + 305_595.0, 1.0);
+        Row(result, "C").RequiredSubordination["D"].Should().BeApproximately(10_759_494.0 + 305_595.0 + 82_452.0, 1.0);
+    }
+
+    [Fact]
+    public void ADeferredDepositShortfallCarriesIntoTheNextDepositAndIsCaughtUp()
+    {
+        var tranche = NoteProgram.Accumulating(NoteProgram.Tranche("A", "A", 860.0, 0.0), 860.0, 0.0, 860.0, 0.0,
+            new[] { 200.0 }, new DateTime(2026, 8, 1), new DateTime(2027, 8, 15));
+        var drivers = CardProgram.Drivers(0.1, 0.1, 0.05, 0.0, 0.0) with
+        {
+            PaymentRate = new PoolDriver(new[] { 0.1, 0.1, 0.4 })
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { tranche, NoteProgram.Tranche("B", "B", 70.0, 0.0), NoteProgram.Tranche("C", "C", 70.0, 0.0) },
+            drivers, 3);
+
+        // The notes get half of each month's principal. $200 a month is wanted, $100 comes, and the
+        // third month's $400 clears the month's $200 and the $200 behind it.
+        var rows = Named(result, "A").Periods;
+        rows[0].FundingDeposit.Should().BeApproximately(100.0, 1e-6);
+        rows[0].FundingDeficit.Should().BeApproximately(100.0, 1e-6);
+        rows[1].FundingDeposit.Should().BeApproximately(100.0, 1e-6);
+        rows[1].FundingDeficit.Should().BeApproximately(200.0, 1e-6);
+        rows[2].FundingDeposit.Should().BeApproximately(400.0, 1e-6);
+        rows[2].FundingDeficit.Should().BeApproximately(0.0, 1e-6);
+    }
+
+    private static RevolvingSeries[] AccumulatorAndStack() =>
+        May2020Tranches(Accumulator(425_000_000.0, 637_500_000.0, 212_500_000.0));
+
+    private static ActualPeriod[] May2020Months(int count) =>
+        Enumerable.Range(0, count).Select(i => i == 0 ? May2020 : May2020 with { Beginning = null }).ToArray();
+
+    [Fact]
+    public void TheNumeratorRunsAMonthBehindInEveryMonthOfARun()
+    {
+        // The account opens on $425mm and takes $212.5mm a month. So the first month's numerator is
+        // the stated $637.5mm, and each month after it is the opening amount of the month before.
+        var slow = NoteProgram.Accumulating(NoteProgram.Tranche("A(2016-4)", "A", 850_000_000.0, 1.49), 850_000_000.0,
+            212_500_000.0, 850_000_000.0, 0.0, new[] { 212_500_000.0 }, new DateTime(2020, 3, 1), new DateTime(2020, 9, 15));
+        var result = NoteProgram.Execute(NoteProgram.Program(), Apr2020, May2020Months(3), May2020Tranches(slow));
+
+        var rows = Named(result, "A(2016-4)").Periods;
+        rows[0].Tranche!.Numerator.Should().Be(850_000_000.0);
+        rows[1].Tranche!.Numerator.Should().Be(637_500_000.0);
+        rows[2].Tranche!.Numerator.Should().Be(425_000_000.0);
+        rows[2].Tranche!.OpeningNominalLiquidation.Should().Be(212_500_000.0);
+    }
+
+    [Fact]
+    public void SegregatedFinanceReadsTheAccountAMonthBehindInEveryMonthOfARun()
+    {
+        var slow = NoteProgram.Accumulating(NoteProgram.Tranche("A(2016-4)", "A", 850_000_000.0, 1.49), 850_000_000.0,
+            212_500_000.0, 850_000_000.0, 0.0, new[] { 212_500_000.0 }, new DateTime(2020, 3, 1), new DateTime(2020, 9, 15));
+        var result = NoteProgram.Execute(NoteProgram.Program(segregated: true), Apr2020, May2020Months(3),
+            May2020Tranches(slow));
+
+        // The month before held nothing, and from then on what each month opened on.
+        Notes(result, 0).SegregatedFinance.Should().Be(0.0);
+        Notes(result, 1).SegregatedFinance.Should().BeApproximately(212_500_000.0 * 0.0149 / 12.0, 0.01);
+        Notes(result, 2).SegregatedFinance.Should().BeApproximately(425_000_000.0 * 0.0149 / 12.0, 0.01);
+    }
+
+    /// <summary>The next run's tranche, on what this one closed with. Nothing else may carry.</summary>
+    private static RevolvingSeries Carried(RevolvingSeries tranche, RevolvingResult result)
+    {
+        var series = Named(result, tranche.Name);
+        var row = series.Periods[^1];
+        var key = tranche.Classes[0].Key;
+        var cls = series.Classes[key][^1];
+        return tranche with
+        {
+            Classes = new[]
+            {
+                tranche.Classes[0] with
+                {
+                    Balance = cls.EndBalance + cls.CumWritedown,
+                    WrittenDown = cls.CumWritedown,
+                    InterestShortfall = cls.InterestDueUnpaid
+                }
+            },
+            Phase = row.Phase,
+            FundingAccount = row.FundingAccount,
+            FundingDeficit = row.FundingDeficit,
+            AccumulationMonthsRun = tranche.AccumulationMonthsRun + (row.Phase == SeriesPhase.Accumulating ? 1 : 0),
+            FrozenNumerator = row.FrozenNumerator,
+            PriorNumerator = row.Tranche!.NextNumerator,
+            PriorFunding = row.Tranche.NextPriorFunding,
+            Usage = row.Tranche.Usage
+        };
+    }
+
+    [Fact]
+    public void OneLongRunMatchesMonthlyRunsCarriedOnTheEnginesClose()
+    {
+        // A replay cuts every month, so a run's own state only proves itself against this.
+        var slow = NoteProgram.Accumulating(NoteProgram.Tranche("A(2016-4)", "A", 850_000_000.0, 1.49), 850_000_000.0,
+            212_500_000.0, 850_000_000.0, 0.0, new[] { 212_500_000.0 }, new DateTime(2020, 3, 1), new DateTime(2020, 9, 15));
+        var tranches = May2020Tranches(slow);
+        var months = May2020Months(4);
+        var whole = NoteProgram.Execute(NoteProgram.Program(segregated: true), Apr2020, months, tranches);
+
+        var statement = Apr2020;
+        var cut = tranches;
+        for (var i = 0; i < months.Length; i++)
+        {
+            var month = months[i] with { Beginning = whole.Periods[i].Pool.Beginning };
+            var one = NoteProgram.Execute(NoteProgram.Program(segregated: true), statement, new[] { month }, cut);
+
+            var expected = Notes(whole, i);
+            var actual = Notes(one);
+            actual.Numerator.Should().BeApproximately(expected.Numerator, 1e-6);
+            actual.SegregatedFinance.Should().BeApproximately(expected.SegregatedFinance, 1e-6);
+            actual.ExcessDollars.Should().BeApproximately(expected.ExcessDollars, 1e-4);
+            foreach (var t in tranches)
+            {
+                var want = Named(whole, t.Name).Periods[i];
+                var got = Named(one, t.Name).Periods[0];
+                got.FundingAccount.Should().BeApproximately(want.FundingAccount, 1e-6);
+                got.AdjustedInvested.Should().BeApproximately(want.AdjustedInvested, 1e-6);
+            }
+
+            cut = cut.Select(t => Carried(t, one)).ToArray();
+            statement = new DateTime(statement.AddMonths(2).Year, statement.AddMonths(2).Month, 1).AddDays(-1);
+        }
+    }
+
+    [Fact]
+    public void PrincipalPaysAFeeFinanceCouldNotAndAJuniorClassBearsIt()
+    {
+        // 1.5% a year on $860 and $70, with no finance and no interest due. No step covers C's own fee.
+        var tranches = new[]
+        {
+            NoteProgram.Tranche("A", "A", 860.0, 0.0), NoteProgram.Tranche("B", "B", 70.0, 0.0),
+            NoteProgram.Tranche("C", "C", 70.0, 0.0)
+        };
+        var result = RunShort(ShortMonth(0.0, 0.0, 1_000.0), tranches);
+
+        Named(result, "A").Periods[0].FeesPaid.Should().BeApproximately(1.075, 1e-9);
+        Named(result, "B").Periods[0].FeesPaid.Should().BeApproximately(0.0875, 1e-9);
+        Notes(result).PrincipalReallocated.Should().BeApproximately(1.1625, 1e-9);
+        Named(result, "C").Periods[0].InvestedAmount.Should().BeApproximately(70.0 - 1.1625, 1e-9);
+        Named(result, "B").Periods[0].InvestedAmount.Should().BeApproximately(70.0, 1e-9);
+    }
+
+    [Fact]
+    public void AClassShortOfInterestIsShortTogether()
+    {
+        var a1 = Bare("A1", "A", 860.0, 12.0);
+        var a2 = Bare("A2", "A", 430.0, 12.0);
+        var month = NoteProgram.Month(2_860.0, 2_860.0, 0.0, 6.0, 0.0, 0.0, 30);
+        var result = RunShort(month, a1, a2, Stack()[1], Stack()[2]);
+
+        // The notes' $3 of finance pays $8.60 and $4.30 two to one.
+        var paid1 = Named(result, "A1").Classes["A"][0].InterestPaid;
+        var paid2 = Named(result, "A2").Classes["A"][0].InterestPaid;
+        (paid1 + paid2).Should().BeApproximately(3.0, 1e-9);
+        paid1.Should().BeApproximately(2.0 * paid2, 1e-9);
+    }
+
+    [Fact]
+    public void TranchesOfAClassShareAShortDepositByTarget()
+    {
+        RevolvingSeries Depositing(string name, double balance, double controlled) =>
+            NoteProgram.Accumulating(Bare(name, "A", balance), balance, 0.0, balance, 0.0, new[] { controlled },
+                new DateTime(2026, 8, 1), new DateTime(2027, 8, 15));
+
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { Depositing("A1", 430.0, 300.0), Depositing("A2", 430.0, 100.0), Stack()[1], Stack()[2] },
+            CardProgram.Drivers(0.2, 0.2, 0.05, 0.0, 0.0), 1);
+
+        // The notes' $200 of principal against targets of $300 and $100.
+        Named(result, "A1").Periods[0].FundingDeposit.Should().BeApproximately(150.0, 1e-6);
+        Named(result, "A2").Periods[0].FundingDeposit.Should().BeApproximately(50.0, 1e-6);
+    }
+
+    [Fact]
+    public void AMiddleClassPassesWhatItTookFromAboveDownToTheClassBelowIt()
+    {
+        // $100 uncovered on numerators of 860, 70 and 70. A may use $43 of B and none of C, and B's
+        // own $7 spends $4.30 of that, so A moves $38.70 to B and keeps $47.30. B holds up 50% of
+        // the $27 of itself A does not claim: $13.50 of C. C's own $7 spends $1.35 of that, and B's
+        // own $7 goes to C, which leaves $5.15 of the $38.70 for B to pass down.
+        var result = RunShort(ShortMonth(0.0, 200.0),
+            Bare("A", "A", 860.0) with { RequiredSubordination = new Dictionary<string, double> { ["B"] = 5.0, ["C"] = 0.0 } },
+            Bare("B", "B", 70.0) with { RequiredSubordination = new Dictionary<string, double> { ["C"] = 50.0 } },
+            Bare("C", "C", 70.0));
+
+        Named(result, "A").Periods[0].InvestedAmount.Should().BeApproximately(812.7, 1e-9);
+        Named(result, "B").Periods[0].InvestedAmount.Should().BeApproximately(36.45, 1e-9);
+        Named(result, "C").Periods[0].InvestedAmount.Should().BeApproximately(50.85, 1e-9);
+    }
+
+    [Fact]
+    public void ChargesFallOnTheMonthsNumeratorNotTheCurrentAmount()
+    {
+        // Equal numerators and unequal amounts, and nothing moves down: $43 each.
+        var a1 = Bare("A1", "A", 500.0) with
+        {
+            PriorNumerator = 430.0,
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 }
+        };
+        var a2 = Bare("A2", "A", 360.0) with
+        {
+            PriorNumerator = 430.0,
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 }
+        };
+        var result = RunShort(ShortMonth(0.0, 200.0), a1, a2, Stack()[1], Stack()[2]);
+
+        Named(result, "A1").Periods[0].InvestedAmount.Should().BeApproximately(500.0 - 43.0, 1e-9);
+        Named(result, "A2").Periods[0].InvestedAmount.Should().BeApproximately(360.0 - 43.0, 1e-9);
+    }
+
+    private static RevolvingSeries Maturing(string name, string key, double balance) =>
+        NoteProgram.Accumulating(Bare(name, key, balance), balance, 0.0, balance, 0.0, new[] { balance },
+            new DateTime(2026, 8, 1), new DateTime(2027, 8, 15));
+
+    [Fact]
+    public void AJuniorDepositStopsAtWhatLeavesTheSeniorClaimCovered()
+    {
+        // 10% of $860 is a claim of $86 on $120 of Class B, so $34 of Class B may go.
+        var a = Bare("A", "A", 860.0) with
+        {
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 10.0, ["C"] = 0.0 }
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { a, Maturing("B1", "B", 60.0), Bare("B2", "B", 60.0), Stack()[2] },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        Named(result, "B1").Periods[0].FundingDeposit.Should().BeApproximately(34.0, 1e-6);
+    }
+
+    [Fact]
+    public void AJuniorDepositIsMeasuredAfterTheSeniorDepositsOfTheMonth()
+    {
+        // Class A deposits $430 first, which halves its claim on Class B to $43, so all $60 may go.
+        var a = NoteProgram.Accumulating(Bare("A", "A", 860.0), 860.0, 0.0, 860.0, 0.0, new[] { 430.0 },
+            new DateTime(2026, 8, 1), new DateTime(2027, 8, 15)) with
+        {
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 10.0, ["C"] = 0.0 }
+        };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { a, Maturing("B1", "B", 60.0), Bare("B2", "B", 60.0), Stack()[2] },
+            CardProgram.Drivers(0.8, 0.8, 0.05, 0.0, 0.0), 1);
+
+        Named(result, "B1").Periods[0].FundingDeposit.Should().BeApproximately(60.0, 1e-6);
+    }
+
+    [Fact]
+    public void AClassCDepositReadsTheLargerOfTheTwoClaimsNotTheirSum()
+    {
+        // Class B's figure already holds Class A's claim, so adding them would count it twice. With
+        // Class A claiming $40 and Class B $40.50, $39.50 of the $80 of Class C may go.
+        var a = Bare("A", "A", 800.0) with
+        {
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 5.0 }
+        };
+        var b = Bare("B", "B", 100.0) with { RequiredSubordination = new Dictionary<string, double> { ["C"] = 0.5 } };
+        var result = NoteProgram.Forecast(NoteProgram.Program(), 2_000.0,
+            new[] { a, b, Maturing("C1", "C", 40.0), Bare("C2", "C", 40.0) },
+            CardProgram.Drivers(0.4, 0.4, 0.05, 0.0, 0.0), 1);
+
+        Named(result, "C1").Periods[0].FundingDeposit.Should().BeApproximately(39.5, 1e-6);
+    }
+
+    [Fact]
+    public void AReallocationForClassBCountsClassBsOwnPrincipalInItsCap()
+    {
+        // "Principal Collections ... allocable to the Class B notes and Class C notes ... minus" what
+        // the steps before it moved, so the class being paid counts. B and C are each allocated $3.50
+        // of the month's principal, and B is owed $5.25: more than C's own share.
+        var a = Bare("A", "A", 860.0) with
+        {
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 0.0, ["C"] = 0.0 }
+        };
+        var b = Bare("B", "B", 70.0, 90.0) with { RequiredSubordination = new Dictionary<string, double> { ["C"] = 100.0 } };
+        var result = RunShort(ShortMonth(0.0, 0.0, 100.0), a, b, Bare("C", "C", 70.0));
+
+        Notes(result).PrincipalReallocated.Should().BeApproximately(5.25, 1e-9);
+        Named(result, "B").Classes["B"][0].InterestPaid.Should().BeApproximately(5.25, 1e-9);
+    }
+
+    [Fact]
+    public void FinanceYieldUsesTheDaysOfThePeriodsOwnYear()
+    {
+        // February 2024: 5% of the numerator for the month, on a 366-day year.
+        var month = NoteProgram.Month(2_000.0, 2_000.0, 500.0, 100.0, 0.0, 0.0, 29);
+        var result = NoteProgram.Execute(NoteProgram.Program(), new DateTime(2024, 1, 31), new[] { month }, Stack());
+
+        Notes(result).FinanceYieldPct.Should().BeApproximately(5.0 * 366.0 / 29.0, 1e-9);
     }
 
     [Fact]

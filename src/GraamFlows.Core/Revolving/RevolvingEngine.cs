@@ -28,6 +28,7 @@ public static class RevolvingEngine
         private readonly Dictionary<ClassRun, List<ClassPeriod>> _classRows;
         private readonly Dictionary<SeriesRun, List<PhaseMove>> _phasePaths;
         private readonly List<ProgramPeriod> _rows = new();
+        private readonly Dictionary<TriggerMetric, List<double>>? _noteHistory;
         private double _pool;
 
         public RevolvingLoop(RevolvingRun run, IRateProvider rates)
@@ -36,12 +37,25 @@ public static class RevolvingEngine
             _program = run.Program;
             _rates = rates;
             _pool = run.PoolBalance;
+            _noteHistory = _program.Delinked == null ? null : NoteHistory(run.Series);
             _series = run.Series
-                .Select(s => new SeriesRun(s, _program.ActionLag ?? 0, _program.Triggers))
+                .Select(s => new SeriesRun(s, _program.ActionLag ?? 0, _program.Triggers, _noteHistory))
                 .ToList();
             _seriesRows = _series.ToDictionary(s => s, _ => new List<SeriesPeriod>(run.Periods));
             _classRows = _series.SelectMany(s => s.Classes).ToDictionary(c => c, _ => new List<ClassPeriod>(run.Periods));
             _phasePaths = _series.ToDictionary(s => s, _ => new List<PhaseMove>());
+        }
+
+        /// <summary>
+        ///     A note series' tests read the whole series, so its tranches read one history. The
+        ///     validator has checked that any tranches stating it state the same months.
+        /// </summary>
+        private static Dictionary<TriggerMetric, List<double>> NoteHistory(IEnumerable<RevolvingSeries> tranches)
+        {
+            var seeded = tranches.FirstOrDefault(t => t.History.Count > 0);
+            return seeded == null
+                ? new Dictionary<TriggerMetric, List<double>>()
+                : seeded.History.ToDictionary(h => h.Key, h => h.Value.ToList());
         }
 
         public RevolvingResult Execute()
@@ -106,7 +120,8 @@ public static class RevolvingEngine
             var segregated = 0.0;
             if (Delinked)
             {
-                segregated = SegregatedFinance(live, earnings, pool.FinanceCash - allocatedFinance);
+                segregated = SegregatedFinance(live, earnings + month.PrincipalAccountEarnings,
+                    pool.FinanceCash - allocatedFinance, dates);
                 allocatedFinance += segregated;
                 notes = RunNotes(live, opened, allocations, accountEarnings + segregated, dates);
             }
@@ -145,6 +160,13 @@ public static class RevolvingEngine
 
             foreach (var s in _series)
                 CloseSeries(s, opened[s], allocations.GetValueOrDefault(s.Config.Name), readings[s], dates, notePeriod);
+
+            if (notePeriod is { Numerator: >= SeriesRun.Cent })
+            {
+                Remember(_noteHistory!, TriggerMetric.PortfolioYield, notePeriod.PortfolioYieldPct);
+                Remember(_noteHistory!, TriggerMetric.BaseRate, notePeriod.BaseRatePct);
+                Remember(_noteHistory!, TriggerMetric.ExcessSpread, notePeriod.ExcessSpreadPct);
+            }
 
             var cashOut = transferorFinance + transferorPrincipal
                           + _series.Sum(s => s.Classes.Sum(c => c.InterestPaid + c.PrincipalPaid)
@@ -311,16 +333,19 @@ public static class RevolvingEngine
         }
 
         /// <summary>
-        ///     Interest on what the funding accounts held at the close of the month before, less what
-        ///     they earned, from finance that would otherwise be the transferor's. It starts by itself
-        ///     in the second month of deposits, and a tranche paid off has none.
+        ///     Interest on what the funding accounts held at the close of the month before, on each
+        ///     tranche's own accrual, less what those accounts earned, whether at the run's rate or
+        ///     supplied. It comes from finance that would otherwise be the transferor's. It starts by
+        ///     itself in the second month of deposits, and a tranche paid off has none.
         /// </summary>
-        private double SegregatedFinance(List<SeriesRun> live, double earned, double transferorFinance)
+        private double SegregatedFinance(List<SeriesRun> live, double earned, double transferorFinance,
+            RevolvingPeriodDates dates)
         {
             if (_program.Delinked is not { SegregatedFinance: true })
                 return 0.0;
 
-            var carry = live.Sum(s => s.PriorFunding * s.Classes[0].RatePct / 100.0 / 12.0) - earned;
+            var carry = live.Sum(s => s.PriorFunding * s.Classes[0].RatePct / 100.0
+                                      * AccrualFraction(s.Classes[0].Config.Basis, dates, null)) - earned;
             return Math.Min(Math.Max(0.0, carry), Math.Max(0.0, transferorFinance));
         }
 
@@ -601,18 +626,17 @@ public static class RevolvingEngine
             var baseRatePct = RevolvingMetrics.BaseRatePct(s.Classes.Sum(c => c.InterestAccrued), open.Invested, s.InterestDays)
                               + RevolvingMetrics.BaseRatePct(s.FeesAccrued, open.Invested, dates.AccrualDays);
 
-            // A note series' tests read the whole series, so every tranche reads the same months.
+            // A tranche reports the series' rates, which are the ones its tests read.
             if (notes != null)
             {
                 yieldPct = notes.PortfolioYieldPct;
                 baseRatePct = notes.BaseRatePct;
             }
-
-            if (open.Invested >= SeriesRun.Cent && (notes != null || s.InterestDays > 0))
+            else if (open.Invested >= SeriesRun.Cent && s.InterestDays > 0)
             {
-                Remember(s, TriggerMetric.PortfolioYield, yieldPct);
-                Remember(s, TriggerMetric.BaseRate, baseRatePct);
-                Remember(s, TriggerMetric.ExcessSpread, yieldPct - baseRatePct);
+                Remember(s.History, TriggerMetric.PortfolioYield, yieldPct);
+                Remember(s.History, TriggerMetric.BaseRate, baseRatePct);
+                Remember(s.History, TriggerMetric.ExcessSpread, yieldPct - baseRatePct);
             }
 
             foreach (var c in s.Classes)
@@ -715,10 +739,10 @@ public static class RevolvingEngine
                 path.Add(new PhaseMove(s.Phase, dates.Period, dates.DistributionDate));
         }
 
-        private static void Remember(SeriesRun s, TriggerMetric metric, double value)
+        private static void Remember(Dictionary<TriggerMetric, List<double>> history, TriggerMetric metric, double value)
         {
-            if (!s.History.TryGetValue(metric, out var months))
-                s.History[metric] = months = new List<double>();
+            if (!history.TryGetValue(metric, out var months))
+                history[metric] = months = new List<double>();
             months.Add(value);
         }
 
