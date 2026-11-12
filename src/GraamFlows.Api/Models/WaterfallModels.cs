@@ -693,6 +693,16 @@ public class UnifiedWaterfallDto
     public List<string>? ExpensesFromPrincipal { get; set; }
 
     /// <summary>
+    ///     After each period's payments, write the notes down by any amount their aggregate balance
+    ///     stands above the pool's, in the WRITEDOWN step's order — an RMBS indenture's Applied
+    ///     Realized Loss Amount ("if the aggregate Note Amount exceeds the aggregate Stated
+    ///     Principal Balance of the Mortgage Loans, the excess is allocated to the Class B-3 ...").
+    ///     It is what makes a fee paid from principal a loss to the last class: without it the class
+    ///     is paid less principal than its balance and is never retired. Off unless stated.
+    /// </summary>
+    public bool? WriteNotesDownToPool { get; set; }
+
+    /// <summary>
     ///     Classes whose interest the interest waterfall leaves unpaid is paid from principal proceeds
     ///     after <see cref="ExpensesFromPrincipal" />, ahead of the notes' principal — a CLO's
     ///     Principal Priority of Payments paying the senior notes' unpaid interest (and a junior
