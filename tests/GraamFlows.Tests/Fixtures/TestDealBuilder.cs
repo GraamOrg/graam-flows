@@ -31,6 +31,7 @@ public class TestDealBuilder
     private IncentiveFeeConfig? _incentiveFee;
     private IReadOnlyList<string>? _expensesAfterInterest;
     private IReadOnlyList<string>? _expensesFromPrincipal;
+    private bool _writeNotesDownToPool;
     private PrincipalAfterNotesConfig? _principalAfterNotes;
     private IReadOnlyList<DeferrableNoteConfig>? _deferrableNotes;
     private IReadOnlyList<string>? _interestFromPrincipal;
@@ -563,6 +564,12 @@ public class TestDealBuilder
         return this;
     }
 
+    public TestDealBuilder WithNotesWrittenDownToPool()
+    {
+        _writeNotesDownToPool = true;
+        return this;
+    }
+
     public TestDealBuilder WithExpensesAfterInterest(params string[] names)
     {
         _expensesAfterInterest = names;
@@ -716,6 +723,7 @@ public class TestDealBuilder
             _deal.ExpensesAfterInterest = _expensesAfterInterest;
         if (_expensesFromPrincipal != null)
             _deal.ExpensesFromPrincipal = _expensesFromPrincipal;
+        _deal.WriteNotesDownToPool = _writeNotesDownToPool;
         if (_principalAfterNotes != null)
             _deal.PrincipalAfterNotes = _principalAfterNotes;
         if (_deferrableNotes != null)
