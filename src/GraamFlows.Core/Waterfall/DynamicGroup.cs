@@ -609,8 +609,23 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         }
     }
 
+    private DateTime? _notionalSettledOn;
+
+    /// <summary>
+    ///     True when <see cref="SettleNotionalBalances" /> has already set this class's balance to
+    ///     the pool's end balance for <paramref name="cashflowDate" />. The exchange pass that
+    ///     follows the group waterfall factors a strip paid off the group down with the pool; on a
+    ///     strip the settle had already brought to the pool's end balance that was a second
+    ///     reduction, and the strip's reported balance read pool end x pool factor. In the month a
+    ///     pool's 30-year loans matured, an excess-servicing strip on a $1.0M remaining pool read
+    ///     $14,965, and $1,005,575 the month after.
+    /// </summary>
+    public bool NotionalSettled(DynamicClass dynClass, DateTime cashflowDate) =>
+        _notionalSettledOn == cashflowDate && NotionalClasses().Contains(dynClass);
+
     public void SettleNotionalBalances(double poolEndBalance, DateTime cashflowDate)
     {
+        _notionalSettledOn = cashflowDate;
         foreach (var ioClass in NotionalClasses())
         foreach (var dynTran in ioClass.DynamicTranches)
         {
