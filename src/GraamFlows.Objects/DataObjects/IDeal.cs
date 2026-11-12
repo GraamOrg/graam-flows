@@ -105,6 +105,13 @@ public interface IDeal : IPayRuleAssemblyStore
     IReadOnlyList<string> ExpensesFromPrincipal { get; }
 
     /// <summary>
+    /// After each period's payments, write the notes down by any amount their aggregate balance
+    /// stands above the pool's — an indenture's Applied Realized Loss Amount, allocated in the
+    /// deal's writedown order (optional; false: only collateral losses write notes down, as before).
+    /// </summary>
+    bool WriteNotesDownToPool { get; }
+
+    /// <summary>
     /// Classes whose unpaid interest is paid from principal proceeds after
     /// <see cref="ExpensesFromPrincipal" />, ahead of the notes' principal, senior first (optional;
     /// empty: unpaid interest is carried to the next Payment Date, as before). A Deferrable Note's

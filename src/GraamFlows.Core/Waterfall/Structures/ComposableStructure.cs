@@ -861,6 +861,18 @@ public class ComposableStructure : BaseStructure
             }
         }
 
+        // Applied Realized Loss: what the notes still stand above the pool by, after every payment
+        // and collateral-loss writedown of the period, is written down in the writedown order.
+        // With no losses that is the principal a fee was paid out of ahead of the notes: the pool
+        // fell by it and the notes did not. Left alone, the last class was paid less principal
+        // than its balance and ended a no-loss run unretired.
+        if (deal.WriteNotesDownToPool && dynGroup.WritedownPayable != null)
+        {
+            var overPool = dynGroup.Balance() - adjPeriodCf.Balance;
+            if (overPool > 0.005)
+                dynGroup.WritedownPayable.PayWritedown(null, adjPeriodCf.CashflowDate, overPool, () => { });
+        }
+
         // Update Certificate tranche balance to reflect current OC (Pool - Notes)
         // Called AFTER all principal payments so both pool and note balances are at end-of-period values
         dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
