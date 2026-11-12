@@ -201,7 +201,11 @@ public abstract class BaseStructure : IWaterfall
                                                                     PayFromEnum.ExcessServicing)).ToList();
             foreach (var groupExch in exchOffGroup)
                 // classes off a group are typically IO's or excess servicing strips. We just need to factor down the class the same as the group. 
-                if (groupExch.DealStructure.GroupNum != "0")
+                if (dynGroup.NotionalSettled(groupExch, cashflowDate))
+                {
+                    // Already at the pool's end balance for this period: nothing left to factor down.
+                }
+                else if (groupExch.DealStructure.GroupNum != "0")
                 {
                     var payDownFactor = periodCf.Balance / periodCf.BeginBalance;
                     var payDownAmt = groupExch.Balance - groupExch.Balance * payDownFactor;
