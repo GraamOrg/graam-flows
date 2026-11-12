@@ -157,6 +157,40 @@ public class ComposableStructureTests
     }
 
     [Fact]
+    public void ExcessServicingStrip_NotionalIsThePoolBalance_EveryPeriod()
+    {
+        // The strip's notional is the pool balance: it opens each period on the pool's opening
+        // balance and closes on its closing balance. It was closing on pool end x pool factor —
+        // the group waterfall set it to the pool's end balance, and the exchange pass that
+        // follows factored it down by the pool's paydown a second time. Each period then opened
+        // above where the last had closed, which reads as a balance written up.
+        const double bal = 100_000_000;
+        var collateral = CreateCollateral(12, bal, wacPct: 8.0);
+        var pool = collateral.PeriodCashflows.OrderBy(p => p.CashflowDate).ToList();
+        pool.Should().Contain(p => p.Balance < p.BeginBalance - 1.0, "the fixture pool must pay down");
+
+        var (deal, run) = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithExcessServicingStrip("AIOS", bal)
+            .WithSequentialWaterfall("A", "B")
+            .BuildAndRun(collateral);
+
+        var aios = GetCashflows(run, "AIOS").OrderBy(kv => kv.Key).Select(kv => kv.Value).ToList();
+        aios.Should().HaveCount(pool.Count);
+        for (var i = 0; i < pool.Count; i++)
+        {
+            aios[i].BeginBalance.Should().BeApproximately(pool[i].BeginBalance, 0.01,
+                $"period {i + 1}: the strip accrues on the pool's opening balance");
+            aios[i].Balance.Should().BeApproximately(pool[i].Balance, 0.01,
+                $"period {i + 1}: the strip's notional closes on the pool's closing balance, once");
+            if (i > 0)
+                aios[i].BeginBalance.Should().BeApproximately(aios[i - 1].Balance, 0.01,
+                    $"period {i + 1}: it opens where it closed");
+        }
+    }
+
+    [Fact]
     public void Interest_PreFirstPayStub_ReTimedToOneMonthPerDistribution()
     {
         // Repro of graam-harmony #2748. The pool is projected from the closing/
