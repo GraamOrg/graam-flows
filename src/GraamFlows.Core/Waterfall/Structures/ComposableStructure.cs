@@ -31,6 +31,7 @@ public class ComposableStructure : BaseStructure
 {
     // Per run: what the interest diversion test diverted, returned on the DealCashflows.
     private List<InterestDiversionResult> _interestDiversions = new();
+    private CashLedger? _cashLedger;
 
     public override DealCashflows Waterfall(IDeal deal, IRateProvider rateProvider, DateTime firstProjectionDate,
         CollateralCashflows cashflows, IAssumptionMill assumps, ITrancheAllocator trancheAllocator)
@@ -68,6 +69,7 @@ public class ComposableStructure : BaseStructure
             : deal.ExecutionOrder.ToList();
 
         var dealTerminated = false;
+        _cashLedger = deal.ReportCashLedger ? new CashLedger() : null;
         _interestDiversions = new List<InterestDiversionResult>();
         _unpaidAfterInterest = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         _headShortfall = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -295,7 +297,19 @@ public class ComposableStructure : BaseStructure
                 // the balance the payoff is meant to redeem (graam-harmony#4879).
                 if (terminated)
                 {
+                    var cashBeforePayoff = _cashLedger != null
+                        ? CashRecorded(dynGroup, adjPeriodCf.CashflowDate)
+                        : 0.0;
                     ExecuteTermination(dynGroup, adjPeriodCf, applyWritedown: false);
+                    if (_cashLedger != null)
+                    {
+                        // The payoff redeems the classes out of the pool's remaining balance, which
+                        // never enters the running totals: it is entered as collected and as paid.
+                        var payoff = CashRecorded(dynGroup, adjPeriodCf.CashflowDate) - cashBeforePayoff;
+                        _cashLedger.Collect(payoff);
+                        _cashLedger.Record("TERMINATION", adjPeriodCf.CashflowDate, payoff, payoff);
+                    }
+
                     dealTerminated = true;
                 }
 
@@ -355,6 +369,7 @@ public class ComposableStructure : BaseStructure
 
         var dealCashflows = dynDeal.DynamicGroups.CreateDealCashflows(cashflows, assumps);
         dealCashflows.InterestDiversions = _interestDiversions;
+        dealCashflows.CashLedger = _cashLedger;
         return dealCashflows;
     }
 
@@ -686,6 +701,27 @@ public class ComposableStructure : BaseStructure
         // Note: UpdateCertificateBalance is called AFTER principal payments to ensure
         // both pool and note balances are at end-of-period values for correct OC calculation.
 
+        // Cash ledger (only when the run asked for it). Funds are the four running totals plus the
+        // principal held back below for the OC release, which leaves them at the start of the
+        // period and is paid by EXCESS_TURBO. Cash is what the classes have recorded as paid.
+        var ledger = _cashLedger;
+        var heldBack = 0.0;
+        double Funds() => availableInterest + availableSchedPrin + availablePrepayPrin + availableRecovPrin + heldBack;
+        double Cash() => CashRecorded(dynGroup, adjPeriodCf.CashflowDate);
+        var ledgerFunds = Funds();
+        var ledgerCash = ledger != null ? Cash() : 0.0;
+        ledger?.Collect(ledgerFunds);
+
+        void Mark(string name)
+        {
+            if (ledger == null) return;
+            var funds = Funds();
+            var cash = Cash();
+            ledger.Record(name, adjPeriodCf.CashflowDate, ledgerFunds - funds, cash - ledgerCash);
+            ledgerFunds = funds;
+            ledgerCash = cash;
+        }
+
         // OC release: reduce scheduled principal to notes when OC exceeds target,
         // maintaining OC at the target level. This matches auto ABS prospectus mechanics
         // where excess principal above the OC target is released to certificate holders.
@@ -705,6 +741,7 @@ public class ComposableStructure : BaseStructure
                     availablePrepayPrin *= ratio;
                     availableRecovPrin *= ratio;
                     dynGroup.SetVariable("oc_release_amount", reduction);
+                    heldBack = reduction;
                 }
             }
         }
@@ -715,6 +752,19 @@ public class ComposableStructure : BaseStructure
         // `availableInterest` nor reduces it — it's a redirect of the servicing
         // fee, independent of the execution-order steps below.
         PayExcessServicingStep(dynGroup, rateProvider, adjPeriodCf, allTranches);
+        if (ledger != null)
+        {
+            // The strip is paid out of the servicing fee, which never enters the running totals.
+            var cash = Cash();
+            var stripPaid = cash - ledgerCash;
+            if (Math.Abs(stripPaid) > 0.005)
+            {
+                ledger.Collect(stripPaid);
+                ledger.Record("SERVICING_STRIP", adjPeriodCf.CashflowDate, stripPaid, stripPaid);
+            }
+
+            ledgerCash = cash;
+        }
 
         // Excess-spread first-loss applies automatically when an ExcessInterest (XS)
         // strip is present — UNLESS the deal already routes losses through an OC-target
@@ -859,6 +909,12 @@ public class ComposableStructure : BaseStructure
                         "runs as PRINCIPAL_SCHEDULED, PRINCIPAL_UNSCHEDULED or PRINCIPAL_RECOVERY, " +
                         "by its source.");
             }
+
+            // The turbo is the step that pays the principal held back for the OC release.
+            if (heldBack > 0 && dynGroup.ReleasePayable != null &&
+                step.Equals("EXCESS_TURBO", StringComparison.OrdinalIgnoreCase))
+                heldBack = 0;
+            Mark(step.ToUpperInvariant());
         }
 
         // Applied Realized Loss: what the notes still stand above the pool by, after every payment
@@ -896,8 +952,71 @@ public class ComposableStructure : BaseStructure
                 ? 0.0
                 : availableSchedPrin + availablePrepayPrin + availableRecovPrin;
         if (!interestDiversionApplied)
+        {
             availableInterest = ApplyInterestDiversion(deal, dynGroup, adjPeriodCf, availableInterest);
+            // Interest diverted here buys collateral: it leaves the running total after the last
+            // step and is paid to no class, so it gets a line of its own.
+            if (ledger != null && Math.Abs(Funds() - ledgerFunds) > 0.005)
+                Mark("INTEREST_DIVERSION");
+        }
+
+        // The certificate's balance was rewritten just above, so measure the residual from here.
+        var cashBeforeResidual = ledger != null ? Cash() : 0.0;
         CreditResidual(dynGroup, adjPeriodCf, availableInterest, residualPrincipal);
+
+        if (ledger != null)
+        {
+            // What the residual class took, and what was left with no class to take it.
+            var credited = Cash() - cashBeforeResidual;
+            ledger.Record("RESIDUAL", adjPeriodCf.CashflowDate, credited, credited);
+            var hasCertificate = dynGroup.DynamicClasses.Any(dc =>
+                dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate);
+            var residualTakes = dynGroup.DynamicClasses.Any(dc => dc.IsResidual && dc.DynamicTranches.Any());
+            var principalLeft = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
+            // Principal held back for the OC release that no turbo step paid is still held here:
+            // it was collected and reached no class, whatever the residual took.
+            ledger.Leftover(residualTakes ? 0 : availableInterest,
+                (residualTakes && !hasCertificate ? 0 : principalLeft) + heldBack, hasCertificate);
+        }
+    }
+
+    /// <summary>
+    ///     The cash the response will show as paid for this pay date, plus what the funds account
+    ///     holds. It never creates a cashflow row. It reads each class where the response reads
+    ///     it (<see cref="GraamFlows.Util.DynamicClassExtensions.CreateDealCashflows" /> and the
+    ///     response mapping), because cash recorded anywhere else never reaches a reader:
+    ///     a certificate is reported from its class row; the funds account's tranche rows are
+    ///     dropped, so cash released to a class typed as the funds account reaches no reader;
+    ///     every other class, expenses included, is reported from its tranche rows. A notional or
+    ///     pseudo class is paid real cash. An exchanged class repeats
+    ///     its components' cash, but it is paid after every group's steps have run, so it holds
+    ///     nothing while a step is being measured.
+    /// </summary>
+    private static double CashRecorded(DynamicGroup dynGroup, DateTime cashflowDate)
+    {
+        static double Row(DynamicClass dc, DateTime date) =>
+            dc.Cashflows.TryGetValue(dc.AdjustedCashflowDate(date), out var cf)
+                ? cf.Interest + cf.Expense + cf.ScheduledPrincipal + cf.UnscheduledPrincipal
+                : 0.0;
+
+        var sum = 0.0;
+        foreach (var dc in dynGroup.DynamicClasses)
+        {
+            // The funds account is counted by what it holds, below. Its class row books the
+            // period's deposits and withdrawals in the principal and interest columns, which is
+            // bookkeeping, and its tranche rows are dropped from the response.
+            if (ReferenceEquals(dc, dynGroup.FundsAccount))
+                continue;
+            if (dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+                sum += Row(dc, cashflowDate);
+            else
+                foreach (var dt in dc.DynamicTranches)
+                    sum += Row(dt, cashflowDate);
+        }
+
+        if (dynGroup.FundsAccount != null)
+            sum += dynGroup.FundsAccount.AccountBalance;
+        return sum;
     }
 
     /// <summary>
