@@ -50,11 +50,15 @@ public class CashLedgerTests
     [Fact]
     public void A_deal_that_pays_out_what_it_collects_balances_at_every_step()
     {
-        var pool = Collateral(loss: 600_000);
+        // Scheduled, prepaid and recovery principal all move, so each running total is exercised.
+        var pool = Collateral(loss: 600_000, prepaid: 400_000, recoveryRate: 0.5);
         var ledger = Run(Deal(WithStrip(), pool)).CashLedger!;
 
-        var collected = pool.Sum(p => p.NetInterest + p.ScheduledPrincipal + p.RecoveryPrincipal);
+        var collected = CashIn(pool);
         ledger.Collected.Should().BeApproximately(collected, 0.01);
+        ledger.Steps.Should().OnlyContain(s => s.Periods == pool.Count);
+        ledger.Steps.Single(s => s.Step == "PRINCIPAL_UNSCHEDULED").Paid.Should().BeApproximately(12 * 400_000, 0.01);
+        ledger.Steps.Single(s => s.Step == "PRINCIPAL_RECOVERY").Paid.Should().BeApproximately(12 * 300_000, 0.01);
         ledger.Steps.Should().OnlyContain(s => s.TakenNotPaid < 0.01 && s.PaidNotTaken < 0.01);
         ledger.Steps.Sum(s => s.Paid).Should().BeApproximately(collected, 0.05, "every dollar collected is paid to a class");
         (ledger.LeftInterest + ledger.LeftPrincipal + ledger.LeftPrincipalBesideCertificate).Should().BeApproximately(0, 0.01);
@@ -113,7 +117,7 @@ public class CashLedgerTests
         // 40M of notes on a 100M pool repaying 10M a month: the note is retired in month 4. The
         // pool keeps losing 500k a month, and the rule keeps taking it off the strip's interest
         // with no note left to pay it to.
-        var pool = Collateral(loss: 500_000, scheduledShare: 0.10);
+        var pool = Collateral(loss: 500_000, scheduledShare: 0.08, prepaid: 1_000_000, recoveryRate: 0.2);
         var r = Run(Deal(new Stack
         {
             Tranches = { Note("A1", 40_000_000, 0), Strip() },
@@ -125,11 +129,12 @@ public class CashLedgerTests
         var writedown = ledger.Steps.Single(s => s.Step == "WRITEDOWN");
         writedown.TakenNotPaid.Should().BeGreaterThan(1_000_000);
         writedown.FirstPeriodOff.Should().BeAfter(retired.AddDays(-1), "while the note stood, the excess paid it down");
-        writedown.LargestGap.Should().BeInRange(400_000, 500_000,
-            "at most a month's loss is taken off the strip, and in these months none of it reaches a note");
+        writedown.LargestGap.Should().BeInRange(300_000, 400_000,
+            "at most a month's net loss is taken off the strip, and in these months none of it reaches a note");
 
         // Every dollar collected is paid to a class, lost at a named step, or left at the end.
-        var collected = pool.Sum(p => p.NetInterest + p.ScheduledPrincipal + p.RecoveryPrincipal);
+        // Scheduled, prepaid and recovery principal are all left once the note is gone.
+        var collected = CashIn(pool);
         ledger.Collected.Should().BeApproximately(collected, 0.01);
         (ledger.Steps.Sum(s => s.Paid) + ledger.Steps.Sum(s => s.TakenNotPaid - s.PaidNotTaken)
          + ledger.LeftInterest + ledger.LeftPrincipal).Should().BeApproximately(collected, 0.05);
@@ -296,6 +301,247 @@ public class CashLedgerTests
         ledger.Steps.Should().OnlyContain(s => s.Value.TakenNotPaid < 0.01 && s.Value.PaidNotTaken < 0.01);
     }
 
+    // ---- Cash that reaches no reader -------------------------------------------------------------
+
+    [Theory]
+    [InlineData("CapFundsReserve", true)]
+    [InlineData("Offered", false)]
+    public void Excess_released_to_a_class_the_response_drops_is_taken_and_not_paid(string stripType, bool dropped)
+    {
+        // A class typed as the funds account is reported from its class row; its tranche rows,
+        // where a release lands, never reach the response. The ledger reads what a reader sees.
+        var request = Deal(NotesOnly(), Collateral());
+        var strip = Strip();
+        strip.TrancheType = stripType;
+        request.Deal.Tranches.Add(strip);
+        request.Deal.UnifiedWaterfall!.ExecutionOrder!.Add("EXCESS_RELEASE");
+        request.Deal.UnifiedWaterfall.Steps.Add(new WaterfallStepDto
+            { Type = "EXCESS_RELEASE", Structure = Seq(new List<string> { "XS" }) });
+        var r = Run(request);
+        var release = r.CashLedger!.Steps.Single(s => s.Step == "EXCESS_RELEASE");
+
+        var shown = r.TrancheCashflows.TryGetValue("XS", out var rows) ? rows.Sum(c => c.Interest) : 0.0;
+        release.Taken.Should().BeGreaterThan(1_000_000);
+        if (dropped)
+        {
+            shown.Should().BeApproximately(0, 0.01, "the fixture: the response shows the strip nothing");
+            release.TakenNotPaid.Should().BeApproximately(release.Taken, 0.01);
+        }
+        else
+        {
+            shown.Should().BeApproximately(release.Taken, 0.01);
+            release.TakenNotPaid.Should().BeApproximately(0, 0.01);
+        }
+    }
+
+    [Fact]
+    public void A_reserve_accounts_deposits_are_cash_held_not_cash_lost()
+    {
+        var request = Deal(NotesOnly(), Collateral());
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "RESERVE", OriginalBalance = 0, TrancheType = "CapFundsReserve", CashflowType = "Reserve",
+            CouponType = "None", SubordinationOrder = 8, FirstPayDate = FirstPayDate,
+            ReserveConfig = new ReserveAccountConfigDto
+            {
+                TargetPct = 0.02, TargetBase = "CutoffPoolBalance", CutoffPoolBalance = Pool, CapAtNoteBalance = false
+            }
+        });
+        request.Deal.UnifiedWaterfall!.ExecutionOrder!.Add("RESERVE_DEPOSIT");
+        request.Deal.UnifiedWaterfall.Steps.Add(new WaterfallStepDto { Type = "RESERVE_DEPOSIT" });
+        var ledger = Run(request).CashLedger!;
+
+        var deposit = ledger.Steps.Single(s => s.Step == "RESERVE_DEPOSIT");
+        deposit.Taken.Should().BeGreaterThan(100_000, "the fixture: the reserve is built from excess interest");
+        deposit.Paid.Should().BeApproximately(deposit.Taken, 0.01, "what the account holds counts as paid into it");
+        deposit.TakenNotPaid.Should().BeApproximately(0, 0.01);
+    }
+
+    [Fact]
+    public void A_class_paid_on_its_own_pay_day_is_read_on_that_day()
+    {
+        // The pool's cashflows are dated the 25th and the classes pay on the 15th: their rows are
+        // keyed by the pay date, not by the collateral date the step was run for.
+        var request = Deal(WithStrip(), Collateral(loss: 600_000));
+        foreach (var t in request.Deal.Tranches)
+            t.PayDay = 15;
+        var r = Run(request);
+        var ledger = r.CashLedger!;
+
+        // The first row sits on the first pay date itself; every later one on the pay day.
+        r.TrancheCashflows["A1"].Skip(1).Should()
+            .OnlyContain(c => c.CashflowDate.Day == 15, "the fixture: rows carry the pay day");
+
+        ledger.Steps.Sum(s => s.Paid).Should().BeGreaterThan(10_000_000);
+        ledger.Steps.Should().OnlyContain(s => s.TakenNotPaid < 0.01 && s.PaidNotTaken < 0.01);
+    }
+
+    // ---- Principal held back for a release that nothing pays -------------------------------------
+
+    private static TestDealBuilder OcDeal() => new TestDealBuilder()
+        .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+        .WithSequentialWaterfall("A")
+        .WithOcTarget(0.10, 0)
+        .WithCashLedger();
+
+    [Fact]
+    public void Held_back_principal_with_no_release_structure_is_left_beside_the_certificate()
+    {
+        // The OC target holds 11.2M of principal back from the note over six months and there is
+        // no release structure to pay it through. It reached no class; the certificate's balance
+        // carries it.
+        var ledger = OcDeal().WithCertificateTranche().BuildAndRun(SixMonths()).Cashflows.CashLedger!;
+
+        ledger.LeftPrincipalBesideCertificate.Should().BeApproximately(11_200_000, 0.01);
+        ledger.LeftPrincipal.Should().BeApproximately(0, 0.01);
+        ledger.PeriodsLeft.Should().Be(6);
+        ledger.Steps.Should().OnlyContain(s => s.Value.TakenNotPaid < 0.01 && s.Value.PaidNotTaken < 0.01);
+        (ledger.Steps.Sum(s => s.Value.Paid) + ledger.LeftInterest + ledger.LeftPrincipalBesideCertificate)
+            .Should().BeApproximately(ledger.Collected, 0.05, "collected is paid or left");
+    }
+
+    [Fact]
+    public void Held_back_principal_with_no_certificate_and_no_turbo_step_is_left()
+    {
+        // A residual class takes what the last step leaves, but the held-back principal never
+        // came back to the running totals, so it is not the residual's either.
+        var ledger = OcDeal()
+            .WithTranche("R", 0, 0.0, subOrder: 9, cashflowType: "PI", couponType: "Residual")
+            .WithExecutionOrder(NoReleaseStep)
+            .BuildAndRun(SixMonths()).Cashflows.CashLedger!;
+
+        ledger.LeftPrincipal.Should().BeApproximately(11_200_000, 0.01);
+        ledger.LeftPrincipalBesideCertificate.Should().BeApproximately(0, 0.01);
+        ledger.LeftInterest.Should().BeApproximately(0, 0.01, "the residual took the interest");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Principal_the_notes_leave_goes_to_a_residual_class_unless_a_certificate_carries_it(bool certificate)
+    {
+        // 40M of notes on a 100M pool repaying 12M over six months... the note takes it all here,
+        // so shrink the note: 5M of notes is retired in month 3 and the rest of the principal is left.
+        var builder = new TestDealBuilder()
+            .WithTranche("A", 5_000_000, 5.0, subOrder: 0)
+            .WithTranche("R", 0, 0.0, subOrder: 9, cashflowType: "PI", couponType: "Residual")
+            .WithSequentialWaterfall("A")
+            .WithExecutionOrder(NoReleaseStep)
+            .WithCashLedger();
+        if (certificate)
+            builder.WithCertificateTranche();
+        var ledger = builder.BuildAndRun(SixMonths()).Cashflows.CashLedger!;
+        var residual = ledger.Steps.Single(s => s.Key == "RESIDUAL").Value;
+
+        if (certificate)
+        {
+            ledger.LeftPrincipalBesideCertificate.Should().BeApproximately(7_000_000, 0.01);
+            ledger.LeftPrincipal.Should().BeApproximately(0, 0.01);
+        }
+        else
+        {
+            ledger.LeftPrincipalBesideCertificate.Should().BeApproximately(0, 0.01);
+            ledger.LeftPrincipal.Should().BeApproximately(0, 0.01, "the residual took it");
+            residual.Paid.Should().BeGreaterThan(7_000_000);
+        }
+    }
+
+    // ---- Cash that moves outside the steps ---------------------------------------------------------
+
+    [Fact]
+    public void Interest_diverted_after_the_last_step_gets_a_line_of_its_own()
+    {
+        // A reinvestment-period diversion test with an order that has no excess step: the
+        // diversion runs after the last step and buys collateral, so no class is paid it.
+        var cf = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("E", 15_000_000, 8.0, subOrder: 1)
+            .WithTranche("R", 5_000_000, 0.0, subOrder: 2, cashflowType: "PI", couponType: "Residual")
+            .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('E'), SINGLE('A')))")
+            .WithInterestDiversion(new InterestDiversionConfig
+            {
+                Tranches = new[] { "A", "E" }, TriggerPct = 106.0, MaxPctOfInterest = 50.0,
+                EndDate = TestConstants.DefaultFirstPayDate.AddMonths(12), PurchasePricePct = 99.5
+            })
+            .WithExecutionOrder(NoReleaseStep)
+            .WithCashLedger()
+            .BuildAndRun(FlatPool()).Cashflows;
+        var ledger = cf.CashLedger!;
+
+        var diverted = cf.InterestDiversions.Sum(d => d.Diverted);
+        diverted.Should().BeGreaterThan(1_000_000, "the fixture: the test fails and diverts");
+        ledger.Steps.Single(s => s.Key == "INTEREST_DIVERSION").Value.TakenNotPaid.Should().BeApproximately(diverted, 0.01);
+        (ledger.Steps.Sum(s => s.Value.Paid) + ledger.Steps.Sum(s => s.Value.TakenNotPaid)).Should()
+            .BeApproximately(ledger.Collected, 0.05);
+    }
+
+    private static CollateralCashflows FlatPool()
+    {
+        var b = new TestCollateralBuilder().WithGroupNum("1");
+        for (var i = 0; i < 24; i++)
+            b.WithPeriod(date: TestConstants.DefaultFirstPayDate.AddMonths(i), beginBalance: 100_000_000,
+                scheduledPrincipal: 0, unscheduledPrincipal: 0, interest: 800_000);
+        return b.Build();
+    }
+
+    [Fact]
+    public void A_termination_payoff_is_entered_as_collected_and_as_paid()
+    {
+        // The deal ends in month 4 and the classes are redeemed out of the pool's remaining
+        // balance, which never passes through the running totals.
+        var cf = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("B", 20_000_000, 6.0, subOrder: 1)
+            .WithSequentialWaterfall("A", "B")
+            .WithExecutionOrder(NoReleaseStep)
+            .WithDateTermination(TestConstants.DefaultFirstPayDate.AddMonths(3))
+            .WithCashLedger()
+            .BuildAndRun(SixMonths()).Cashflows;
+        var ledger = cf.CashLedger!;
+
+        var shown = cf.TrancheCashflows.Values.SelectMany(t => t.Cashflows.Values)
+            .Sum(c => c.Interest + c.ScheduledPrincipal + c.UnscheduledPrincipal + c.Expense);
+        var payoff = ledger.Steps.Single(s => s.Key == "TERMINATION").Value;
+        payoff.Paid.Should().BeGreaterThan(50_000_000);
+        payoff.Taken.Should().BeApproximately(payoff.Paid, 0.01);
+        ledger.Steps.Sum(s => s.Value.Paid).Should().BeApproximately(shown, 0.05,
+            "the ledger's paid is what the response shows the classes");
+        (ledger.Steps.Sum(s => s.Value.Paid) + ledger.LeftInterest + ledger.LeftPrincipal).Should()
+            .BeApproximately(ledger.Collected, 0.05);
+    }
+
+    [Fact]
+    public void The_response_carries_every_ledger_field()
+    {
+        // The API mapping, on a deal that fills the fields the others leave at zero.
+        var request = Deal(new Stack
+        {
+            Tranches =
+            {
+                Note("A1", 80_000_000, 0),
+                new TrancheDto
+                {
+                    TrancheName = "CERT", OriginalBalance = 0, TrancheType = "Certificate", CashflowType = "PI",
+                    CouponType = "None", SubordinationOrder = 9, FirstPayDate = FirstPayDate
+                }
+            },
+            Interest = { "A1" }, Principal = { "A1" }, Writedown = { "A1" }
+        }, Collateral());
+        request.Deal.UnifiedWaterfall!.ExecutionOrder!.Add("EXCESS_TURBO");
+        request.Deal.UnifiedWaterfall.Steps.Add(new WaterfallStepDto
+            { Type = "EXCESS_TURBO", OcTarget = new OcTargetDto { TargetPct = 0.10 } });
+        var ledger = Run(request).CashLedger!;
+
+        ledger.LeftPrincipalBesideCertificate.Should().BeGreaterThan(1_000_000,
+            "the OC target holds principal back and nothing pays it");
+        ledger.PeriodsLeft.Should().BeGreaterThan(0);
+        ledger.Steps.Should().OnlyContain(s => s.Periods == 12);
+    }
+
     [Fact]
     public void The_request_field_binds_under_its_stated_name()
     {
@@ -396,25 +642,34 @@ public class CashLedgerTests
     private static PayableStructureDto Seq(List<string> tranches) => new() { Type = "SEQ", Tranches = tranches.ToList() };
 
     /// <summary>Twelve months; a share of the opening balance repaid each month; an optional flat loss.</summary>
-    private static List<PeriodCashflowDto> Collateral(double loss = 0, double scheduledShare = 0.01, double wac = Wac)
+    /// <summary>
+    /// <paramref name="loss" /> is the principal defaulted each month, of which
+    /// <paramref name="recoveryRate" /> comes back as recovery principal.
+    /// </summary>
+    private static List<PeriodCashflowDto> Collateral(double loss = 0, double scheduledShare = 0.01, double wac = Wac,
+        double prepaid = 0, double recoveryRate = 0)
     {
         var periods = new List<PeriodCashflowDto>();
         var balance = Pool;
         var scheduled = Pool * scheduledShare;
-        for (var i = 0; i < 12 && balance > scheduled + loss; i++)
+        for (var i = 0; i < 12 && balance > scheduled + prepaid + loss; i++)
         {
             var interest = balance * wac / 100 / 12;
-            var end = balance - scheduled - loss;
+            var end = balance - scheduled - prepaid - loss;
             periods.Add(new PeriodCashflowDto
             {
                 Period = i + 1, CashflowDate = FirstPayDate.AddMonths(i), GroupNum = "1",
                 BeginBalance = balance, Balance = end, ScheduledPrincipal = scheduled,
-                Interest = interest, NetInterest = interest, DefaultedPrincipal = loss, RecoveryPrincipal = 0,
-                CollateralLoss = loss, Wac = wac
+                UnscheduledPrincipal = prepaid, Interest = interest, NetInterest = interest,
+                DefaultedPrincipal = loss, RecoveryPrincipal = loss * recoveryRate,
+                CollateralLoss = loss * (1 - recoveryRate), Wac = wac
             });
             balance = end;
         }
 
         return periods;
     }
+
+    private static double CashIn(IEnumerable<PeriodCashflowDto> pool) =>
+        pool.Sum(p => p.NetInterest + p.ScheduledPrincipal + p.UnscheduledPrincipal + p.RecoveryPrincipal);
 }

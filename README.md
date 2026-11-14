@@ -340,11 +340,26 @@ The waterfall carries each period's interest and principal in running totals, an
 }
 ```
 
-- `takenNotPaid`: the step removed cash that reached no class. A release step with no one to release to shows here; so does the built-in excess-spread rule taking excess off the strip for a loss once the notes have retired.
+- `takenNotPaid`: the step removed cash that reached no class the response reports. A release step with no one to release to shows here; so does a release to a class typed as the funds account, whose tranche rows the response drops; so does the built-in excess-spread rule taking excess off the strip for a loss once the notes have retired.
 - `paidNotTaken`: a class was paid cash no running total gave up. Guaranteed interest the pool did not collect shows here.
-- `leftInterest`, `leftPrincipal`: cash left after the last step with no residual class to take it. `leftPrincipalBesideCertificate` is principal left on a deal with a certificate, whose balance (pool less notes) carries it without being paid it.
+- `leftInterest`, `leftPrincipal`: cash left after the last step with no residual class to take it. `leftPrincipalBesideCertificate` is principal left on a deal with a certificate, whose balance (pool less notes) carries it. Principal held back for an OC release that no step paid is left principal too.
 
-A run with every step's two gap fields at zero and nothing left paid out exactly what it collected. `SERVICING_STRIP` and `RESIDUAL` appear as steps of their own: the strip is paid from the servicing fee, which never enters the running totals, and the residual class takes what the last step leaves.
+A period's gap counts once it is over a cent. Over the run, `collected` equals the steps' `paid`, plus `takenNotPaid` less `paidNotTaken`, plus what was left.
+
+Some lines are not steps of the execution order:
+
+| Line | What it is |
+|---|---|
+| `SERVICING_STRIP` | The strip paid from the servicing fee, which never enters the running totals. Entered as collected and as paid. |
+| `INTEREST_DIVERSION` | Interest diverted to buy collateral after the last step. Taken and paid to no class. A diversion that runs inside a step shows on that step. |
+| `RESIDUAL` | What the residual class takes of what the last step leaves. |
+| `TERMINATION` | The payoff when the deal ends, out of the pool's remaining balance. Entered as collected and as paid. |
+
+Three things it does not do:
+
+- A reserve account is counted by what it holds, so a deposit is cash paid into it and a draw is cash paid out of it. The balance it opens the run with is not in `collected`.
+- A fall in a certificate's balance that the engine books in the certificate's principal column at the end of a period is not counted as a payment.
+- Collateral bought by a reinvesting deal is outside it: `collected` is what entered the waterfall after purchases.
 
 ### Interleaved waterfall ordering
 

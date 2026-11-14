@@ -297,7 +297,19 @@ public class ComposableStructure : BaseStructure
                 // the balance the payoff is meant to redeem (graam-harmony#4879).
                 if (terminated)
                 {
+                    var cashBeforePayoff = _cashLedger != null
+                        ? CashRecorded(dynGroup, adjPeriodCf.CashflowDate)
+                        : 0.0;
                     ExecuteTermination(dynGroup, adjPeriodCf, applyWritedown: false);
+                    if (_cashLedger != null)
+                    {
+                        // The payoff redeems the classes out of the pool's remaining balance, which
+                        // never enters the running totals: it is entered as collected and as paid.
+                        var payoff = CashRecorded(dynGroup, adjPeriodCf.CashflowDate) - cashBeforePayoff;
+                        _cashLedger.Collect(payoff);
+                        _cashLedger.Record("TERMINATION", adjPeriodCf.CashflowDate, payoff, payoff);
+                    }
+
                     dealTerminated = true;
                 }
 
@@ -940,7 +952,14 @@ public class ComposableStructure : BaseStructure
                 ? 0.0
                 : availableSchedPrin + availablePrepayPrin + availableRecovPrin;
         if (!interestDiversionApplied)
+        {
             availableInterest = ApplyInterestDiversion(deal, dynGroup, adjPeriodCf, availableInterest);
+            // Interest diverted here buys collateral: it leaves the running total after the last
+            // step and is paid to no class, so it gets a line of its own.
+            if (ledger != null && Math.Abs(Funds() - ledgerFunds) > 0.005)
+                Mark("INTEREST_DIVERSION");
+        }
+
         // The certificate's balance was rewritten just above, so measure the residual from here.
         var cashBeforeResidual = ledger != null ? Cash() : 0.0;
         CreditResidual(dynGroup, adjPeriodCf, availableInterest, residualPrincipal);
@@ -954,16 +973,22 @@ public class ComposableStructure : BaseStructure
                 dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate);
             var residualTakes = dynGroup.DynamicClasses.Any(dc => dc.IsResidual && dc.DynamicTranches.Any());
             var principalLeft = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
+            // Principal held back for the OC release that no turbo step paid is still held here:
+            // it was collected and reached no class, whatever the residual took.
             ledger.Leftover(residualTakes ? 0 : availableInterest,
-                residualTakes && !hasCertificate ? 0 : principalLeft, hasCertificate);
+                (residualTakes && !hasCertificate ? 0 : principalLeft) + heldBack, hasCertificate);
         }
     }
 
     /// <summary>
     ///     The cash the response will show as paid for this pay date, plus what the funds account
-    ///     holds. It never creates a cashflow row. Where the cash sits is not uniform: a certificate
-    ///     is reported from its class row and every other class, expenses included, from its
-    ///     tranche rows; a notional or pseudo class is paid real cash. An exchanged class repeats
+    ///     holds. It never creates a cashflow row. It reads each class where the response reads
+    ///     it (<see cref="GraamFlows.Util.DynamicClassExtensions.CreateDealCashflows" /> and the
+    ///     response mapping), because cash recorded anywhere else never reaches a reader:
+    ///     a certificate is reported from its class row; the funds account's tranche rows are
+    ///     dropped, so cash released to a class typed as the funds account reaches no reader;
+    ///     every other class, expenses included, is reported from its tranche rows. A notional or
+    ///     pseudo class is paid real cash. An exchanged class repeats
     ///     its components' cash, but it is paid after every group's steps have run, so it holds
     ///     nothing while a step is being measured.
     /// </summary>
@@ -977,6 +1002,11 @@ public class ComposableStructure : BaseStructure
         var sum = 0.0;
         foreach (var dc in dynGroup.DynamicClasses)
         {
+            // The funds account is counted by what it holds, below. Its class row books the
+            // period's deposits and withdrawals in the principal and interest columns, which is
+            // bookkeeping, and its tranche rows are dropped from the response.
+            if (ReferenceEquals(dc, dynGroup.FundsAccount))
+                continue;
             if (dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
                 sum += Row(dc, cashflowDate);
             else
