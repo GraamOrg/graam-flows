@@ -669,6 +669,10 @@ public class ComposableStructure : BaseStructure
         // pool (and never divides by a zero face).
         dynGroup.InitNotionalBalances(adjPeriodCf.BeginBalance, adjPeriodCf.CashflowDate);
 
+        // The certificate opens its first period at the pool's opening balance less the notes,
+        // and every period's row carries the balance it opened with.
+        dynGroup.OpenCertificateBalance(adjPeriodCf.BeginBalance, adjPeriodCf.CashflowDate);
+
         // Track available funds through the waterfall
         var availableInterest = Math.Max(cfAlloc.Interest - adjPeriodCf.InterestWithheld, 0);
         var availableSchedPrin = cfAlloc.SchedPrin;

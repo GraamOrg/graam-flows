@@ -474,13 +474,14 @@ public class TestDealBuilder
         return this;
     }
 
-    public TestDealBuilder WithCertificateTranche(string name = "Certificates", int subOrder = 99)
+    public TestDealBuilder WithCertificateTranche(string name = "Certificates", int subOrder = 99,
+        double originalBalance = 0)
     {
         _deal.Tranches.Add(new Tranche
         {
             TrancheName = name,
             DealName = _deal.DealName,
-            OriginalBalance = 0,
+            OriginalBalance = originalBalance,
             Factor = 1.0,
             CouponType = "None",
             TrancheType = "Certificate",
