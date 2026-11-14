@@ -570,6 +570,13 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>Ask the run for its cash ledger (<see cref="DealCashflows.CashLedger" />).</summary>
+    public TestDealBuilder WithCashLedger()
+    {
+        _deal.ReportCashLedger = true;
+        return this;
+    }
+
     public TestDealBuilder WithExpensesAfterInterest(params string[] names)
     {
         _expensesAfterInterest = names;

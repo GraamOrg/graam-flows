@@ -112,6 +112,13 @@ public interface IDeal : IPayRuleAssemblyStore
     bool WriteNotesDownToPool { get; }
 
     /// <summary>
+    /// Record a <see cref="CashLedger" /> for the run: what each step took off the running totals
+    /// against the cash the classes were paid. A run option, not part of the deal; it changes no
+    /// cashflow. False unless asked for.
+    /// </summary>
+    bool ReportCashLedger { get; }
+
+    /// <summary>
     /// Classes whose unpaid interest is paid from principal proceeds after
     /// <see cref="ExpensesFromPrincipal" />, ahead of the notes' principal, senior first (optional;
     /// empty: unpaid interest is carried to the next Payment Date, as before). A Deferrable Note's
