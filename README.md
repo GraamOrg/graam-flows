@@ -323,6 +323,29 @@ EXPENSE -> INTEREST -> PRINCIPAL_SCHEDULED -> PRINCIPAL_UNSCHEDULED ->
 PRINCIPAL_RECOVERY -> WRITEDOWN -> RESERVE_DEPOSIT -> EXCESS_TURBO -> EXCESS_RELEASE
 ```
 
+### Cash ledger
+
+Set `reportCashLedger: true` on a waterfall request and the response carries a `cashLedger` section: the run's cash checked against itself. The cashflows are the same with it on or off.
+
+The waterfall carries each period's interest and principal in running totals, and every step takes what it reckons it paid off them. The ledger records, for each step, what it took (`taken`) and the cash the classes were actually paid while it ran (`paid`).
+
+```json
+"cashLedger": {
+  "collected": 16500000.0,
+  "leftInterest": 0.0, "leftPrincipal": 0.0, "leftPrincipalBesideCertificate": 0.0, "periodsLeft": 0,
+  "steps": [
+    { "step": "INTEREST", "periods": 6, "taken": 2000000.0, "paid": 2000000.0,
+      "takenNotPaid": 0.0, "paidNotTaken": 0.0, "periodsOff": 0, "largestGap": 0.0 }
+  ]
+}
+```
+
+- `takenNotPaid`: the step removed cash that reached no class. A release step with no one to release to shows here; so does the built-in excess-spread rule taking excess off the strip for a loss once the notes have retired.
+- `paidNotTaken`: a class was paid cash no running total gave up. Guaranteed interest the pool did not collect shows here.
+- `leftInterest`, `leftPrincipal`: cash left after the last step with no residual class to take it. `leftPrincipalBesideCertificate` is principal left on a deal with a certificate, whose balance (pool less notes) carries it without being paid it.
+
+A run with every step's two gap fields at zero and nothing left paid out exactly what it collected. `SERVICING_STRIP` and `RESIDUAL` appear as steps of their own: the strip is paid from the servicing fee, which never enters the running totals, and the residual class takes what the last step leaves.
+
 ### Interleaved waterfall ordering
 
 The `waterfallOrder` field controls how interest and principal interact:

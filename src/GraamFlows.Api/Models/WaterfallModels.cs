@@ -56,6 +56,14 @@ public class WaterfallRequest
     public DateTime? SettleDate { get; set; }
 
     /// <summary>
+    ///     Ask for <see cref="WaterfallResponse.CashLedger" />: for every step, what it took off the
+    ///     waterfall's running totals against the cash the classes were paid, and what was left at
+    ///     the end of a period with no class to take it. The cashflows are the same with it on or
+    ///     off. Off unless stated.
+    /// </summary>
+    public bool? ReportCashLedger { get; set; }
+
+    /// <summary>
     ///     The collateral assumptions the posted cashflows were projected under
     ///     (graam-harmony#5577). Used ONLY to project collateral the reinvestment loop BUYS.
     ///
@@ -1009,6 +1017,9 @@ public class WaterfallResponse
     public DateTime? TerminationDate { get; set; }
     public WaterfallSummaryDto Summary { get; set; } = new();
 
+    /// <summary>Present when the request set <see cref="WaterfallRequest.ReportCashLedger" />.</summary>
+    public CashLedgerDto? CashLedger { get; set; }
+
     /// <summary>
     ///     What the run priced its floating indices on (graam-flows#102). Present on every
     ///     successful response: a consumer that needs to know whether a number rests on a supplied
@@ -1212,6 +1223,59 @@ public class TriggerResultDto
     /// <summary>The threshold the trigger compared against (e.g. the
     /// configured delinquency cutoff, the schedule's loss cap).</summary>
     public double? RequiredValue { get; set; }
+}
+
+/// <summary>
+///     The waterfall's cash, checked against itself. A run whose every step has
+///     <see cref="CashLedgerStepDto.TakenNotPaid" /> and <see cref="CashLedgerStepDto.PaidNotTaken" />
+///     at zero, and nothing left, paid out exactly what it collected.
+/// </summary>
+public class CashLedgerDto
+{
+    /// <summary>Interest and principal that entered the waterfall (and any servicing fee paid to a strip).</summary>
+    public double Collected { get; set; }
+
+    /// <summary>Interest left after the last step with no residual class to take it.</summary>
+    public double LeftInterest { get; set; }
+
+    /// <summary>Principal left after the last step with no residual class and no certificate.</summary>
+    public double LeftPrincipal { get; set; }
+
+    /// <summary>
+    ///     Principal left after the last step on a deal with a certificate, whose balance (pool
+    ///     less notes) carries it without being paid it.
+    /// </summary>
+    public double LeftPrincipalBesideCertificate { get; set; }
+
+    /// <summary>Periods that ended with cash no class took.</summary>
+    public int PeriodsLeft { get; set; }
+
+    /// <summary>One entry a step, in the order the steps first ran.</summary>
+    public List<CashLedgerStepDto> Steps { get; set; } = new();
+}
+
+public class CashLedgerStepDto
+{
+    public string Step { get; set; } = "";
+    public int Periods { get; set; }
+
+    /// <summary>What the step took off the running totals, over the run.</summary>
+    public double Taken { get; set; }
+
+    /// <summary>The cash recorded on the classes while it ran, over the run.</summary>
+    public double Paid { get; set; }
+
+    /// <summary>Taken with no payment recorded: cash the step removed that reached no class.</summary>
+    public double TakenNotPaid { get; set; }
+
+    /// <summary>Paid with nothing taken: cash a class received that no running total gave up.</summary>
+    public double PaidNotTaken { get; set; }
+
+    public int PeriodsOff { get; set; }
+    public DateTime? FirstPeriodOff { get; set; }
+
+    /// <summary>The largest single-period difference; positive is taken and not paid.</summary>
+    public double LargestGap { get; set; }
 }
 
 public class WaterfallSummaryDto
