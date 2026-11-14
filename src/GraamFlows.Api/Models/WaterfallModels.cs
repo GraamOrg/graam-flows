@@ -900,9 +900,10 @@ public class WaterfallStepDto
     ///     For WRITEDOWN: how the step sizes its amount. "periodLoss" (the default) is the period's
     ///     defaulted principal less recoveries. "overPool" is what the funded classes still stand
     ///     above the pool by after every step ahead of it (an indenture's Applied Realized Loss
-    ///     Amount), in place of the period-loss amount. "overPool" is refused when a principal or
-    ///     EXCESS_TURBO step runs after WRITEDOWN (the notes have not been paid yet) and on a deal
-    ///     with a MODIFICATION_LOSS step (it runs ahead of the payments this size depends on).
+    ///     Amount), in place of the period-loss amount. "overPool" is refused when a step that can
+    ///     still pay the notes runs after WRITEDOWN (only EXPENSE, RESERVE_DEPOSIT, EXCESS,
+    ///     EXCESS_RELEASE and CAP_CARRYOVER may follow it) and on a deal with a MODIFICATION_LOSS
+    ///     step (it runs ahead of the payments this size depends on).
     /// </summary>
     public string? Size { get; set; }
 

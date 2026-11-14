@@ -342,7 +342,7 @@ How excess spread meets losses is stated in two step fields. Neither is on unles
 
 A loss smaller than the period's excess writes nothing down and the release step pays the excess less the loss. A larger loss writes down only the remainder. A deal whose documents pay the excess-spread class ahead of any loss cover states neither field: the notes take the period's loss and the release step pays the whole excess.
 
-The engine refuses the combinations that would count a loss twice or not at all: `overPool` with a principal or `EXCESS_TURBO` step after `WRITEDOWN`, `overPool` on a deal with a `MODIFICATION_LOSS` step, and a zero-target turbo ahead of a `periodLoss` write-down. The default execution order runs `EXCESS_TURBO` after `WRITEDOWN`, so a deal using `overPool` states its order.
+The engine refuses the combinations that would count a loss twice or not at all: `overPool` with any step after `WRITEDOWN` that can still pay the notes (only `EXPENSE`, `RESERVE_DEPOSIT`, `EXCESS`, `EXCESS_RELEASE` and `CAP_CARRYOVER` may follow it), `overPool` on a deal with a `MODIFICATION_LOSS` step, and a zero-target turbo ahead of a `periodLoss` write-down. The default execution order runs `EXCESS_TURBO` after `WRITEDOWN`, so a deal using `overPool` states its order.
 
 ### Interleaved waterfall ordering
 

@@ -4,6 +4,8 @@ using FluentAssertions;
 using GraamFlows.Api.Controllers;
 using GraamFlows.Api.Models;
 using GraamFlows.Objects.DataObjects;
+using GraamFlows.Tests.Fixtures;
+using GraamFlows.Tests.Helpers;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -173,7 +175,9 @@ public class ExcessCoversLossesStepsTests
     [InlineData("PRINCIPAL_RECOVERY")]
     [InlineData("PRINCIPAL_SCHEDULED")]
     [InlineData("EXCESS_TURBO")]
-    public void OverPool_is_refused_when_a_step_that_pays_the_notes_runs_after_the_writedown(string late)
+    [InlineData("SUPPLEMENTAL_REDUCTION")]
+    [InlineData("INTEREST")]
+    public void OverPool_is_refused_when_a_step_that_can_pay_the_notes_runs_after_the_writedown(string late)
     {
         var order = new List<string>
         {
@@ -182,8 +186,47 @@ public class ExcessCoversLossesStepsTests
         order.Remove(late);
         order.AddRange(new[] { "WRITEDOWN", late, "EXCESS_RELEASE" });
 
-        Refusal(Steps(MixedLosses(), order: order)).Should().Contain("overPool").And.Contain(late)
-            .And.Contain("runs after");
+        Refusal(Steps(MixedLosses(), order: order)).Should().Contain("overPool").And.Contain($"{late} runs after");
+    }
+
+    [Fact]
+    public void Interest_that_pays_the_principal_itself_is_refused_after_an_overPool_writedown()
+    {
+        // Interleaved, INTEREST is the step that pays all the principal. Left to run after the
+        // write-down, the junior class was written down by the principal about to be paid.
+        var request = Steps(MixedLosses(),
+            order: new List<string> { "EXCESS_TURBO", "WRITEDOWN", "INTEREST", "EXCESS_RELEASE" });
+        request.Deal.UnifiedWaterfall!.WaterfallOrder = "interestFirst";
+
+        Refusal(request).Should().Contain("overPool").And.Contain("INTEREST runs after");
+    }
+
+    [Theory]
+    [InlineData("EXPENSE")]
+    [InlineData("RESERVE_DEPOSIT")]
+    [InlineData("CAP_CARRYOVER")]
+    public void A_step_that_never_pays_the_notes_may_follow_an_overPool_writedown(string after)
+    {
+        var order = new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "EXCESS_TURBO",
+            "WRITEDOWN", after, "EXCESS_RELEASE"
+        };
+        var plain = Run(Steps(MixedLosses()));
+        var with = Run(Steps(MixedLosses(), order: order));
+
+        for (var i = 0; i < plain.TrancheCashflows["B1"].Count; i++)
+            with.TrancheCashflows["B1"][i].Writedown.Should()
+                .BeApproximately(plain.TrancheCashflows["B1"][i].Writedown, 0.01);
+    }
+
+    [Fact]
+    public void Two_writedown_steps_sized_differently_are_refused()
+    {
+        var request = Steps(MixedLosses());
+        request.Deal.UnifiedWaterfall!.Steps.Add(
+            new WaterfallStepDto { Type = "WRITEDOWN", Structure = Seq("B1", "A1"), Size = "periodLoss" });
+        Refusal(request).Should().Contain("state different sizes");
     }
 
     [Fact]
@@ -231,7 +274,54 @@ public class ExcessCoversLossesStepsTests
     {
         var request = Steps(MixedLosses());
         Turbo(request).Structure = null;
-        Refusal(request).Should().Contain("no structure");
+        Refusal(request).Should().Contain("states target 0 and no structure");
+    }
+
+    // The same two refusals inside the engine, for a deal that reaches it without the mapper
+    // (pay rules rather than steps).
+
+    private static TestDealBuilder RuleDeal() => new TestDealBuilder()
+        .WithTranche("A", 70_000_000, NoteCoupon, subOrder: 0)
+        .WithTranche("B", 30_000_000, NoteCoupon, subOrder: 1)
+        .WithSequentialWaterfall("A", "B")
+        .WithExecutionOrder("INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
+            "EXCESS_TURBO", "WRITEDOWN")
+        .WithWritedownSize(WritedownSize.OverPool)
+        .WithExcessTurboToPool();
+
+    private static CollateralCashflows OnePeriod() => new TestCollateralBuilder().WithGroupNum("1")
+        .WithPeriod(date: TestConstants.DefaultFirstPayDate, beginBalance: 100_000_000,
+            scheduledPrincipal: 1_000_000, unscheduledPrincipal: 0, interest: 750_000,
+            defaultedPrincipal: 200_000, recoveryPrincipal: 100_000)
+        .Build();
+
+    [Fact]
+    public void In_the_engine_a_zero_target_with_no_turbo_structure_is_refused()
+    {
+        var act = () => RuleDeal().BuildAndRun(OnePeriod());
+        act.Should().Throw<Exception>().WithMessage("*target of zero and no structure to pay through*");
+    }
+
+    [Fact]
+    public void In_the_engine_a_zero_target_beside_an_OC_target_is_refused()
+    {
+        var act = () => RuleDeal()
+            .WithPayRule("TurboStruct", "SET_TURBO_STRUCT(SEQ(SINGLE('A'), SINGLE('B')))")
+            .WithOcTarget(0.02, 0)
+            .BuildAndRun(OnePeriod());
+        act.Should().Throw<Exception>().WithMessage("*both a target of zero and an OC target*");
+    }
+
+    [Fact]
+    public void In_the_engine_the_rule_built_deal_runs_once_it_states_its_turbo_structure()
+    {
+        // Anti-vacuity for the two refusals above: the same deal, completed, runs and the excess
+        // covers the 100k loss.
+        var cf = RuleDeal()
+            .WithPayRule("TurboStruct", "SET_TURBO_STRUCT(SEQ(SINGLE('A'), SINGLE('B')))")
+            .BuildAndRun(OnePeriod()).Cashflows;
+        var b = cf.TrancheCashflows.First(t => t.Key.TrancheName == "B").Value.Cashflows.Values.First();
+        b.Writedown.Should().BeApproximately(0, 0.01);
     }
 
     [Fact]

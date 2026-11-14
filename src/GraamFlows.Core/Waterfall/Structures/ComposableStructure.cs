@@ -661,6 +661,11 @@ public class ComposableStructure : BaseStructure
     ///     still runs and returns a plausible grid with the loss counted twice or not at all, so
     ///     each is refused.
     /// </summary>
+    private static readonly HashSet<string> StepsThatNeverPayTheNotes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "EXPENSE", "RESERVE_DEPOSIT", "EXCESS", "EXCESS_RELEASE", "CAP_CARRYOVER"
+    };
+
     private static void ValidateLossSteps(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
     {
         int IndexOf(string name) => executionOrder.FindIndex(s =>
@@ -672,18 +677,17 @@ public class ComposableStructure : BaseStructure
         if (deal.WritedownSize == WritedownSize.OverPool)
         {
             // The size is what the notes stand above the pool by once they have been paid. A step
-            // that pays them principal after the write-down has not run yet, so the write-down
-            // would take the principal that step is about to pay.
+            // that can pay them principal after the write-down has not run yet, so the write-down
+            // would take the principal that step is about to pay. The steps allowed after it are
+            // named, not the ones refused: INTEREST pays principal too (an interleaved order, a
+            // coverage cascade's diversion), and a step added later is refused until it is listed.
             var paidAfter = executionOrder.Skip(writedownIndex + 1).FirstOrDefault(s =>
-            {
-                var u = s.ToUpperInvariant();
-                return u.StartsWith("PRINCIPAL") || u == "EXCESS_TURBO" || u == "SUPPLEMENTAL_REDUCTION";
-            });
+                !StepsThatNeverPayTheNotes.Contains(s));
             if (writedownIndex >= 0 && paidAfter != null)
                 throw new DealModelingException(deal.DealName,
                     $"WRITEDOWN is sized overPool and {paidAfter.ToUpperInvariant()} runs after it in the " +
                     "execution order. overPool writes down what the notes stand above the pool by after " +
-                    "they have been paid, and that step has not paid them yet. Move it ahead of WRITEDOWN, " +
+                    "they have been paid, and that step can still pay them. Move it ahead of WRITEDOWN, " +
                     "or size the write-down periodLoss." +
                     (deal.ExecutionOrder is { Count: > 0 }
                         ? ""
