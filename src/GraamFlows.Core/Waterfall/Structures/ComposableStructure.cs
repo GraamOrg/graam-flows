@@ -272,6 +272,10 @@ public class ComposableStructure : BaseStructure
 
                 previousPeriod[periodCf.GroupNum] = (periodOpening, adjPeriodCf.CollateralLoss);
 
+                // The certificate opens the period before its triggers and pay rules read it, on
+                // the balance the Collection Period opened with.
+                dynGroup.OpenCertificateBalance(periodOpening);
+
                 // Test triggers and record results. Termination is deferred — ComposableStructure
                 // runs the waterfall first (interest on begin balance) then terminates after.
                 var triggerValues = TestAndRecordTriggers(dynGroup, triggers, adjPeriodCf);

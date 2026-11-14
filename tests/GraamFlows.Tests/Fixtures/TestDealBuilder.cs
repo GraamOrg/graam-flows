@@ -474,13 +474,14 @@ public class TestDealBuilder
         return this;
     }
 
-    public TestDealBuilder WithCertificateTranche(string name = "Certificates", int subOrder = 99)
+    public TestDealBuilder WithCertificateTranche(string name = "Certificates", int subOrder = 99,
+        double originalBalance = 0)
     {
         _deal.Tranches.Add(new Tranche
         {
             TrancheName = name,
             DealName = _deal.DealName,
-            OriginalBalance = 0,
+            OriginalBalance = originalBalance,
             Factor = 1.0,
             CouponType = "None",
             TrancheType = "Certificate",
@@ -624,6 +625,21 @@ public class TestDealBuilder
             TriggerType = "DATE_TERMINATION",
             IsMandatory = mandatory,
             TriggerParam = date.ToString("yyyy-MM-dd"),
+            GroupNum = "1",
+        });
+        return this;
+    }
+
+    /// <summary>A minimum credit-enhancement test on <paramref name="classGroup" />.</summary>
+    public TestDealBuilder WithCreditEnhancementTrigger(string name, double minimum, string classGroup)
+    {
+        _deal.DealTriggers.Add(new DealTrigger
+        {
+            DealName = _deal.DealName,
+            TriggerName = name,
+            TriggerType = "CREDIT_ENHANCEMENT",
+            TriggerParam = minimum.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            TriggerParam2 = classGroup,
             GroupNum = "1",
         });
         return this;
