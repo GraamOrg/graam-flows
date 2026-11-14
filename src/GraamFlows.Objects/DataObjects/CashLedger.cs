@@ -101,8 +101,6 @@ public sealed class CashLedger
 
     public void Leftover(double interest, double principal, bool hasCertificate)
     {
-        interest = Math.Max(0, interest);
-        principal = Math.Max(0, principal);
         if (interest + principal <= Cent)
             return;
         lock (_lock)
