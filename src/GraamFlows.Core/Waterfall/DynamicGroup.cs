@@ -545,37 +545,34 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         return Balance() + fundedResidual;
     }
     
-    /// <summary>
-    ///     Opens the period for the certificate(s). A certificate's balance is the
-    ///     overcollateralization, the pool less the notes, and <see cref="UpdateCertificateBalance" />
-    ///     sets it at the END of each period. Nothing set it at the start of the first one. A
-    ///     certificate is usually sent with no balance, and then it ran its first period at zero:
-    ///     a release structure had nothing to pay into, so on a deal already above its OC target
-    ///     that period's release reached no one, and a write-down order that starts with the
-    ///     certificate found no balance there to take the period's loss. A certificate sent with
-    ///     no balance now opens its first period at the pool's opening balance less the notes.
-    ///     One sent with a balance keeps it for the first period, as before. In a later period
-    ///     the certificate already stands at the pool less the notes from the period before, so
-    ///     opening it again from zero changes nothing unless collateral was added in between.
-    ///     It also stamps the period's row with the balance the period opened on, so the row's
-    ///     BeginBalance is no longer the balance after the period's payments.
-    /// </summary>
-    public void OpenCertificateBalance(double poolBeginBalance, DateTime cashflowDate)
-    {
-        var certificateClasses = DynamicClasses
-            .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
-            .ToList();
-        if (!certificateClasses.Any())
-            return;
+    private readonly HashSet<DynamicClass> _certificatesOpenedFromPool = new();
 
-        var openingOc = Math.Max(0, poolBeginBalance - Balance());
-        foreach (var certClass in certificateClasses)
+    /// <summary>
+    ///     Opens the period for the certificate(s), before the period's triggers and pay rules
+    ///     read them. A certificate's balance is the overcollateralization, the pool less the
+    ///     notes, and <see cref="UpdateCertificateBalance" /> sets it at the END of each period.
+    ///     Nothing set it at the start of the first one. A certificate is usually sent with no
+    ///     balance, and then it ran its first period at zero: a release structure had nothing to
+    ///     pay into, so on a deal already above its OC target that period's release reached no
+    ///     one; a write-down order that starts with the certificate found no balance there to take
+    ///     the period's loss; and a credit-enhancement trigger read the classes above it as having
+    ///     none. A certificate that stands at zero when a period opens is now opened at the
+    ///     pool's opening balance less the notes. One sent with a balance keeps it, as before.
+    ///     <paramref name="poolOpeningBalance" /> is the balance the Collection Period opened on:
+    ///     its first month's, when months were folded or held into one distribution.
+    /// </summary>
+    public void OpenCertificateBalance(double poolOpeningBalance)
+    {
+        _certificatesOpenedFromPool.Clear();
+        var openingOc = poolOpeningBalance - Balance();
+        foreach (var certClass in DynamicClasses.Where(dc =>
+                     dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate))
         {
             if (certClass.Balance < 0.01)
+            {
                 certClass.SetBalance(openingOc);
-            // The row may already exist for this date, carrying the balance from before the
-            // opening. Its end balance is set when the period closes.
-            certClass.GetCashflow(cashflowDate).BeginBalance = certClass.Balance;
+                _certificatesOpenedFromPool.Add(certClass);
+            }
         }
     }
 
@@ -599,14 +596,18 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         // Distribute OC balance to certificate tranches (typically just one)
         foreach (var certClass in certificateClasses)
         {
-            // Record the cashflow to track balance over time. The row's BeginBalance was set when
-            // the period opened (OpenCertificateBalance); by now the balance is net of the
-            // period's payments.
+            // Record the cashflow to track balance over time. The row keeps the BeginBalance it
+            // was created with: a payment or a write-down creates it with the balance from before
+            // it, and created here it takes the balance the period is closing from. Stamping it
+            // here with the current balance, as this did, wrote the balance AFTER the period's
+            // payments, so a certificate's begin balance read as its end balance.
             var cf = certClass.GetCashflow(cashflowDate);
 
-            // Record principal paydown when certificate balance decreases
+            // Record principal paydown when certificate balance decreases. Not in the period a
+            // certificate was opened from the pool: before it was, the certificate stood at zero
+            // through that period and booked nothing here, and a fall in a balance is not cash.
             var balanceChange = certClass.Balance - ocBalance;
-            if (balanceChange > 0)
+            if (balanceChange > 0 && !_certificatesOpenedFromPool.Contains(certClass))
                 cf.ScheduledPrincipal += balanceChange;
 
             certClass.SetBalance(ocBalance);

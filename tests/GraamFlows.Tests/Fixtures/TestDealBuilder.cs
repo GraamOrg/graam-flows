@@ -630,6 +630,21 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>A minimum credit-enhancement test on <paramref name="classGroup" />.</summary>
+    public TestDealBuilder WithCreditEnhancementTrigger(string name, double minimum, string classGroup)
+    {
+        _deal.DealTriggers.Add(new DealTrigger
+        {
+            DealName = _deal.DealName,
+            TriggerName = name,
+            TriggerType = "CREDIT_ENHANCEMENT",
+            TriggerParam = minimum.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            TriggerParam2 = classGroup,
+            GroupNum = "1",
+        });
+        return this;
+    }
+
     /// <summary>
     ///     A pseudo class — a named aggregate over existing classes (<c>DealStructurePseudo</c>),
     ///     which the engine materializes as a <c>DynamicPseudoClass</c> with its own credit
