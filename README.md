@@ -361,6 +361,13 @@ Three things it does not do:
 - A fall in a certificate's balance that the engine books in the certificate's principal column at the end of a period is not counted as a payment.
 - Collateral bought by a reinvesting deal is outside it: `collected` is what entered the waterfall after purchases.
 
+It is known to be wrong on four deal shapes:
+
+- **A class the run never pays whose pay date cannot be formed** (pay day 30 in February, on 30/360): asking for the ledger returns an error where the same request without it succeeds.
+- **A diversion test on a deal with a certificate:** the `INTEREST_DIVERSION` line counts the fall in the certificate's balance as paid.
+- **A residual class typed as a certificate:** the leftover it is credited is on no line.
+- **A termination payoff that differs from the pool's remaining balance:** `TERMINATION` shows no gap.
+
 ### Interleaved waterfall ordering
 
 The `waterfallOrder` field controls how interest and principal interact:
