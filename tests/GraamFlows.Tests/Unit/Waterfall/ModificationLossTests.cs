@@ -425,6 +425,19 @@ public class ModificationLossTests
     }
 
     [Fact]
+    public void AWritedownSizedOverPool_Throws()
+    {
+        // The ladder reserves each notional priority's capacity for the period's write-down
+        // before INTEREST. Sized overPool, that amount is not known until the notes have been
+        // paid, so the reservation would be made against the wrong number.
+        var act = () => Ladder()
+            .WithWritedownSize(WritedownSize.OverPool)
+            .BuildAndRun(OnePeriod(modificationLoss: 400_000));
+
+        act.Should().Throw<Exception>().WithMessage("*overPool*MODIFICATION_LOSS*");
+    }
+
+    [Fact]
     public void AWriteUpClassTheRosterDoesNotCarry_Throws()
     {
         // "A-H" against a roster spelling it "AH" — assembly emits both. The transfer was

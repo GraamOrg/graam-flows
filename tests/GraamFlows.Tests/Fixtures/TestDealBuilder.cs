@@ -32,6 +32,8 @@ public class TestDealBuilder
     private IReadOnlyList<string>? _expensesAfterInterest;
     private IReadOnlyList<string>? _expensesFromPrincipal;
     private bool _writeNotesDownToPool;
+    private WritedownSize _writedownSize = WritedownSize.PeriodLoss;
+    private bool _excessTurboToPool;
     private PrincipalAfterNotesConfig? _principalAfterNotes;
     private IReadOnlyList<DeferrableNoteConfig>? _deferrableNotes;
     private IReadOnlyList<string>? _interestFromPrincipal;
@@ -570,6 +572,20 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>The WRITEDOWN step's size.</summary>
+    public TestDealBuilder WithWritedownSize(WritedownSize size)
+    {
+        _writedownSize = size;
+        return this;
+    }
+
+    /// <summary>The EXCESS_TURBO step states a target of zero.</summary>
+    public TestDealBuilder WithExcessTurboToPool()
+    {
+        _excessTurboToPool = true;
+        return this;
+    }
+
     public TestDealBuilder WithExpensesAfterInterest(params string[] names)
     {
         _expensesAfterInterest = names;
@@ -724,6 +740,8 @@ public class TestDealBuilder
         if (_expensesFromPrincipal != null)
             _deal.ExpensesFromPrincipal = _expensesFromPrincipal;
         _deal.WriteNotesDownToPool = _writeNotesDownToPool;
+        _deal.WritedownSize = _writedownSize;
+        _deal.ExcessTurboToPool = _excessTurboToPool;
         if (_principalAfterNotes != null)
             _deal.PrincipalAfterNotes = _principalAfterNotes;
         if (_deferrableNotes != null)

@@ -112,6 +112,20 @@ public interface IDeal : IPayRuleAssemblyStore
     bool WriteNotesDownToPool { get; }
 
     /// <summary>
+    /// How the WRITEDOWN step sizes its amount (the step's <c>size</c>). <see cref="WritedownSize.PeriodLoss" />
+    /// unless stated, as before.
+    /// </summary>
+    WritedownSize WritedownSize { get; }
+
+    /// <summary>
+    /// The EXCESS_TURBO step states a target of zero: it pays the notes principal out of the
+    /// interest the steps ahead of it left, until the funded classes are down to the pool. It is
+    /// not an OC target, so <see cref="OcTargetConfig" /> stays null and nothing is released.
+    /// False unless stated: a turbo step with no OC target pays nothing, as before.
+    /// </summary>
+    bool ExcessTurboToPool { get; }
+
+    /// <summary>
     /// Classes whose unpaid interest is paid from principal proceeds after
     /// <see cref="ExpensesFromPrincipal" />, ahead of the notes' principal, senior first (optional;
     /// empty: unpaid interest is carried to the next Payment Date, as before). A Deferrable Note's

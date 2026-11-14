@@ -887,6 +887,26 @@ public class WaterfallStepDto
     public OcTargetDto? OcTarget { get; set; }
 
     /// <summary>
+    ///     For EXCESS_TURBO: a target of zero. The step pays the notes principal out of the interest
+    ///     the steps ahead of it left, until the funded classes are down to the pool: excess spread
+    ///     covering the period's losses ("to pay principal in an amount up to the Realized Losses").
+    ///     It pays through the step's own structure, which it must state. Zero is the only value:
+    ///     an overcollateralization target is stated in <see cref="OcTarget" />, and a step states
+    ///     one or the other. Absent, a turbo step with no OC target pays nothing, as before.
+    /// </summary>
+    public double? Target { get; set; }
+
+    /// <summary>
+    ///     For WRITEDOWN: how the step sizes its amount. "periodLoss" (the default) is the period's
+    ///     defaulted principal less recoveries. "overPool" is what the funded classes still stand
+    ///     above the pool by after every step ahead of it (an indenture's Applied Realized Loss
+    ///     Amount), in place of the period-loss amount. "overPool" is refused when a principal or
+    ///     EXCESS_TURBO step runs after WRITEDOWN (the notes have not been paid yet) and on a deal
+    ///     with a MODIFICATION_LOSS step (it runs ahead of the payments this size depends on).
+    /// </summary>
+    public string? Size { get; set; }
+
+    /// <summary>
     ///     For SUPPLEMENTAL_REDUCTION: variable name for the cap percentage.
     /// </summary>
     public string? CapVariable { get; set; }
