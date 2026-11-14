@@ -180,6 +180,82 @@ public class CertificateOpeningBalanceTests
     }
 
     [Fact]
+    public void Months_folded_into_the_first_distribution_open_at_the_first_months_balance()
+    {
+        // The pool starts two months before the first Payment Date and those months are folded
+        // into it. The Collection Period opened at 100M, not at the last folded month's 96M.
+        var b = new TestCollateralBuilder().WithGroupNum("1");
+        var bal = 100_000_000.0;
+        for (var i = -2; i < 4; i++)
+        {
+            b.WithPeriod(date: FirstPay.AddMonths(i), beginBalance: bal, scheduledPrincipal: 2_000_000,
+                unscheduledPrincipal: 0, interest: 750_000);
+            bal -= 2_000_000;
+        }
+
+        var cert = Certificate(new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithCertificateTranche()
+            .WithSequentialWaterfall("A")
+            .WithPayRule("ReleaseStruct", "SET_RELEASE_STRUCT(SEQ(SINGLE('Certificates')))")
+            .WithOcTarget(0.10, 0)
+            .WithFirstPeriodCollateral("Fold")
+            .BuildAndRun(b.Build()).Cashflows);
+
+        cert[0].BeginBalance.Should().BeApproximately(20_000_000, 0.01);
+        Principal(cert[0]).Should().BeApproximately(6_000_000, 0.01, "three months of principal are released");
+        cert[0].Balance.Should().BeApproximately(14_000_000, 0.01);
+    }
+
+    [Fact]
+    public void The_first_periods_triggers_read_the_certificate_at_its_opening_balance()
+    {
+        // 20M of OC under an 80M note is 25% credit enhancement from the first day. Opened after
+        // the triggers ran, the certificate read as zero and a 20% minimum failed in month 1.
+        var cf = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithCertificateTranche()
+            .WithSequentialWaterfall("A")
+            .WithPayRule("ReleaseStruct", "SET_RELEASE_STRUCT(SEQ(SINGLE('Certificates')))")
+            .WithOcTarget(0.10, 0)
+            .WithCreditEnhancementTrigger("MinCE", 0.20, "A")
+            .BuildAndRun(Pool()).Cashflows;
+
+        var first = cf.TriggerResults.Where(t => t.TriggerName == "MinCE").OrderBy(t => t.CashflowDate).First();
+        first.ActualValue.Should().BeGreaterThan(0.20);
+        first.Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_fall_in_the_balance_is_not_booked_as_principal_in_the_period_the_certificate_was_opened()
+    {
+        // The pool loses 1M in each of months 1 and 2 and nothing writes the note down, so the
+        // certificate's balance falls by it. Month 2 books that fall in the principal column, as
+        // the engine already did. Month 1 did not on a certificate that stood at zero, and
+        // opening it from the pool does not make it start.
+        var b = new TestCollateralBuilder().WithGroupNum("1");
+        var bal = 100_000_000.0;
+        for (var i = 0; i < 3; i++)
+        {
+            b.WithPeriod(date: FirstPay.AddMonths(i), beginBalance: bal, scheduledPrincipal: 2_000_000,
+                unscheduledPrincipal: 0, interest: 750_000, defaultedPrincipal: i < 2 ? 1_000_000 : 0);
+            bal -= i < 2 ? 3_000_000 : 2_000_000;
+        }
+
+        var cert = Certificate(new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithCertificateTranche()
+            .WithSequentialWaterfall("A")
+            .WithExecutionOrder("INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY")
+            .BuildAndRun(b.Build()).Cashflows);
+
+        cert[0].BeginBalance.Should().BeApproximately(20_000_000, 0.01);
+        cert[0].Balance.Should().BeApproximately(19_000_000, 0.01);
+        Principal(cert[0]).Should().BeApproximately(0, 0.01);
+        Principal(cert[1]).Should().BeApproximately(1_000_000, 0.01, "later periods book the fall, as before");
+    }
+
+    [Fact]
     public void Below_its_target_the_deal_releases_nothing_and_the_certificate_is_paid_no_principal()
     {
         // 95M of notes: the deal opens 5M over the pool, under the 10M target, so excess interest
