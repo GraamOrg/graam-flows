@@ -56,6 +56,8 @@ public class WaterfallController : ControllerBase
         {
             // Build deal from DTO, applying factors if provided
             var deal = BuildDeal(request.Deal, request.ProjectionDate, request.Factors);
+            if (request.ReportCashLedger == true && deal is Deal ledgerDeal)
+                ledgerDeal.ReportCashLedger = true;
 
             // Convert collateral cashflows
             var collateralCashflows = ConvertCollateralCashflows(request.CollateralCashflows);
@@ -139,6 +141,22 @@ public class WaterfallController : ControllerBase
 
             // Convert to response
             var response = ConvertToResponse(dealCashflows, settleDate);
+            if (dealCashflows.CashLedger is { } cashLedger)
+                response.CashLedger = new CashLedgerDto
+                {
+                    Collected = cashLedger.Collected,
+                    LeftInterest = cashLedger.LeftInterest,
+                    LeftPrincipal = cashLedger.LeftPrincipal,
+                    LeftPrincipalBesideCertificate = cashLedger.LeftPrincipalBesideCertificate,
+                    PeriodsLeft = cashLedger.PeriodsLeft,
+                    Steps = cashLedger.Steps.Select(s => new CashLedgerStepDto
+                    {
+                        Step = s.Key, Periods = s.Value.Periods, Taken = s.Value.Taken, Paid = s.Value.Paid,
+                        TakenNotPaid = s.Value.TakenNotPaid, PaidNotTaken = s.Value.PaidNotTaken,
+                        PeriodsOff = s.Value.PeriodsOff, FirstPeriodOff = s.Value.FirstPeriodOff,
+                        LargestGap = s.Value.LargestGap
+                    }).ToList()
+                };
 
             // Say what the run priced its floating indices on — see CalcCollateralController for
             // why this is on every successful response rather than only the degraded ones.

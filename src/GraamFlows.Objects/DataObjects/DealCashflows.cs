@@ -22,6 +22,9 @@ public class DealCashflows
     ///     failed.
     /// </summary>
     public IList<InterestDiversionResult> InterestDiversions { get; set; } = new List<InterestDiversionResult>();
+
+    /// <summary>Set when the run asked for it (<see cref="IDeal.ReportCashLedger" />).</summary>
+    public CashLedger? CashLedger { get; set; }
     public Dictionary<string, DateTime> EarliestTerminationDates { get; }
     public Dictionary<string, HashSet<string>> ContributedGroups { get; }
 }
