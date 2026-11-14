@@ -385,6 +385,8 @@ public class WaterfallRunner
         deal.IncentiveFee = IncentiveFeeMapper.Map(dto.UnifiedWaterfall?.IncentiveFee, dto.DealName);
         deal.InterestDiversion = InterestDiversionMapper.Map(
             dto.UnifiedWaterfall?.InterestDiversion, deal.ReinvestmentConfig, dto.DealName);
+        deal.WritedownSize = LossStepsMapper.MapWritedownSize(dto.UnifiedWaterfall, dto.DealName);
+        deal.ExcessTurboToPool = LossStepsMapper.MapExcessTurboToPool(dto.UnifiedWaterfall, dto.DealName);
 
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())

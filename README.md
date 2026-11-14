@@ -323,6 +323,27 @@ EXPENSE -> INTEREST -> PRINCIPAL_SCHEDULED -> PRINCIPAL_UNSCHEDULED ->
 PRINCIPAL_RECOVERY -> WRITEDOWN -> RESERVE_DEPOSIT -> EXCESS_TURBO -> EXCESS_RELEASE
 ```
 
+### Excess spread covering losses
+
+How excess spread meets losses is stated in two step fields. Neither is on unless stated.
+
+```json
+"executionOrder": ["INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
+                   "EXCESS_TURBO", "WRITEDOWN", "EXCESS_RELEASE"],
+"steps": [
+  { "type": "EXCESS_TURBO", "target": 0, "structure": { "type": "SEQ", "tranches": ["A", "B"] } },
+  { "type": "WRITEDOWN", "size": "overPool", "structure": { "type": "SEQ", "tranches": ["B", "A"] } },
+  { "type": "EXCESS_RELEASE", "structure": { "type": "SEQ", "tranches": ["XS"] } }
+]
+```
+
+- `EXCESS_TURBO` with `target: 0` pays the notes principal out of the interest the steps ahead of it left, until the funded classes are down to the pool. It pays through its own structure, as recovery principal. Zero is the only value; an overcollateralization target is stated in `ocTarget`, and a step states one or the other.
+- `WRITEDOWN` with `size: "overPool"` writes down what the funded classes still stand above the pool by after the steps ahead of it, in place of the period's loss. `size: "periodLoss"` (defaulted principal less recoveries) is the default.
+
+A loss smaller than the period's excess writes nothing down and the release step pays the excess less the loss. A larger loss writes down only the remainder. A deal whose documents pay the excess-spread class ahead of any loss cover states neither field: the notes take the period's loss and the release step pays the whole excess.
+
+The engine refuses the combinations that would count a loss twice or not at all: `overPool` with any step after `WRITEDOWN` that can still pay the notes (only `EXPENSE`, `RESERVE_DEPOSIT`, `EXCESS`, `EXCESS_RELEASE` and `CAP_CARRYOVER` may follow it), `overPool` on a deal with a `MODIFICATION_LOSS` step, and a zero-target turbo ahead of a `periodLoss` write-down. The default execution order runs `EXCESS_TURBO` after `WRITEDOWN`, so a deal using `overPool` states its order.
+
 ### Interleaved waterfall ordering
 
 The `waterfallOrder` field controls how interest and principal interact:
