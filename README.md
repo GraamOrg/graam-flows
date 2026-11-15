@@ -335,7 +335,7 @@ The waterfall carries each period's interest and principal in running totals, an
   "leftInterest": 0.0, "leftPrincipal": 0.0, "leftPrincipalBesideCertificate": 0.0, "periodsLeft": 0,
   "steps": [
     { "step": "INTEREST", "periods": 6, "taken": 2000000.0, "paid": 2000000.0,
-      "takenNotPaid": 0.0, "paidNotTaken": 0.0, "periodsOff": 0, "largestGap": 0.0 }
+      "takenNotPaid": 0.0, "paidNotTaken": 0.0, "periodsOff": 0, "largestGap": 0.0, "paidPastBalance": 0.0 }
   ]
 }
 ```
@@ -344,7 +344,11 @@ The waterfall carries each period's interest and principal in running totals, an
 - `paidNotTaken`: a class was paid cash no running total gave up. Guaranteed interest the pool did not collect shows here.
 - `leftInterest`, `leftPrincipal`: cash left after the last step with no residual class to take it. `leftPrincipalBesideCertificate` is principal left on a deal with a certificate, whose balance (pool less notes) carries it. Principal held back for an OC release that no step paid is left principal too.
 
+- `paidPastBalance`: principal the step paid to classes beyond what their balances fell by, such as a class that has retired and is still named alone in a structure. The cash is taken and paid, so the two sides agree on it; the class that received it did not hold that much.
+
 A period's gap counts once it is over a cent. Over the run, `collected` equals the steps' `paid`, plus `takenNotPaid` less `paidNotTaken`, plus what was left.
+
+**Principal payments report what they paid.** A payable structure returns a receipt for every principal payment: what the response will show as paid to the classes it reached, and what their balances fell by. The principal steps, the interleaved payments, the coverage cure and the OC turbo take the reported payment off their funds. They do not work it out from balances, which read a class paid past its balance as paid nothing and a payment to a class outside the notes as no payment, and left the same cash to be paid again. Four payments still assume the amount they ask for was paid: the built-in excess-spread rule, the OC release, the reserve draw inside a principal step, and the supplemental reduction.
 
 Some lines are not steps of the execution order:
 

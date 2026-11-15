@@ -112,6 +112,8 @@ public class PrincipalReceiptTests
         sum.Should().Be(new PrincipalReceipt(350, 150));
         sum.PastBalance.Should().Be(200);
         new PrincipalReceipt(-40, -40).PastBalance.Should().Be(0, "a negative payment is not an overpayment");
+        new PrincipalReceipt(10, 50).PastBalance.Should().Be(0,
+            "a balance that fell by more than the rows show is not an overpayment either");
     }
 
     // ---- A step spends what the payment reports -------------------------------------------------
@@ -163,8 +165,9 @@ public class PrincipalReceiptTests
     public void An_interleaved_order_paying_a_class_more_than_it_holds_spends_the_whole_payment(string order)
     {
         // Interleaved, each level's class is paid directly, and a class is not a structure: it
-        // records all it is handed. The senior class retires in the third period.
-        var request = Deal(Losses(0), order: new List<string>
+        // records all it is handed. The senior class retires in the third period, and scheduled
+        // principal, prepayments and recoveries all go on reaching it.
+        var request = Deal(Losses(600_000), order: new List<string>
         {
             "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN",
             "EXCESS_RELEASE"
@@ -229,6 +232,37 @@ public class PrincipalReceiptTests
             "what the turbo paid the certificate came off the interest");
         steps["EXCESS_RELEASE"].PaidNotTaken.Should().BeApproximately(0, 0.01);
         steps["EXCESS_RELEASE"].TakenNotPaid.Should().BeApproximately(0, 0.01);
+    }
+
+    [Fact]
+    public void A_certificate_paid_while_its_balance_is_nothing_is_read_where_the_response_reads_it()
+    {
+        // A certificate opens with no balance, and a payment to it then is recorded on its class
+        // row and on no tranche row. The response reports a certificate from its class row, so
+        // that is where its receipt reads. Read from the tranche rows the payment would report
+        // as nothing and the interest would be paid out again.
+        var b = new TestCollateralBuilder().WithGroupNum("1");
+        var bal = PoolBalance;
+        for (var i = 0; i < 3; i++)
+        {
+            b.WithPeriod(date: TestConstants.DefaultFirstPayDate.AddMonths(i), beginBalance: bal,
+                scheduledPrincipal: 1_000_000, unscheduledPrincipal: 0, interest: bal * Wac / 1200);
+            bal -= 1_000_000;
+        }
+
+        var cf = new TestDealBuilder()
+            .WithTranche("A", PoolBalance, NoteCoupon, subOrder: 0)
+            .WithCertificateTranche()
+            .WithSequentialWaterfall("A")
+            .WithPayRule("TurboStruct", "SET_TURBO_STRUCT(SINGLE('Certificates'))")
+            .WithOcTarget(0.10, 0)
+            .WithCashLedger()
+            .BuildAndRun(b.Build()).Cashflows;
+        var turbo = cf.CashLedger!.Steps.ToDictionary(s => s.Key, s => s.Value)["EXCESS_TURBO"];
+
+        turbo.Paid.Should().BeGreaterThan(100_000, "the fixture: the turbo pays the certificate from the first period");
+        turbo.PaidNotTaken.Should().BeApproximately(0, 0.01);
+        turbo.TakenNotPaid.Should().BeApproximately(0, 0.01);
     }
 
     [Fact]
