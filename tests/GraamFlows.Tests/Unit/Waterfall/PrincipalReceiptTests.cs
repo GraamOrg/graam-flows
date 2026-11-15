@@ -268,6 +268,7 @@ public class PrincipalReceiptTests
         var turbo = cf.CashLedger!.Steps.ToDictionary(s => s.Key, s => s.Value)["EXCESS_TURBO"];
 
         turbo.Paid.Should().BeGreaterThan(100_000, "the fixture: the turbo pays the certificate from the first period");
+        turbo.PaidPastBalance.Should().Be(0, "a certificate's balance is not what it may be paid");
         turbo.PaidNotTaken.Should().BeApproximately(0, 0.01);
         turbo.TakenNotPaid.Should().BeApproximately(0, 0.01);
     }
@@ -330,15 +331,17 @@ public class PrincipalReceiptTests
         {
             var interest = balance * 8.0 / 1200;
             var scheduled = balance * 0.06;
-            var lost = Math.Min(defaulted, balance - scheduled);
+            var prepaid = Math.Min(300_000, balance - scheduled);
+            var lost = Math.Min(defaulted, balance - scheduled - prepaid);
             var end = balance - scheduled - lost;
             periods.Add(new PeriodCashflowDto
             {
                 Period = i + 1, CashflowDate = FirstPayDate.AddMonths(i), GroupNum = "1", BeginBalance = balance,
-                Balance = end, ScheduledPrincipal = scheduled, Interest = interest, NetInterest = interest,
-                DefaultedPrincipal = lost, RecoveryPrincipal = 0, CollateralLoss = lost, Wac = 8.0
+                Balance = end - prepaid, ScheduledPrincipal = scheduled, UnscheduledPrincipal = prepaid,
+                Interest = interest, NetInterest = interest, DefaultedPrincipal = lost,
+                RecoveryPrincipal = lost * 0.25, CollateralLoss = lost * 0.75, Wac = 8.0
             });
-            balance = end;
+            balance = end - prepaid;
         }
 
         return periods;
@@ -366,9 +369,10 @@ public class PrincipalReceiptTests
     [Fact]
     public void A_loss_that_eats_the_overcollateralization_is_not_principal_paid_to_the_certificate()
     {
-        // 400,000 of the pool defaults each month with nothing recovered. The certificate's
-        // balance, the pool less the note, falls by it. No one is paid that: the certificate's
-        // principal is the cash the steps pay it, and the response adds up to what was collected.
+        // 400,000 of the pool defaults each month and a quarter is recovered. The certificate's
+        // balance, the pool less the note, falls by the loss. No one is paid that: the
+        // certificate's principal is the cash the steps pay it, and the response adds up to what
+        // was collected.
         var pool = Amortising(defaulted: 400_000);
         var r = Run(CertificateDeal(pool, certificateInPrincipal: true));
 
@@ -430,6 +434,96 @@ public class PrincipalReceiptTests
     }
 
     [Fact]
+    public void Excess_a_note_could_take_only_part_of_is_given_up_only_in_that_part()
+    {
+        // The senior note holds 1,600,000. The first period's principal pays it 1,500,000, so of
+        // the 300,000 loss the rule offers, it can take 100,000. The strip gives up 100,000, and
+        // the other 200,000 of the loss is written down.
+        var pool = Losses(600_000);
+        var request = Deal(pool, order: new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN"
+        }, seniorBalance: 1_600_000, withTurbo: false, withResidual: true);
+        request.Deal.UnifiedWaterfall!.Steps.RemoveAll(s => s.Type == "EXCESS_RELEASE");
+        Step(request, "INTEREST").Structure = Seq("A1", "B1", "XS");
+        foreach (var step in request.Deal.UnifiedWaterfall.Steps.Where(s => s.Type == "PRINCIPAL"))
+            step.Default = Single("A1");
+        var r = Run(request);
+
+        var first = pool[0];
+        var coupons = r.TrancheCashflows["A1"][0].Interest + r.TrancheCashflows["B1"][0].Interest;
+        r.TrancheCashflows["A1"][0].Balance.Should().Be(0, "the fixture: the note retires on the rule's payment");
+        r.TrancheCashflows["XS"][0].Interest.Should().BeApproximately(first.NetInterest - coupons - 100_000, 0.01,
+            "the strip gives up what the note took");
+        r.TrancheCashflows["B1"][0].Writedown.Should().BeApproximately(200_000, 0.01,
+            "the rest of the loss is written down");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Fact]
+    public void A_coverage_cascade_whose_junior_level_names_a_funded_residual_pays_out_what_it_collects()
+    {
+        // The most junior coverage level names a funded residual class, which the notes' balance
+        // leaves out. This holds the cascade to what was collected, period by period. It does not
+        // by itself tell the cure's receipt from the notes' balance fall: on this deal the cure
+        // pays the notes, which both measures see.
+        var pool = new List<PeriodCashflowDto>();
+        var balance = PoolBalance;
+        for (var i = 0; i < 12; i++)
+        {
+            var interest = balance * Wac / 1200;
+            var scheduled = balance * 0.01;
+            const double defaulted = 2_500_000;
+            const double prepaid = 300_000;
+            var end = balance - scheduled - prepaid - defaulted;
+            pool.Add(new PeriodCashflowDto
+            {
+                Period = i + 1, CashflowDate = FirstPayDate.AddMonths(i), GroupNum = "1", BeginBalance = balance,
+                Balance = end, ScheduledPrincipal = scheduled, UnscheduledPrincipal = prepaid,
+                Interest = interest, NetInterest = interest,
+                DefaultedPrincipal = defaulted, RecoveryPrincipal = defaulted * 0.2,
+                CollateralLoss = defaulted * 0.8, Wac = Wac
+            });
+            balance = end;
+        }
+
+        var request = Deal(pool, order: StripFirstOrder, withTurbo: false);
+        request.Deal.Tranches.Clear();
+        request.Deal.Tranches.Add(Note("A1", 4_000_000, 0));
+        request.Deal.Tranches.Add(Note("B1", 4_000_000, 1));
+        request.Deal.Tranches[0].FixedCoupon = 4.0;
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "SUB", OriginalBalance = 92_000_000, TrancheType = "Offered", CashflowType = "PI",
+            CouponType = "Residual", FixedCoupon = 0.0, SubordinationOrder = 2, FirstPayDate = FirstPayDate,
+            PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "XS", OriginalBalance = PoolBalance, TrancheType = "Offered", CashflowType = "IO",
+            CouponType = "ExcessInterest", FixedCoupon = 0.0, ClassReference = "XS", SubordinationOrder = 3,
+            FirstPayDate = FirstPayDate, PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        foreach (var step in request.Deal.UnifiedWaterfall!.Steps.Where(s => s.Type == "PRINCIPAL"))
+            step.Default = Seq("A1", "B1", "SUB");
+        Step(request, "WRITEDOWN").Structure = Seq("SUB", "B1", "A1");
+        request.Deal.UnifiedWaterfall.CoverageCascade = new List<CoverageLevelDto>
+        {
+            new() { Level = "A", Tranches = new List<string> { "A1" }, OcTriggerPct = 120 },
+            new() { Level = "B", Tranches = new List<string> { "A1", "B1" }, OcTriggerPct = 110 },
+            new() { Level = "SUB", Tranches = new List<string> { "A1", "B1", "SUB" }, OcTriggerPct = 100 }
+        };
+        var r = Run(request);
+
+        var cured = pool.Sum(p => p.NetInterest - r.TrancheCashflows.Values.SelectMany(rows => rows)
+            .Where(c => c.CashflowDate == p.CashflowDate).Sum(c => c.Interest));
+        cured.Should().BeGreaterThan(500_000, "the fixture: the cure pays principal out of interest");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Fact]
     public void A_tranche_filed_under_another_class_shows_as_paid_past_the_balance()
     {
         // A mis-stated deal: a 40M tranche filed under an 80M class, so the class's tranche rows
@@ -442,6 +536,8 @@ public class PrincipalReceiptTests
         var ledger = Run(request).CashLedger!;
 
         ledger.Steps.Sum(s => s.PaidPastBalance).Should().BeGreaterThan(1_000_000);
+        ledger.Steps.Where(s => !s.Step.StartsWith("PRINCIPAL")).Should().OnlyContain(s => s.PaidPastBalance == 0,
+            "it is reported on the steps that paid principal and not carried to the next line");
     }
 
     [Fact]

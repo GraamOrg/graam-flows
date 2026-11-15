@@ -493,6 +493,40 @@ public class CashLedgerTests
             .BeApproximately(ledger.Collected, 0.05);
     }
 
+    [Fact]
+    public void Interest_diverted_on_a_deal_with_a_certificate_is_taken_and_paid_to_no_one()
+    {
+        // The same diversion on a deal with a certificate. The certificate's balance falls in
+        // these periods, and that is not a payment: the diversion line shows the interest taken
+        // and nothing paid. (It used to count the fall, booked as principal, as paid.)
+        var cf = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("E", 15_000_000, 8.0, subOrder: 1)
+            .WithTranche("R", 5_000_000, 0.0, subOrder: 2, cashflowType: "PI", couponType: "Residual")
+            .WithCertificateTranche()
+            .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('E'), SINGLE('A')))")
+            .WithInterestDiversion(new InterestDiversionConfig
+            {
+                Tranches = new[] { "A", "E" }, TriggerPct = 106.0, MaxPctOfInterest = 50.0,
+                EndDate = TestConstants.DefaultFirstPayDate.AddMonths(12), PurchasePricePct = 99.5
+            })
+            .WithExecutionOrder(NoReleaseStep)
+            .WithCashLedger()
+            .BuildAndRun(FlatPool()).Cashflows;
+        var ledger = cf.CashLedger!;
+
+        var diverted = cf.InterestDiversions.Sum(d => d.Diverted);
+        diverted.Should().BeGreaterThan(1_000_000, "the fixture: the test fails and diverts");
+        ledger.Steps.Single(s => s.Key == "INTEREST_DIVERSION").Value.TakenNotPaid.Should().BeApproximately(diverted, 0.01);
+        ledger.Steps.Single(s => s.Key == "INTEREST_DIVERSION").Value.Paid.Should().BeApproximately(0, 0.01);
+        (ledger.Steps.Sum(s => s.Value.Paid) + ledger.Steps.Sum(s => s.Value.TakenNotPaid)).Should()
+            .BeApproximately(ledger.Collected, 0.05);
+    }
+
     private static CollateralCashflows FlatPool()
     {
         var b = new TestCollateralBuilder().WithGroupNum("1");
