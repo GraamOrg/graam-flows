@@ -58,19 +58,75 @@ public class DynamicClass : IPayable
         _deferredInterest <= 0 ? 0 : Math.Max(0, _deferredInterest - Math.Max(0, _deferredMark - Balance));
     public HashSet<string> ShortfallInterestSupport { get; set; }
 
-    public void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        Pay(cfDate, 0, prin);
+        return PayAndReport(cfDate, 0, prin);
     }
 
-    public void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        Pay(cfDate, prin, 0);
+        return PayAndReport(cfDate, prin, 0);
     }
 
-    public void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayUsp(caller, cfDate, prin, payRuleExec);
+        return PayUsp(caller, cfDate, prin, payRuleExec);
+    }
+
+    /// <summary>
+    ///     Pays the class and reports what the payment did: the principal its rows now show beyond
+    ///     what they showed, and what its balance fell by. Measured here, around the one payment,
+    ///     by the class that recorded it.
+    /// </summary>
+    private PrincipalReceipt PayAndReport(DateTime cfDate, double unschedPrin, double schedPrin)
+    {
+        // A class takes what it holds. Handed more, it takes its balance and reports that, and
+        // the rest stays with the step to go on to the next class. Left to record all it was
+        // handed, a retired class showed principal it was not owed; and once the step spends
+        // what is recorded, the class behind it would be paid nothing.
+        var handed = unschedPrin + schedPrin;
+        if (handed > 0 && TakesOnlyWhatItHolds)
+        {
+            var held = Math.Max(Balance, 0);
+            if (held < 0.005)
+                return PrincipalReceipt.None;
+            if (handed > held)
+            {
+                unschedPrin *= held / handed;
+                schedPrin *= held / handed;
+            }
+        }
+
+        var balanceBefore = Balance;
+        var shownBefore = PrincipalShown(cfDate);
+        Pay(cfDate, unschedPrin, schedPrin);
+        var paid = PrincipalShown(cfDate) - shownBefore;
+        // A certificate's balance is not a claim, so what it is paid is not measured against it.
+        return new PrincipalReceipt(paid, TakesOnlyWhatItHolds ? balanceBefore - Balance : paid);
+    }
+
+    /// <summary>
+    ///     False for a certificate. Its balance is the pool less the notes, set at the end of each
+    ///     period: it says what stands behind the notes, not what the certificate may be paid.
+    /// </summary>
+    private bool TakesOnlyWhatItHolds => Tranche.TrancheTypeEnum != TrancheTypeEnum.Certificate;
+
+    /// <summary>
+    ///     The principal the response shows for this class on a pay date. It reads the class where
+    ///     the response reads it: a certificate from its class row, any other class from its
+    ///     tranche rows (so a class with no tranches shows nothing), and a tranche from its own
+    ///     row.
+    /// </summary>
+    internal double PrincipalShown(DateTime cashflowDate)
+    {
+        static double Row(DynamicClass dc, DateTime date) =>
+            dc.Cashflows.TryGetValue(dc.AdjustedCashflowDate(date), out var cf)
+                ? cf.ScheduledPrincipal + cf.UnscheduledPrincipal
+                : 0.0;
+
+        if (this is MarketTranche.DynamicTranche || Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+            return Row(this, cashflowDate);
+        return DynamicTranches?.Sum(dt => Row(dt, cashflowDate)) ?? 0.0;
     }
 
     public void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)

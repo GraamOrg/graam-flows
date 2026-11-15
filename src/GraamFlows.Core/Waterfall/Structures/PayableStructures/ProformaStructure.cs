@@ -48,19 +48,25 @@ public class ProformaStructure : BasePayable
 
     public override bool IsLeaf => false;
 
-    public override void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (payable, amt) => payable.PaySp(this, cfDate, amt, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (payable, amt) => receipt += payable.PaySp(this, cfDate, amt, payRuleExec), payRuleExec);
+        return receipt;
     }
 
-    public override void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (payable, amt) => payable.PayUsp(this, cfDate, amt, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (payable, amt) => receipt += payable.PayUsp(this, cfDate, amt, payRuleExec), payRuleExec);
+        return receipt;
     }
 
-    public override void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (payable, amt) => payable.PayRp(this, cfDate, amt, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (payable, amt) => receipt += payable.PayRp(this, cfDate, amt, payRuleExec), payRuleExec);
+        return receipt;
     }
 
     public override void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)

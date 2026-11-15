@@ -1238,14 +1238,15 @@ public class CashLedgerDto
     /// <summary>Interest left after the last step with no residual class to take it.</summary>
     public double LeftInterest { get; set; }
 
-    /// <summary>Principal left after the last step with no residual class and no certificate.</summary>
+    /// <summary>
+    ///     Principal left after the last step that no class took: on a deal with a certificate, what
+    ///     no structure could place while a note still had a balance; otherwise, what no residual
+    ///     class took. Counted total by total.
+    /// </summary>
     public double LeftPrincipal { get; set; }
 
-    /// <summary>
-    ///     Principal left after the last step on a deal with a certificate, whose balance (pool
-    ///     less notes) carries it without being paid it.
-    /// </summary>
-    public double LeftPrincipalBesideCertificate { get; set; }
+    /// <summary>Cash paid out beyond what was collected: what the running totals stood below zero by at the end of each period, total by total.</summary>
+    public double Overdrawn { get; set; }
 
     /// <summary>Periods that ended with cash no class took.</summary>
     public int PeriodsLeft { get; set; }
@@ -1273,6 +1274,15 @@ public class CashLedgerStepDto
 
     public int PeriodsOff { get; set; }
     public DateTime? FirstPeriodOff { get; set; }
+
+    /// <summary>
+    ///     Principal paid to classes beyond what their balances fell by. Taken and paid agree on
+    ///     it; the class that received it did not hold that much.
+    /// </summary>
+    public double PaidPastBalance { get; set; }
+
+    /// <summary>What the step took the running totals below zero by: cash it paid beyond what it held.</summary>
+    public double Overdrew { get; set; }
 
     /// <summary>The largest single-period difference; positive is taken and not paid.</summary>
     public double LargestGap { get; set; }

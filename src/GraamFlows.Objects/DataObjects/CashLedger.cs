@@ -32,6 +32,18 @@ public sealed class CashLedger
         /// <summary>Periods in which the two sides differed by more than a cent.</summary>
         public int PeriodsOff { get; internal set; }
 
+        /// <summary>
+        ///     Principal paid to classes beyond what their balances fell by. The cash is taken and
+        ///     paid, so the two sides agree; the class that got it did not hold that much.
+        /// </summary>
+        public double PaidPastBalance { get; internal set; }
+
+        /// <summary>
+        ///     What the step took the running totals below zero by: cash it paid out beyond what it
+        ///     held. Its taken and paid agree on that cash, so this is where it shows.
+        /// </summary>
+        public double Overdrew { get; internal set; }
+
         public DateTime? FirstPeriodOff { get; internal set; }
 
         /// <summary>The largest single-period difference, signed: positive is taken and not paid.</summary>
@@ -49,14 +61,21 @@ public sealed class CashLedger
     /// <summary>Interest left after the last step with no residual class to take it.</summary>
     public double LeftInterest { get; private set; }
 
-    /// <summary>Principal left after the last step with no residual class and no certificate.</summary>
+    /// <summary>
+    ///     Principal left after the last step that no class took. On a deal with a certificate that
+    ///     is principal the structures could not place while a note still had a balance (once the
+    ///     notes are gone the certificate is paid it); on a deal without one, principal with no
+    ///     residual class to take it. Counted total by total, so an overdraft on one principal
+    ///     total does not hide principal left on another.
+    /// </summary>
     public double LeftPrincipal { get; private set; }
 
     /// <summary>
-    ///     Principal left after the last step on a deal with a certificate. The certificate's
-    ///     balance is the pool less the notes, so it carries this without being paid it.
+    ///     What the running totals stood below zero by at the end of each period, summed: cash paid
+    ///     out beyond what was collected. Collected equals the steps' paid, plus taken-not-paid less
+    ///     paid-not-taken, plus what was left, less this.
     /// </summary>
-    public double LeftPrincipalBesideCertificate { get; private set; }
+    public double Overdrawn { get; private set; }
 
     /// <summary>Periods that ended with cash no class took.</summary>
     public int PeriodsLeft { get; private set; }
@@ -75,7 +94,8 @@ public sealed class CashLedger
         lock (_lock) Collected += amount;
     }
 
-    public void Record(string step, DateTime date, double taken, double paid)
+    public void Record(string step, DateTime date, double taken, double paid, double paidPastBalance = 0,
+        double overdrew = 0)
     {
         lock (_lock)
         {
@@ -88,6 +108,8 @@ public sealed class CashLedger
             s.Periods++;
             s.Taken += taken;
             s.Paid += paid;
+            if (paidPastBalance > Cent) s.PaidPastBalance += paidPastBalance;
+            if (Math.Abs(overdrew) > Cent) s.Overdrew += overdrew;
             var gap = taken - paid;
             if (Math.Abs(gap) <= Cent)
                 return;
@@ -99,16 +121,23 @@ public sealed class CashLedger
         }
     }
 
-    public void Leftover(double interest, double principal, bool hasCertificate)
+    /// <summary>
+    ///     What the period's running totals ended at, each given on its own: the interest total and
+    ///     each principal total. A positive total is left; a negative one is overdrawn. They are
+    ///     not netted, so an overdraft on one total does not hide cash left on another.
+    /// </summary>
+    public void Leftover(double interest, params double[] principal)
     {
-        if (interest + principal <= Cent)
-            return;
         lock (_lock)
         {
+            var overdrawn = Math.Max(-interest, 0) + principal.Sum(p => Math.Max(-p, 0));
+            if (overdrawn > Cent) Overdrawn += overdrawn;
+            var leftPrincipal = principal.Sum(p => Math.Max(p, 0));
+            if (Math.Max(interest, 0) + leftPrincipal <= Cent)
+                return;
             PeriodsLeft++;
-            LeftInterest += interest;
-            if (hasCertificate) LeftPrincipalBesideCertificate += principal;
-            else LeftPrincipal += principal;
+            LeftInterest += Math.Max(interest, 0);
+            LeftPrincipal += leftPrincipal;
         }
     }
 }

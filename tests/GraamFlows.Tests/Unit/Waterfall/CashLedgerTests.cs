@@ -61,7 +61,7 @@ public class CashLedgerTests
         ledger.Steps.Single(s => s.Step == "PRINCIPAL_RECOVERY").Paid.Should().BeApproximately(12 * 300_000, 0.01);
         ledger.Steps.Should().OnlyContain(s => s.TakenNotPaid < 0.01 && s.PaidNotTaken < 0.01);
         ledger.Steps.Sum(s => s.Paid).Should().BeApproximately(collected, 0.05, "every dollar collected is paid to a class");
-        (ledger.LeftInterest + ledger.LeftPrincipal + ledger.LeftPrincipalBesideCertificate).Should().BeApproximately(0, 0.01);
+        (ledger.LeftInterest + ledger.LeftPrincipal).Should().BeApproximately(0, 0.01);
         ledger.PeriodsLeft.Should().Be(0);
         ledger.Steps.Select(s => s.Step).Should().StartWith(new[]
         {
@@ -112,11 +112,12 @@ public class CashLedgerTests
     // ---- The built-in excess-spread rule after the notes retire ----------------------------------
 
     [Fact]
-    public void Excess_taken_off_the_strip_for_a_loss_once_the_notes_are_gone_is_reported()
+    public void Once_the_notes_are_gone_the_strip_keeps_the_excess_a_loss_would_have_taken()
     {
         // 40M of notes on a 100M pool repaying 10M a month: the note is retired in month 4. The
-        // pool keeps losing 500k a month, and the rule keeps taking it off the strip's interest
-        // with no note left to pay it to.
+        // pool keeps losing 500k a month. While the note stands the strip's excess pays it down
+        // by the loss. Once it is gone there is no note to pay, so nothing is taken off the
+        // strip. (The rule used to go on taking it, and it reached no one.)
         var pool = Collateral(loss: 500_000, scheduledShare: 0.08, prepaid: 1_000_000, recoveryRate: 0.2);
         var r = Run(Deal(new Stack
         {
@@ -127,17 +128,21 @@ public class CashLedgerTests
 
         var retired = r.TrancheCashflows["A1"].First(c => c.Balance < 0.01).CashflowDate;
         var writedown = ledger.Steps.Single(s => s.Step == "WRITEDOWN");
-        writedown.TakenNotPaid.Should().BeGreaterThan(1_000_000);
-        writedown.FirstPeriodOff.Should().BeAfter(retired.AddDays(-1), "while the note stood, the excess paid it down");
-        writedown.LargestGap.Should().BeInRange(300_000, 400_000,
-            "at most a month's net loss is taken off the strip, and in these months none of it reaches a note");
+        writedown.TakenNotPaid.Should().BeApproximately(0, 0.01);
+        writedown.PaidNotTaken.Should().BeApproximately(0, 0.01);
+        writedown.PeriodsOff.Should().Be(0);
 
-        // Every dollar collected is paid to a class, lost at a named step, or left at the end.
-        // Scheduled, prepaid and recovery principal are all left once the note is gone.
+        // After the note retires the strip is paid the whole of the period's interest.
+        foreach (var period in pool.Where(p => p.CashflowDate > retired))
+            r.TrancheCashflows["XS"].Single(c => c.CashflowDate == period.CashflowDate).Interest.Should()
+                .BeApproximately(period.NetInterest, 0.01, $"{period.CashflowDate:yyyy-MM-dd}");
+
+        // Every dollar collected is paid to a class or left at the end. Scheduled, prepaid and
+        // recovery principal are all left once the note is gone.
         var collected = CashIn(pool);
         ledger.Collected.Should().BeApproximately(collected, 0.01);
-        (ledger.Steps.Sum(s => s.Paid) + ledger.Steps.Sum(s => s.TakenNotPaid - s.PaidNotTaken)
-         + ledger.LeftInterest + ledger.LeftPrincipal).Should().BeApproximately(collected, 0.05);
+        (ledger.Steps.Sum(s => s.Paid) + ledger.LeftInterest + ledger.LeftPrincipal).Should()
+            .BeApproximately(collected, 0.05);
         ledger.LeftPrincipal.Should().BeGreaterThan(10_000_000, "the pool outlives the note and nothing takes its principal");
     }
 
@@ -199,17 +204,19 @@ public class CashLedgerTests
         var turbo = steps["EXCESS_TURBO"];
 
         var paidToNotes = steps["PRINCIPAL_SCHEDULED"].Paid;
-        turbo.Taken.Should().BeApproximately(6 * 2_000_000 - paidToNotes, 0.01,
-            "the principal the notes did not get is what was held back for the release");
-        turbo.PaidNotTaken.Should().BeApproximately(0, 0.01);
+        // The certificate is sent with no balance, so the release structure cannot place the
+        // first period's 2M. It stays held and is paid to the certificate with what the steps
+        // leave; the other five periods' releases are paid by the turbo step.
+        (turbo.Taken + steps["CERTIFICATE"].Paid).Should().BeApproximately(6 * 2_000_000 - paidToNotes, 0.01,
+            "the principal the notes did not get is what was held back, and all of it is paid");
+        steps["CERTIFICATE"].Paid.Should().BeApproximately(2_000_000, 0.01, "the first period's release");
         steps["RESIDUAL"].Paid.Should().BeApproximately(0, 0.01,
             "there is no residual class, and the certificate's balance being reset is not a payment");
-        steps.Where(s => s.Key != "EXCESS_TURBO").Should()
-            .OnlyContain(s => s.Value.TakenNotPaid < 0.01 && s.Value.PaidNotTaken < 0.01);
+        steps.Should().OnlyContain(s => s.Value.TakenNotPaid < 0.01 && s.Value.PaidNotTaken < 0.01);
 
-        // The turbo step itself is left out of the check above: on a certificate sent with no
-        // balance the first period's release reaches no one, which the ledger reports here until
-        // the certificate is opened at the pool less the notes (#160).
+        var certificate = cf.ClassCashflows.First(c => c.Key.TrancheName == "Certificates").Value.Cashflows.Values;
+        certificate.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal).Should().BeApproximately(
+            6 * 2_000_000 - paidToNotes, 0.01, "the certificate's rows show every unit released");
     }
 
     // The default order ends in a release step, which on these deals has no one to release to.
@@ -233,11 +240,11 @@ public class CashLedgerTests
     }
 
     [Fact]
-    public void A_certificates_balance_falling_with_the_pool_is_not_read_as_a_payment()
+    public void A_certificates_balance_falling_with_a_loss_is_not_principal_paid_to_it()
     {
         // The pool loses 1M a month and nothing writes the note down, so the certificate's balance
-        // (pool less notes) falls by it. The engine books that fall in the certificate's principal
-        // column at the end of the period. It is a balance moving, not cash paid to anyone.
+        // (pool less notes) falls by it. That is a balance moving, not cash paid to anyone: the
+        // certificate's principal column shows nothing. (It used to show the fall.)
         var b = new TestCollateralBuilder().WithGroupNum("1");
         var bal = 100_000_000.0;
         for (var i = 0; i < 6; i++)
@@ -258,8 +265,12 @@ public class CashLedgerTests
         var ledger = cf.CashLedger!;
 
         var certificate = cf.ClassCashflows.First(c => c.Key.TrancheName == "Certificates").Value.Cashflows.Values;
-        certificate.Sum(c => c.ScheduledPrincipal).Should().BeGreaterThan(1_000_000, "the fixture: the fall is booked");
+        certificate.First().Balance.Should().BeGreaterThan(certificate.Last().Balance + 1_000_000,
+            "the fixture: the certificate's balance falls with the losses");
+        certificate.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal).Should().BeApproximately(0, 0.01,
+            "no principal was left for it and none is booked");
         ledger.Steps.Single(s => s.Key == "RESIDUAL").Value.Paid.Should().BeApproximately(0, 0.01);
+        ledger.Steps.Should().NotContain(s => s.Key == "CERTIFICATE");
         ledger.Steps.Should().OnlyContain(s => s.Value.TakenNotPaid < 0.01 && s.Value.PaidNotTaken < 0.01);
     }
 
@@ -385,18 +396,21 @@ public class CashLedgerTests
         .WithCashLedger();
 
     [Fact]
-    public void Held_back_principal_with_no_release_structure_is_left_beside_the_certificate()
+    public void Held_back_principal_with_no_release_structure_is_paid_to_the_certificate()
     {
         // The OC target holds 11.2M of principal back from the note over six months and there is
-        // no release structure to pay it through. It reached no class; the certificate's balance
-        // carries it.
-        var ledger = OcDeal().WithCertificateTranche().BuildAndRun(SixMonths()).Cashflows.CashLedger!;
+        // no release structure to pay it through. It is the certificate's, and is paid to it with
+        // the principal the steps leave.
+        var cf = OcDeal().WithCertificateTranche().BuildAndRun(SixMonths()).Cashflows;
+        var ledger = cf.CashLedger!;
 
-        ledger.LeftPrincipalBesideCertificate.Should().BeApproximately(11_200_000, 0.01);
+        ledger.Steps.Single(s => s.Key == "CERTIFICATE").Value.Paid.Should().BeApproximately(11_200_000, 0.01);
+        cf.ClassCashflows.Single(c => c.Key.TrancheName == "Certificates").Value.Cashflows.Values
+            .Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal).Should().BeApproximately(11_200_000, 0.01,
+                "the certificate's own row shows the cash");
         ledger.LeftPrincipal.Should().BeApproximately(0, 0.01);
-        ledger.PeriodsLeft.Should().Be(6);
         ledger.Steps.Should().OnlyContain(s => s.Value.TakenNotPaid < 0.01 && s.Value.PaidNotTaken < 0.01);
-        (ledger.Steps.Sum(s => s.Value.Paid) + ledger.LeftInterest + ledger.LeftPrincipalBesideCertificate)
+        (ledger.Steps.Sum(s => s.Value.Paid) + ledger.LeftInterest + ledger.LeftPrincipal)
             .Should().BeApproximately(ledger.Collected, 0.05, "collected is paid or left");
     }
 
@@ -411,14 +425,14 @@ public class CashLedgerTests
             .BuildAndRun(SixMonths()).Cashflows.CashLedger!;
 
         ledger.LeftPrincipal.Should().BeApproximately(11_200_000, 0.01);
-        ledger.LeftPrincipalBesideCertificate.Should().BeApproximately(0, 0.01);
+        ledger.Steps.Should().NotContain(s => s.Key == "CERTIFICATE");
         ledger.LeftInterest.Should().BeApproximately(0, 0.01, "the residual took the interest");
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Principal_the_notes_leave_goes_to_a_residual_class_unless_a_certificate_carries_it(bool certificate)
+    public void Principal_the_notes_leave_goes_to_the_certificate_or_else_to_a_residual_class(bool certificate)
     {
         // 40M of notes on a 100M pool repaying 12M over six months... the note takes it all here,
         // so shrink the note: 5M of notes is retired in month 3 and the rest of the principal is left.
@@ -433,16 +447,16 @@ public class CashLedgerTests
         var ledger = builder.BuildAndRun(SixMonths()).Cashflows.CashLedger!;
         var residual = ledger.Steps.Single(s => s.Key == "RESIDUAL").Value;
 
+        ledger.LeftPrincipal.Should().BeApproximately(0, 0.01);
         if (certificate)
         {
-            ledger.LeftPrincipalBesideCertificate.Should().BeApproximately(7_000_000, 0.01);
-            ledger.LeftPrincipal.Should().BeApproximately(0, 0.01);
+            ledger.Steps.Single(s => s.Key == "CERTIFICATE").Value.Paid.Should().BeApproximately(7_000_000, 0.01);
+            residual.Paid.Should().BeLessThan(7_000_000, "the principal went to the certificate, not twice");
         }
         else
         {
-            ledger.LeftPrincipalBesideCertificate.Should().BeApproximately(0, 0.01);
-            ledger.LeftPrincipal.Should().BeApproximately(0, 0.01, "the residual took it");
-            residual.Paid.Should().BeGreaterThan(7_000_000);
+            ledger.Steps.Should().NotContain(s => s.Key == "CERTIFICATE");
+            residual.Paid.Should().BeGreaterThan(7_000_000, "the residual took it");
         }
     }
 
@@ -475,6 +489,40 @@ public class CashLedgerTests
         var diverted = cf.InterestDiversions.Sum(d => d.Diverted);
         diverted.Should().BeGreaterThan(1_000_000, "the fixture: the test fails and diverts");
         ledger.Steps.Single(s => s.Key == "INTEREST_DIVERSION").Value.TakenNotPaid.Should().BeApproximately(diverted, 0.01);
+        (ledger.Steps.Sum(s => s.Value.Paid) + ledger.Steps.Sum(s => s.Value.TakenNotPaid)).Should()
+            .BeApproximately(ledger.Collected, 0.05);
+    }
+
+    [Fact]
+    public void Interest_diverted_on_a_deal_with_a_certificate_is_taken_and_paid_to_no_one()
+    {
+        // The same diversion on a deal with a certificate. The certificate's balance falls in
+        // these periods, and that is not a payment: the diversion line shows the interest taken
+        // and nothing paid. (It used to count the fall, booked as principal, as paid.)
+        var cf = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithTranche("E", 15_000_000, 8.0, subOrder: 1)
+            .WithTranche("R", 5_000_000, 0.0, subOrder: 2, cashflowType: "PI", couponType: "Residual")
+            .WithCertificateTranche()
+            .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A'), SINGLE('E')))")
+            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('E'), SINGLE('A')))")
+            .WithInterestDiversion(new InterestDiversionConfig
+            {
+                Tranches = new[] { "A", "E" }, TriggerPct = 106.0, MaxPctOfInterest = 50.0,
+                EndDate = TestConstants.DefaultFirstPayDate.AddMonths(12), PurchasePricePct = 99.5
+            })
+            .WithExecutionOrder(NoReleaseStep)
+            .WithCashLedger()
+            .BuildAndRun(FlatPool()).Cashflows;
+        var ledger = cf.CashLedger!;
+
+        var diverted = cf.InterestDiversions.Sum(d => d.Diverted);
+        diverted.Should().BeGreaterThan(1_000_000, "the fixture: the test fails and diverts");
+        ledger.Steps.Single(s => s.Key == "INTEREST_DIVERSION").Value.TakenNotPaid.Should().BeApproximately(diverted, 0.01);
+        ledger.Steps.Single(s => s.Key == "INTEREST_DIVERSION").Value.Paid.Should().BeApproximately(0, 0.01);
         (ledger.Steps.Sum(s => s.Value.Paid) + ledger.Steps.Sum(s => s.Value.TakenNotPaid)).Should()
             .BeApproximately(ledger.Collected, 0.05);
     }
@@ -536,9 +584,8 @@ public class CashLedgerTests
             { Type = "EXCESS_TURBO", OcTarget = new OcTargetDto { TargetPct = 0.10 } });
         var ledger = Run(request).CashLedger!;
 
-        ledger.LeftPrincipalBesideCertificate.Should().BeGreaterThan(1_000_000,
-            "the OC target holds principal back and nothing pays it");
-        ledger.PeriodsLeft.Should().BeGreaterThan(0);
+        ledger.Steps.Single(s => s.Step == "CERTIFICATE").Paid.Should().BeGreaterThan(1_000_000,
+            "the OC target holds principal back and it is paid to the certificate");
         ledger.Steps.Should().OnlyContain(s => s.Periods == 12);
     }
 

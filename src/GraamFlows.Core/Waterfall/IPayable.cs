@@ -20,9 +20,9 @@ public enum ResidualHandlingEnum
 public interface IPayable
 {
     bool IsLeaf { get; }
-    void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
-    void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
-    void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
+    PrincipalReceipt PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
+    PrincipalReceipt PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
+    PrincipalReceipt PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec);
 
     /// <summary>

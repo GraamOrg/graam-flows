@@ -33,19 +33,25 @@ public class TargetBalanceStructure : BasePayable
 
     public override bool IsLeaf => false;
 
-    public override void PaySp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PaySp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (p, a) => p.PaySp(this, cfDate, a, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (p, a) => receipt += p.PaySp(this, cfDate, a, payRuleExec), payRuleExec);
+        return receipt;
     }
 
-    public override void PayUsp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PayUsp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (p, a) => p.PayUsp(this, cfDate, a, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (p, a) => receipt += p.PayUsp(this, cfDate, a, payRuleExec), payRuleExec);
+        return receipt;
     }
 
-    public override void PayRp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PayRp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (p, a) => p.PayRp(this, cfDate, a, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (p, a) => receipt += p.PayRp(this, cfDate, a, payRuleExec), payRuleExec);
+        return receipt;
     }
 
     public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)

@@ -147,14 +147,15 @@ public class WaterfallController : ControllerBase
                     Collected = cashLedger.Collected,
                     LeftInterest = cashLedger.LeftInterest,
                     LeftPrincipal = cashLedger.LeftPrincipal,
-                    LeftPrincipalBesideCertificate = cashLedger.LeftPrincipalBesideCertificate,
+                    Overdrawn = cashLedger.Overdrawn,
                     PeriodsLeft = cashLedger.PeriodsLeft,
                     Steps = cashLedger.Steps.Select(s => new CashLedgerStepDto
                     {
                         Step = s.Key, Periods = s.Value.Periods, Taken = s.Value.Taken, Paid = s.Value.Paid,
                         TakenNotPaid = s.Value.TakenNotPaid, PaidNotTaken = s.Value.PaidNotTaken,
                         PeriodsOff = s.Value.PeriodsOff, FirstPeriodOff = s.Value.FirstPeriodOff,
-                        LargestGap = s.Value.LargestGap
+                        LargestGap = s.Value.LargestGap, PaidPastBalance = s.Value.PaidPastBalance,
+                        Overdrew = s.Value.Overdrew
                     }).ToList()
                 };
 
