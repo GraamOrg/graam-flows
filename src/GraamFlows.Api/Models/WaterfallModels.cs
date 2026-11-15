@@ -1241,6 +1241,9 @@ public class CashLedgerDto
     /// <summary>Principal left after the last step with no residual class and no certificate.</summary>
     public double LeftPrincipal { get; set; }
 
+    /// <summary>Cash paid out beyond what was collected: what the running totals stood below zero by.</summary>
+    public double Overdrawn { get; set; }
+
     /// <summary>Periods that ended with cash no class took.</summary>
     public int PeriodsLeft { get; set; }
 
@@ -1273,6 +1276,9 @@ public class CashLedgerStepDto
     ///     it; the class that received it did not hold that much.
     /// </summary>
     public double PaidPastBalance { get; set; }
+
+    /// <summary>What the step took the running totals below zero by: cash it paid beyond what it held.</summary>
+    public double Overdrew { get; set; }
 
     /// <summary>The largest single-period difference; positive is taken and not paid.</summary>
     public double LargestGap { get; set; }

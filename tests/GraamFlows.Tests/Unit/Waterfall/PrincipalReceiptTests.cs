@@ -2,6 +2,7 @@ using FluentAssertions;
 using GraamFlows.Api.Controllers;
 using GraamFlows.Api.Models;
 using GraamFlows.Objects.DataObjects;
+using GraamFlows.Objects.TypeEnum;
 using GraamFlows.Tests.Fixtures;
 using GraamFlows.Tests.Helpers;
 using GraamFlows.Waterfall;
@@ -187,12 +188,15 @@ public class PrincipalReceiptTests
         EveryPeriodPaysOutWhatItCollected(r, pool);
     }
 
-    [Fact]
-    public void A_forced_paydown_in_a_principal_step_spends_what_it_paid()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_forced_paydown_in_a_principal_step_spends_what_it_paid(bool withResidual)
     {
         // A forced paydown pays its class in full whatever it is handed. Measured on balances
-        // that was right only by accident; the receipt is what the classes recorded.
-        var request = Deal(Losses(600_000), order: StripFirstOrder);
+        // that was right only by accident; the receipt is what the classes recorded. A residual
+        // class takes what is left, never an overdraft.
+        var request = Deal(Losses(600_000), order: StripFirstOrder, withResidual: withResidual);
         request.Deal.UnifiedWaterfall!.Steps.RemoveAll(s => s.Type == "EXCESS_TURBO");
         Step(request, "PRINCIPAL", "recovery").Default = new PayableStructureDto
             { Type = "FORCE_PAYDOWN", Forced = Single("B1"), Support = Seq("A1") };
@@ -204,6 +208,19 @@ public class PrincipalReceiptTests
             step.TakenNotPaid.Should().BeApproximately(0, 0.01, step.Step);
             step.PaidNotTaken.Should().BeApproximately(0, 0.01, step.Step);
         }
+
+        // The forced class is paid in full whatever the step held, so the step pays out more
+        // than it was given. That is not hidden: the step says how far it overdrew, and the
+        // ledger's identity holds with it.
+        ledger.Steps.Single(s => s.Step == "PRINCIPAL_RECOVERY").Overdrew.Should().BeGreaterThan(1_000_000,
+            "the fixture: the forced paydown pays more than the recoveries");
+        ledger.Steps.Where(s => s.Step != "PRINCIPAL_RECOVERY").Should().OnlyContain(s => s.Overdrew == 0,
+            "the overdraft is on the step that made it");
+        ledger.Overdrawn.Should().BeGreaterThan(1_000_000);
+        LedgerAddsUp(ledger);
+        ResponsePaysOut(r, request.CollateralCashflows).Should().BeApproximately(
+            request.CollateralCashflows.Sum(Collected) + ledger.Overdrawn - ledger.LeftInterest - ledger.LeftPrincipal, 0.05,
+            "what the response pays beyond what was collected is what the ledger says was overdrawn");
     }
 
     [Fact]
@@ -239,6 +256,7 @@ public class PrincipalReceiptTests
             "what the turbo paid the certificate came off the interest");
         steps["EXCESS_RELEASE"].PaidNotTaken.Should().BeApproximately(0, 0.01);
         steps["EXCESS_RELEASE"].TakenNotPaid.Should().BeApproximately(0, 0.01);
+        EveryPeriodPaysOutWhatItCollected(cf, b.Build());
     }
 
     [Fact]
@@ -271,6 +289,7 @@ public class PrincipalReceiptTests
         turbo.PaidPastBalance.Should().Be(0, "a certificate's balance is not what it may be paid");
         turbo.PaidNotTaken.Should().BeApproximately(0, 0.01);
         turbo.TakenNotPaid.Should().BeApproximately(0, 0.01);
+        EveryPeriodPaysOutWhatItCollected(cf, b.Build());
     }
 
     // ---- A certificate is paid what the steps pay it --------------------------------------------
@@ -540,6 +559,273 @@ public class PrincipalReceiptTests
             "it is reported on the steps that paid principal and not carried to the next line");
     }
 
+    // ---- Where the rest goes ----------------------------------------------------------------------
+
+    private static TrancheDto Certificate(string name, double balance, int subOrder = 9) => new()
+    {
+        TrancheName = name, OriginalBalance = balance, TrancheType = "Certificate", CashflowType = "PI",
+        CouponType = "None", SubordinationOrder = subOrder, FirstPayDate = FirstPayDate
+    };
+
+    /// <summary>A pool of 100M at 8% repaying the stated share of its balance a month, with no losses.</summary>
+    private static List<PeriodCashflowDto> Repaying(int periods, double share)
+    {
+        var pool = new List<PeriodCashflowDto>();
+        var balance = PoolBalance;
+        for (var i = 0; i < periods; i++)
+        {
+            var interest = balance * 8.0 / 1200;
+            var scheduled = balance * share;
+            pool.Add(new PeriodCashflowDto
+            {
+                Period = i + 1, CashflowDate = FirstPayDate.AddMonths(i), GroupNum = "1", BeginBalance = balance,
+                Balance = balance - scheduled, ScheduledPrincipal = scheduled, Interest = interest,
+                NetInterest = interest, Wac = 8.0
+            });
+            balance -= scheduled;
+        }
+
+        return pool;
+    }
+
+    private static WaterfallRequest Plain(List<PeriodCashflowDto> pool, List<TrancheDto> tranches,
+        PayableStructureDto interest, PayableStructureDto principal, PayableStructureDto writedown,
+        PayableStructureDto release, string waterfallOrder = "standard") => new()
+    {
+        ProjectionDate = FirstPayDate.AddMonths(-1),
+        CollateralCashflows = pool,
+        Deal = new DealDto
+        {
+            DealName = "PRINCIPAL_RECEIPT_TEST", WaterfallType = "ComposableStructure",
+            ClosingDate = FirstPayDate.AddMonths(-1), Tranches = tranches,
+            UnifiedWaterfall = new UnifiedWaterfallDto
+            {
+                ExecutionOrder = StripFirstOrder.ToList(), WaterfallOrder = waterfallOrder,
+                Steps = new List<WaterfallStepDto>
+                {
+                    new() { Type = "INTEREST", Structure = interest },
+                    new() { Type = "PRINCIPAL", Source = "scheduled", Default = principal },
+                    new() { Type = "PRINCIPAL", Source = "unscheduled", Default = principal },
+                    new() { Type = "PRINCIPAL", Source = "recovery", Default = principal },
+                    new() { Type = "WRITEDOWN", Structure = writedown },
+                    new() { Type = "EXCESS_RELEASE", Structure = release }
+                }
+            }
+        }
+    };
+
+    [Fact]
+    public void Principal_no_structure_places_is_left_while_a_note_has_a_balance_and_not_paid_to_the_certificate()
+    {
+        // The principal structures name A alone and leave B out: a mis-stated deal. Once A
+        // retires, the principal reaches no note. It is not the certificate's while B still
+        // stands, so it is left, and the ledger says so: that is the sign the deal is wrong.
+        var pool = Repaying(10, 0.10);
+        var r = Run(Plain(pool,
+            new List<TrancheDto>
+            {
+                Note("A", 30_000_000, 0), Note("B", 60_000_000, 1), Certificate("CERT", 10_000_000),
+                new()
+                {
+                    TrancheName = "R", OriginalBalance = 0, TrancheType = "Offered", CashflowType = "PI",
+                    CouponType = "Residual", FixedCoupon = 0.0, SubordinationOrder = 10, FirstPayDate = FirstPayDate,
+                    PayFrequency = 12, PayDay = FirstPayDate.Day
+                }
+            },
+            Seq("A", "B"), Seq("A"), Seq("B", "A"), Seq("CERT")));
+
+        Principal(r, "A").Should().BeApproximately(30_000_000, 0.01);
+        Principal(r, "R").Should().BeApproximately(0, 0.01, "nor is it the residual's beside a certificate");
+        r.TrancheCashflows["B"].Last().Balance.Should().BeApproximately(60_000_000, 0.01, "the fixture: B is never paid");
+        Principal(r, "CERT").Should().BeApproximately(0, 0.01, "a note still has a balance");
+        r.CashLedger!.LeftPrincipal.Should().BeApproximately(
+            pool.Sum(p => p.ScheduledPrincipal) - 30_000_000, 0.01, "the principal no structure placed");
+        EveryStepBalances(r.CashLedger!);
+        (ResponsePaysOut(r, pool) + r.CashLedger.LeftPrincipal + r.CashLedger.LeftInterest).Should()
+            .BeApproximately(pool.Sum(Collected), 0.05);
+    }
+
+    [Fact]
+    public void Principal_left_once_the_notes_are_gone_is_paid_to_the_certificate()
+    {
+        // The same pool and a well-stated deal: once both notes retire, the principal is the
+        // certificate's and it is paid to it.
+        var pool = Repaying(10, 0.10);
+        var r = Run(Plain(pool,
+            new List<TrancheDto> { Note("A", 30_000_000, 0), Note("B", 30_000_000, 1), Certificate("CERT", 40_000_000) },
+            Seq("A", "B"), Seq("A", "B"), Seq("B", "A"), Seq("CERT")));
+
+        (Principal(r, "A") + Principal(r, "B")).Should().BeApproximately(60_000_000, 0.01);
+        Principal(r, "CERT").Should().BeApproximately(pool.Sum(p => p.ScheduledPrincipal) - 60_000_000, 0.01);
+        r.CashLedger!.LeftPrincipal.Should().BeApproximately(0, 0.01);
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Theory]
+    [InlineData("CERT1")]
+    [InlineData("CERT2")]
+    public void With_two_certificates_the_one_the_release_names_is_paid_the_principal_left(string named)
+    {
+        // Each certificate carries the whole overcollateralization as its balance, so the balance
+        // cannot say which one is owed. The release structure can.
+        var pool = Repaying(10, 0.10);
+        var r = Run(Plain(pool,
+            new List<TrancheDto>
+            {
+                Note("A", 60_000_000, 0), Certificate("CERT1", 0, subOrder: 8), Certificate("CERT2", 40_000_000)
+            },
+            Seq("A"), Seq("A"), Seq("A"), Seq(named)));
+
+        var other = named == "CERT1" ? "CERT2" : "CERT1";
+        Principal(r, named).Should().BeApproximately(pool.Sum(p => p.ScheduledPrincipal) - 60_000_000, 0.01);
+        Principal(r, other).Should().BeApproximately(0, 0.01);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Fact]
+    public void A_reserve_draw_the_notes_cannot_take_goes_back_to_the_reserve()
+    {
+        // The pool loses 1.5M a month with nothing recovered, so the notes stand above it and
+        // the reserve is drawn to pay them down. The scheduled structure is a single class that
+        // retires; what it cannot take of the draw goes back to the reserve. It used to leave the
+        // reserve and reach no one.
+        var pool = new List<PeriodCashflowDto>();
+        var balance = PoolBalance;
+        for (var i = 0; i < 8; i++)
+        {
+            var interest = balance * 8.0 / 1200;
+            var scheduled = balance * 0.02;
+            const double defaulted = 1_500_000;
+            pool.Add(new PeriodCashflowDto
+            {
+                Period = i + 1, CashflowDate = FirstPayDate.AddMonths(i), GroupNum = "1", BeginBalance = balance,
+                Balance = balance - scheduled - defaulted, ScheduledPrincipal = scheduled, Interest = interest,
+                NetInterest = interest, DefaultedPrincipal = defaulted, CollateralLoss = defaulted, Wac = 8.0
+            });
+            balance -= scheduled + defaulted;
+        }
+
+        var request = Plain(pool,
+            new List<TrancheDto>
+            {
+                Note("A", 3_000_000, 0), Note("B", 97_000_000, 1),
+                new()
+                {
+                    TrancheName = "RESERVE", OriginalBalance = 5_000_000, TrancheType = "CapFundsReserve",
+                    CashflowType = "Reserve", CouponType = "None", FirstPayDate = FirstPayDate,
+                    PayDay = FirstPayDate.Day,
+                    ReserveConfig = new ReserveAccountConfigDto
+                    {
+                        TargetPct = 0.05, TargetBase = "CutoffPoolBalance", CapAtNoteBalance = true,
+                        CutoffPoolBalance = PoolBalance
+                    }
+                },
+                Certificate("CERT", 0)
+            },
+            Seq("A", "B"), Seq("A", "B"), Seq("B", "A"), Single("CERT"));
+        Step(request, "PRINCIPAL", "scheduled").Default = Single("A");
+        request.Deal.UnifiedWaterfall!.ExecutionOrder!.Insert(5, "RESERVE_DEPOSIT");
+        request.Deal.UnifiedWaterfall.Steps.Add(new WaterfallStepDto { Type = "RESERVE_DEPOSIT" });
+        var r = Run(request);
+
+        Principal(r, "A").Should().BeApproximately(3_000_000, 0.01, "the fixture: A retires");
+        EveryStepBalances(r.CashLedger!);
+    }
+
+    [Fact]
+    public void A_coverage_cure_that_pays_a_funded_residual_spends_what_it_paid()
+    {
+        // One period, one coverage level naming a funded residual alone. The level fails and the
+        // cure pays the residual principal out of interest. Measured on the notes' balance, which
+        // leaves the residual out, the cure paid nothing and the strip was paid the same interest
+        // again: 1,500,000 out on 750,000 collected.
+        var pool = new List<PeriodCashflowDto>
+        {
+            new()
+            {
+                Period = 1, CashflowDate = FirstPayDate, GroupNum = "1", BeginBalance = PoolBalance,
+                Balance = PoolBalance - 2_000_000, Interest = 750_000, NetInterest = 750_000,
+                DefaultedPrincipal = 2_000_000, CollateralLoss = 2_000_000, Wac = 9.0
+            }
+        };
+        var request = Plain(pool,
+            new List<TrancheDto>
+            {
+                Note("A", 1_000_000, 0),
+                new()
+                {
+                    TrancheName = "SUB", OriginalBalance = 99_000_000, TrancheType = "Offered", CashflowType = "PI",
+                    CouponType = "Residual", FixedCoupon = 0.0, SubordinationOrder = 1, FirstPayDate = FirstPayDate,
+                    PayFrequency = 12, PayDay = FirstPayDate.Day
+                },
+                new()
+                {
+                    TrancheName = "XS", OriginalBalance = PoolBalance, TrancheType = "Offered", CashflowType = "IO",
+                    CouponType = "ExcessInterest", FixedCoupon = 0.0, ClassReference = "XS", SubordinationOrder = 2,
+                    FirstPayDate = FirstPayDate, PayFrequency = 12, PayDay = FirstPayDate.Day
+                }
+            },
+            Seq("A"), Seq("A", "SUB"), Seq("A"), Seq("XS"));
+        request.Deal.Tranches[0].FixedCoupon = 4.0;
+        request.Deal.UnifiedWaterfall!.CoverageCascade = new List<CoverageLevelDto>
+        {
+            new() { Level = "SUB", Tranches = new List<string> { "SUB" }, OcTriggerPct = 100 }
+        };
+        var r = Run(request);
+
+        (750_000 - r.TrancheCashflows.Values.Sum(rows => rows.Sum(c => c.Interest))).Should()
+            .BeGreaterThan(100_000, "the fixture: the cure pays principal out of interest");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Theory]
+    [InlineData("interestFirst")]
+    [InlineData("principalFirst")]
+    public void An_interleaved_order_with_a_certificate_ahead_of_a_note_pays_out_what_it_collects(string order)
+    {
+        // Interleaved, each child of the principal structures is handed the principal directly. A
+        // certificate is not held to its balance, so placed ahead of a note it takes what the
+        // note behind it would have (a known limit; the standard order pays the note). What
+        // this holds is that the cash adds up: measured on balances, the step paid the
+        // certificate and the note behind it as well.
+        var pool = Losses(600_000);
+        var r = Run(Plain(pool,
+            new List<TrancheDto> { Note("A", 5_000_000, 0), Note("B", 95_000_000, 1), Certificate("CERT", 0) },
+            Seq("A", "B"), Seq("A", "CERT", "B"), Seq("B", "A"), Seq("CERT"), order));
+
+        Principal(r, "A").Should().BeApproximately(5_000_000, 0.01, "the fixture: A retires");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Theory]
+    [InlineData("interestFirst")]
+    [InlineData("principalFirst")]
+    public void An_interleaved_order_with_an_interest_only_class_among_the_notes_pays_out_what_it_collects(string order)
+    {
+        // An interest-only class handed principal records none and its notional falls. Measured on
+        // its balance, the step spent principal that reached no one. Scheduled, prepaid and
+        // recovered principal all pass it.
+        var pool = Losses(600_000);
+        var r = Run(Plain(pool,
+            new List<TrancheDto>
+            {
+                Note("A", 5_000_000, 0), Note("B", 95_000_000, 2),
+                new()
+                {
+                    TrancheName = "IO", OriginalBalance = 50_000_000, TrancheType = "Offered", CashflowType = "IO",
+                    CouponType = "Fixed", FixedCoupon = 0.0, SubordinationOrder = 1, FirstPayDate = FirstPayDate,
+                    PayFrequency = 12, PayDay = FirstPayDate.Day
+                }
+            },
+            Seq("A", "B"), Seq("A", "IO", "B"), Seq("B", "A"), Seq("B"), order));
+
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
     [Fact]
     public void Principal_paid_to_a_funded_residual_is_spent_without_a_wider_balance_measure()
     {
@@ -596,6 +882,45 @@ public class PrincipalReceiptTests
             "what was collected was paid or is left");
     }
 
+    private static double Collected(PeriodCashflowDto p) =>
+        p.NetInterest + p.ScheduledPrincipal + p.UnscheduledPrincipal + p.RecoveryPrincipal;
+
+    /// <summary>Every class's interest, principal and expense in the response, over the run.</summary>
+    private static double ResponsePaysOut(WaterfallResponse r, List<PeriodCashflowDto> pool) =>
+        r.TrancheCashflows.Values.SelectMany(rows => rows)
+            .Sum(c => c.Interest + c.ScheduledPrincipal + c.UnscheduledPrincipal + c.Expense);
+
+    /// <summary>Collected is what the steps paid, plus their gaps, plus what was left, less what was overdrawn.</summary>
+    private static void LedgerAddsUp(CashLedgerDto ledger) =>
+        (ledger.Steps.Sum(s => s.Paid) + ledger.Steps.Sum(s => s.TakenNotPaid - s.PaidNotTaken) +
+         ledger.LeftInterest + ledger.LeftPrincipal - ledger.Overdrawn)
+        .Should().BeApproximately(ledger.Collected, 0.05, "the ledger's identity");
+
+    /// <summary>
+    /// The same check as the response one, on a deal built straight into the engine: certificate
+    /// classes read from their class rows and every other class from its tranche rows, which is
+    /// where the response reads them.
+    /// </summary>
+    private static void EveryPeriodPaysOutWhatItCollected(DealCashflows cf, CollateralCashflows pool)
+    {
+        static double Cash(TrancheCashflow c) =>
+            c.Interest + c.ScheduledPrincipal + c.UnscheduledPrincipal + c.Expense;
+
+        var rows = cf.TrancheCashflows
+            .Where(t => t.Key.TrancheTypeEnum != TrancheTypeEnum.Certificate)
+            .SelectMany(t => t.Value.Cashflows.Values)
+            .Concat(cf.ClassCashflows.Where(c => c.Key.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+                .SelectMany(c => c.Value.Cashflows.Values));
+        var paidOn = rows.GroupBy(c => c.CashflowDate.Date).ToDictionary(g => g.Key, g => g.Sum(Cash));
+        foreach (var period in pool.PeriodCashflows)
+        {
+            var collected = period.NetInterest + period.ScheduledPrincipal + period.UnscheduledPrincipal +
+                            period.RecoveryPrincipal;
+            paidOn.GetValueOrDefault(period.CashflowDate.Date).Should().BeApproximately(collected, 0.01,
+                $"{period.CashflowDate:yyyy-MM-dd}");
+        }
+    }
+
     private static double Principal(WaterfallResponse r, string name) =>
         r.TrancheCashflows[name].Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
 
@@ -608,7 +933,8 @@ public class PrincipalReceiptTests
         // By date, not by position: a class has a row only for the periods it was paid in.
         var paidOn = r.TrancheCashflows.Values.SelectMany(rows => rows)
             .GroupBy(row => row.CashflowDate.Date)
-            .ToDictionary(g => g.Key, g => g.Sum(row => row.Interest + row.ScheduledPrincipal + row.UnscheduledPrincipal));
+            .ToDictionary(g => g.Key,
+                g => g.Sum(row => row.Interest + row.ScheduledPrincipal + row.UnscheduledPrincipal + row.Expense));
         paidOn.Keys.Should().BeSubsetOf(pool.Select(p => p.CashflowDate.Date), "no class is paid on another date");
         foreach (var period in pool)
         {

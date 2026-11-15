@@ -38,6 +38,12 @@ public sealed class CashLedger
         /// </summary>
         public double PaidPastBalance { get; internal set; }
 
+        /// <summary>
+        ///     What the step took the running totals below zero by: cash it paid out beyond what it
+        ///     held. Its taken and paid agree on that cash, so this is where it shows.
+        /// </summary>
+        public double Overdrew { get; internal set; }
+
         public DateTime? FirstPeriodOff { get; internal set; }
 
         /// <summary>The largest single-period difference, signed: positive is taken and not paid.</summary>
@@ -58,6 +64,13 @@ public sealed class CashLedger
     /// <summary>Principal left after the last step with no residual class and no certificate to take it.</summary>
     public double LeftPrincipal { get; private set; }
 
+    /// <summary>
+    ///     What the running totals stood below zero by at the end of each period, summed: cash paid
+    ///     out beyond what was collected. Collected equals the steps' paid, plus taken-not-paid less
+    ///     paid-not-taken, plus what was left, less this.
+    /// </summary>
+    public double Overdrawn { get; private set; }
+
     /// <summary>Periods that ended with cash no class took.</summary>
     public int PeriodsLeft { get; private set; }
 
@@ -75,7 +88,8 @@ public sealed class CashLedger
         lock (_lock) Collected += amount;
     }
 
-    public void Record(string step, DateTime date, double taken, double paid, double paidPastBalance = 0)
+    public void Record(string step, DateTime date, double taken, double paid, double paidPastBalance = 0,
+        double overdrew = 0)
     {
         lock (_lock)
         {
@@ -89,6 +103,7 @@ public sealed class CashLedger
             s.Taken += taken;
             s.Paid += paid;
             if (paidPastBalance > Cent) s.PaidPastBalance += paidPastBalance;
+            if (Math.Abs(overdrew) > Cent) s.Overdrew += overdrew;
             var gap = taken - paid;
             if (Math.Abs(gap) <= Cent)
                 return;
@@ -102,13 +117,15 @@ public sealed class CashLedger
 
     public void Leftover(double interest, double principal)
     {
-        if (interest + principal <= Cent)
-            return;
         lock (_lock)
         {
+            var overdrawn = Math.Max(-interest, 0) + Math.Max(-principal, 0);
+            if (overdrawn > Cent) Overdrawn += overdrawn;
+            if (Math.Max(interest, 0) + Math.Max(principal, 0) <= Cent)
+                return;
             PeriodsLeft++;
-            LeftInterest += interest;
-            LeftPrincipal += principal;
+            LeftInterest += Math.Max(interest, 0);
+            LeftPrincipal += Math.Max(principal, 0);
         }
     }
 }

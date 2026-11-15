@@ -710,8 +710,13 @@ public class ComposableStructure : BaseStructure
         var heldBack = 0.0;
         double Funds() => availableInterest + availableSchedPrin + availablePrepayPrin + availableRecovPrin + heldBack;
         double Cash() => CashRecorded(dynGroup, adjPeriodCf.CashflowDate);
+        // What the running totals stand below zero by: cash a step paid out beyond what it held.
+        double Overdrawn() => Math.Max(-availableInterest, 0) + Math.Max(-availableSchedPrin, 0) +
+                              Math.Max(-availablePrepayPrin, 0) + Math.Max(-availableRecovPrin, 0) +
+                              Math.Max(-heldBack, 0);
         var ledgerFunds = Funds();
         var ledgerCash = ledger != null ? Cash() : 0.0;
+        var ledgerOverdrawn = 0.0;
         ledger?.Collect(ledgerFunds);
 
         void Mark(string name)
@@ -719,9 +724,12 @@ public class ComposableStructure : BaseStructure
             if (ledger == null) return;
             var funds = Funds();
             var cash = Cash();
-            ledger.Record(name, adjPeriodCf.CashflowDate, ledgerFunds - funds, cash - ledgerCash, _paidPastBalance);
+            var overdrawn = Overdrawn();
+            ledger.Record(name, adjPeriodCf.CashflowDate, ledgerFunds - funds, cash - ledgerCash, _paidPastBalance,
+                overdrawn - ledgerOverdrawn);
             ledgerFunds = funds;
             ledgerCash = cash;
+            ledgerOverdrawn = overdrawn;
             _paidPastBalance = 0;
         }
 
@@ -938,16 +946,24 @@ public class ComposableStructure : BaseStructure
         // Called AFTER all principal payments so both pool and note balances are at end-of-period values
         dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
 
-        // The principal the steps left, and what was held back for a release nothing paid, is the
-        // certificate's. It is paid here, as cash. It used to be left in the running totals on
-        // the footing that the certificate's balance falling would show it: the fall was booked
-        // as principal whether or not there was cash behind it (a loss eating the OC), and cash
-        // with no fall behind it (a certificate standing at zero) was shown to no one.
+        // What was held back for a release nothing paid is the certificate's, and so is the
+        // principal the steps left once the notes are gone. Both are paid here, as cash. They
+        // used to be left in the running totals on the footing that the certificate's balance
+        // falling would show them: the fall was booked as principal whether or not there was cash
+        // behind it (a loss eating the OC), and cash with no fall behind it (a certificate
+        // standing at zero) was shown to no one.
+        //
+        // While a note still has a balance, principal the steps left is not the certificate's:
+        // the deal's structures could not place it, and the ledger reports it as left.
+        var notesOutstanding = dynGroup.Balance() > 0.005;
+        var principalSteps = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
         var toCertificate = PayCertificate(dynGroup, adjPeriodCf,
-            availableSchedPrin + availablePrepayPrin + availableRecovPrin + heldBack);
+            (notesOutstanding ? 0 : Math.Max(principalSteps, 0)) + Math.Max(heldBack, 0));
         if (toCertificate > 0)
         {
-            availableSchedPrin = availablePrepayPrin = availableRecovPrin = heldBack = 0;
+            if (!notesOutstanding && principalSteps > 0)
+                availableSchedPrin = availablePrepayPrin = availableRecovPrin = 0;
+            heldBack = Math.Min(heldBack, 0);
             Mark("CERTIFICATE");
         }
 
@@ -962,9 +978,10 @@ public class ComposableStructure : BaseStructure
         //  - Interest: the certificate path only ever handles principal, so any
         //    leftover interest (no XS sweep, no excess step consumed it) is
         //    genuinely unallocated and lands here — no double-count.
-        //  - Principal: on a deal with a certificate the principal left has just been paid to
-        //    it, so there is none here; with no certificate it lands on the residual.
-        var residualPrincipal = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
+        //  - Principal: only on a deal with no certificate. With one, the principal left was paid
+        //    to it above once the notes were gone, and is left (and reported) while they are not.
+        var hasCertificate = dynGroup.DynamicClasses.Any(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate);
+        var residualPrincipal = hasCertificate ? 0.0 : availableSchedPrin + availablePrepayPrin + availableRecovPrin;
         if (!interestDiversionApplied)
         {
             availableInterest = ApplyInterestDiversion(deal, dynGroup, adjPeriodCf, availableInterest);
@@ -985,9 +1002,12 @@ public class ComposableStructure : BaseStructure
             ledger.Record("RESIDUAL", adjPeriodCf.CashflowDate, credited, credited);
             var residualTakes = dynGroup.DynamicClasses.Any(dc => dc.IsResidual && dc.DynamicTranches.Any());
             var principalLeft = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
-            // Principal held back for the OC release that no turbo step paid is still held here:
-            // it was collected and reached no class, whatever the residual took.
-            ledger.Leftover(residualTakes ? 0 : availableInterest, (residualTakes ? 0 : principalLeft) + heldBack);
+            // The residual takes what is left when it is more than nothing; a negative total is
+            // an overdraft, which no class takes. Principal held back for a release nothing paid
+            // is the certificate's, and is held here only on a deal with no certificate.
+            var interestReported = residualTakes && availableInterest > 0.005 ? 0 : availableInterest;
+            var principalReported = residualTakes && !hasCertificate && principalLeft > 0.005 ? 0 : principalLeft;
+            ledger.Leftover(interestReported, principalReported + heldBack);
         }
     }
 
@@ -1039,18 +1059,23 @@ public class ComposableStructure : BaseStructure
     /// well-formed deal, ~0 — residual amount.
     /// </summary>
     /// <summary>
-    ///     Pays the first certificate class the principal the steps left, on its class row, where
-    ///     the response reads a certificate. Returns what was paid: nothing on a deal with no
-    ///     certificate.
+    ///     Pays a certificate class the principal it is owed at the end of the period, on its class
+    ///     row, where the response reads a certificate. Returns what was paid: nothing on a deal
+    ///     with no certificate.
     /// </summary>
     private static double PayCertificate(DynamicGroup dynGroup, PeriodCashflows periodCf, double principalLeft)
     {
         if (principalLeft <= 0.005)
             return 0;
-        var certificate = dynGroup.DynamicClasses.FirstOrDefault(dc =>
-            dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate);
-        if (certificate == null)
+        // With more than one certificate class, the one the release structure names; else the
+        // first. (Each carries the whole overcollateralization as its balance, so the balance
+        // cannot say which.)
+        var certificates = dynGroup.DynamicClasses
+            .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate).ToList();
+        if (certificates.Count == 0)
             return 0;
+        var released = (dynGroup.ReleasePayable ?? dynGroup.ExcessPayable)?.Leafs();
+        var certificate = certificates.FirstOrDefault(dc => released?.Contains(dc) == true) ?? certificates[0];
         certificate.GetCashflow(periodCf.CashflowDate).ScheduledPrincipal += principalLeft;
         return principalLeft;
     }
@@ -1753,8 +1778,11 @@ public class ComposableStructure : BaseStructure
 
         if (reserveDraw > 0 && dynGroup.ScheduledPayable != null)
         {
-            // Pay down notes with reserve funds (sequential)
-            dynGroup.ScheduledPayable.PaySp(null, periodCf.CashflowDate, reserveDraw, () => { });
+            // Pay down notes with reserve funds (sequential). What the structure's classes could
+            // not take goes back to the reserve: it was drawn for the notes and reached none.
+            var paid = Spend(dynGroup.ScheduledPayable.PaySp(null, periodCf.CashflowDate, reserveDraw, () => { }));
+            if (reserveDraw - paid > 0.005)
+                dynGroup.FundsAccount!.Credit(reserveDraw - paid);
         }
     }
 
