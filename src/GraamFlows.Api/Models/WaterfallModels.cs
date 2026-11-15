@@ -1241,12 +1241,6 @@ public class CashLedgerDto
     /// <summary>Principal left after the last step with no residual class and no certificate.</summary>
     public double LeftPrincipal { get; set; }
 
-    /// <summary>
-    ///     Principal left after the last step on a deal with a certificate, whose balance (pool
-    ///     less notes) carries it without being paid it.
-    /// </summary>
-    public double LeftPrincipalBesideCertificate { get; set; }
-
     /// <summary>Periods that ended with cash no class took.</summary>
     public int PeriodsLeft { get; set; }
 

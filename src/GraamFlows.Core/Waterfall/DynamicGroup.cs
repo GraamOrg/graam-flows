@@ -540,11 +540,9 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             var cf = certClass.GetCashflow(cashflowDate);
             cf.BeginBalance = certClass.Balance;
 
-            // Record principal paydown when certificate balance decreases
-            var balanceChange = certClass.Balance - ocBalance;
-            if (balanceChange > 0)
-                cf.ScheduledPrincipal += balanceChange;
-
+            // The balance is set, and nothing is booked as paid. A fall in it is not cash: it is
+            // the pool falling faster than the notes, by a loss as readily as by a release. What
+            // the certificate is paid is what the steps pay it.
             certClass.SetBalance(ocBalance);
             cf.Balance = ocBalance;
         }

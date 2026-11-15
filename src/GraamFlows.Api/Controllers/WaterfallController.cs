@@ -147,7 +147,6 @@ public class WaterfallController : ControllerBase
                     Collected = cashLedger.Collected,
                     LeftInterest = cashLedger.LeftInterest,
                     LeftPrincipal = cashLedger.LeftPrincipal,
-                    LeftPrincipalBesideCertificate = cashLedger.LeftPrincipalBesideCertificate,
                     PeriodsLeft = cashLedger.PeriodsLeft,
                     Steps = cashLedger.Steps.Select(s => new CashLedgerStepDto
                     {

@@ -272,6 +272,178 @@ public class PrincipalReceiptTests
         turbo.TakenNotPaid.Should().BeApproximately(0, 0.01);
     }
 
+    // ---- A certificate is paid what the steps pay it --------------------------------------------
+
+    /// <summary>
+    /// A note of 20M and a certificate on a 100M pool repaying 6% a month, with an OC target the
+    /// turbo builds toward. The turbo's structure runs through the note and then the
+    /// certificate; the release pays the certificate the interest left.
+    /// </summary>
+    private static WaterfallRequest CertificateDeal(List<PeriodCashflowDto> pool, bool certificateInPrincipal)
+    {
+        var notes = certificateInPrincipal ? Seq("A1", "CERT") : Seq("A1");
+        return new WaterfallRequest
+        {
+            ProjectionDate = FirstPayDate.AddMonths(-1),
+            CollateralCashflows = pool,
+            Deal = new DealDto
+            {
+                DealName = "PRINCIPAL_RECEIPT_TEST",
+                WaterfallType = "ComposableStructure",
+                ClosingDate = FirstPayDate.AddMonths(-1),
+                Tranches = new List<TrancheDto>
+                {
+                    Note("A1", 20_000_000, 0),
+                    new()
+                    {
+                        TrancheName = "CERT", OriginalBalance = 80_000_000, TrancheType = "Certificate",
+                        CashflowType = "PI", CouponType = "None", SubordinationOrder = 9, FirstPayDate = FirstPayDate
+                    }
+                },
+                UnifiedWaterfall = new UnifiedWaterfallDto
+                {
+                    ExecutionOrder = OcOrder.ToList(),
+                    Steps = new List<WaterfallStepDto>
+                    {
+                        new() { Type = "INTEREST", Structure = Seq("A1") },
+                        new() { Type = "PRINCIPAL", Source = "scheduled", Default = notes },
+                        new() { Type = "PRINCIPAL", Source = "unscheduled", Default = notes },
+                        new() { Type = "PRINCIPAL", Source = "recovery", Default = notes },
+                        new() { Type = "WRITEDOWN", Structure = Seq("A1") },
+                        new()
+                        {
+                            Type = "EXCESS_TURBO", Structure = Seq("A1", "CERT"),
+                            OcTarget = new OcTargetDto { TargetPct = 0.10, FloorAmt = 90_000_000 }
+                        },
+                        new() { Type = "EXCESS_RELEASE", Structure = Seq("CERT") }
+                    }
+                }
+            }
+        };
+    }
+
+    private static List<PeriodCashflowDto> Amortising(double defaulted)
+    {
+        var periods = new List<PeriodCashflowDto>();
+        var balance = PoolBalance;
+        for (var i = 0; i < 14; i++)
+        {
+            var interest = balance * 8.0 / 1200;
+            var scheduled = balance * 0.06;
+            var lost = Math.Min(defaulted, balance - scheduled);
+            var end = balance - scheduled - lost;
+            periods.Add(new PeriodCashflowDto
+            {
+                Period = i + 1, CashflowDate = FirstPayDate.AddMonths(i), GroupNum = "1", BeginBalance = balance,
+                Balance = end, ScheduledPrincipal = scheduled, Interest = interest, NetInterest = interest,
+                DefaultedPrincipal = lost, RecoveryPrincipal = 0, CollateralLoss = lost, Wac = 8.0
+            });
+            balance = end;
+        }
+
+        return periods;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_certificate_the_turbo_pays_is_paid_that_cash_once_whoever_else_pays_it(bool certificateInPrincipal)
+    {
+        // Both ways round. With the certificate in the turbo's structure only, a build that spent
+        // the turbo's payment lost it, because the certificate's balance fall was booked as its
+        // principal in place of the payment. With the certificate in the principal structures as
+        // well, a build that did not spend it paid the same interest again from the release.
+        var pool = Amortising(defaulted: 0);
+        var r = Run(CertificateDeal(pool, certificateInPrincipal));
+
+        r.CashLedger!.Steps.Single(s => s.Step == "EXCESS_TURBO").Paid.Should().BeGreaterThan(1_000_000,
+            "the fixture: the turbo pays");
+        Principal(r, "A1").Should().BeApproximately(20_000_000, 0.01, "the note is repaid");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Fact]
+    public void A_loss_that_eats_the_overcollateralization_is_not_principal_paid_to_the_certificate()
+    {
+        // 400,000 of the pool defaults each month with nothing recovered. The certificate's
+        // balance, the pool less the note, falls by it. No one is paid that: the certificate's
+        // principal is the cash the steps pay it, and the response adds up to what was collected.
+        var pool = Amortising(defaulted: 400_000);
+        var r = Run(CertificateDeal(pool, certificateInPrincipal: true));
+
+        pool.Sum(p => p.DefaultedPrincipal).Should().BeGreaterThan(5_000_000, "the fixture: losses");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Fact]
+    public void A_certificate_sent_with_no_balance_is_still_paid_the_principal_released_to_it()
+    {
+        // The release structure cannot place principal in a certificate that stands at zero, as
+        // one sent with no balance does in its first period. The principal stays held and is paid
+        // to the certificate with what the steps leave, in that same period.
+        var pool = Amortising(defaulted: 0);
+        var request = CertificateDeal(pool, certificateInPrincipal: false);
+        request.Deal.Tranches.Single(t => t.TrancheName == "CERT").OriginalBalance = 0;
+        // A 10% target with no floor: the deal opens far above it, so principal is released at once.
+        Step(request, "EXCESS_TURBO").OcTarget = new OcTargetDto { TargetPct = 0.10 };
+        var r = Run(request);
+
+        r.TrancheCashflows["CERT"].First().ScheduledPrincipal.Should().BeGreaterThan(100_000,
+            "the fixture: principal is released to the certificate in the first period");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Fact]
+    public void Excess_the_strip_swept_is_given_up_only_for_principal_a_note_was_paid()
+    {
+        // The built-in rule: the strip sweeps the excess inside INTEREST and gives back what a
+        // loss needs, which pays the notes principal. The junior note is small and retires; from
+        // then the loss has no note to pay, and the strip keeps its excess.
+        var pool = Losses(600_000);
+        var request = Deal(pool, order: new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN"
+        }, seniorBalance: 4_000_000, withTurbo: false, withResidual: true);
+        request.Deal.UnifiedWaterfall!.Steps.RemoveAll(s => s.Type == "EXCESS_RELEASE");
+        Step(request, "INTEREST").Structure = Seq("A1", "B1", "XS");
+        // Every principal structure reaches the senior note alone, so once it retires nothing
+        // the rule offers can be placed.
+        foreach (var step in request.Deal.UnifiedWaterfall.Steps.Where(s => s.Type == "PRINCIPAL"))
+            step.Default = Single("A1");
+        var r = Run(request);
+
+        Principal(r, "A1").Should().BeApproximately(4_000_000, 0.01, "the fixture: the senior note retires");
+        var retired = r.TrancheCashflows["A1"].First(c => c.Balance < 0.01).CashflowDate;
+        foreach (var period in pool.Where(p => p.CashflowDate > retired))
+        {
+            var junior = r.TrancheCashflows["B1"].Single(c => c.CashflowDate == period.CashflowDate).Interest;
+            r.TrancheCashflows["XS"].Single(c => c.CashflowDate == period.CashflowDate).Interest.Should()
+                .BeApproximately(period.NetInterest - junior, 0.01,
+                    $"{period.CashflowDate:yyyy-MM-dd}: the strip keeps the whole excess");
+        }
+
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Fact]
+    public void A_tranche_filed_under_another_class_shows_as_paid_past_the_balance()
+    {
+        // A mis-stated deal: a 40M tranche filed under an 80M class, so the class's tranche rows
+        // record half as much again as the class is paid. The cash is spent as recorded; the
+        // ledger says how much of it had no balance behind it.
+        var request = Deal(Losses(0), order: StripFirstOrder, seniorBalance: 80_000_000, withTurbo: false);
+        var junior = request.Deal.Tranches.Single(t => t.TrancheName == "B1");
+        junior.OriginalBalance = 40_000_000;
+        junior.ClassReference = "A1";
+        var ledger = Run(request).CashLedger!;
+
+        ledger.Steps.Sum(s => s.PaidPastBalance).Should().BeGreaterThan(1_000_000);
+    }
+
     [Fact]
     public void Principal_paid_to_a_funded_residual_is_spent_without_a_wider_balance_measure()
     {
@@ -323,8 +495,8 @@ public class PrincipalReceiptTests
             step.PeriodsOff.Should().Be(0, step.Step);
         }
 
-        (ledger.Steps.Sum(s => s.Paid) + ledger.LeftInterest + ledger.LeftPrincipal +
-         ledger.LeftPrincipalBesideCertificate).Should().BeApproximately(ledger.Collected, 0.01,
+        (ledger.Steps.Sum(s => s.Paid) + ledger.LeftInterest + ledger.LeftPrincipal).Should()
+            .BeApproximately(ledger.Collected, 0.01,
             "what was collected was paid or is left");
     }
 

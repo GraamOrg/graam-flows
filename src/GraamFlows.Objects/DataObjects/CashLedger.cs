@@ -55,14 +55,8 @@ public sealed class CashLedger
     /// <summary>Interest left after the last step with no residual class to take it.</summary>
     public double LeftInterest { get; private set; }
 
-    /// <summary>Principal left after the last step with no residual class and no certificate.</summary>
+    /// <summary>Principal left after the last step with no residual class and no certificate to take it.</summary>
     public double LeftPrincipal { get; private set; }
-
-    /// <summary>
-    ///     Principal left after the last step on a deal with a certificate. The certificate's
-    ///     balance is the pool less the notes, so it carries this without being paid it.
-    /// </summary>
-    public double LeftPrincipalBesideCertificate { get; private set; }
 
     /// <summary>Periods that ended with cash no class took.</summary>
     public int PeriodsLeft { get; private set; }
@@ -106,7 +100,7 @@ public sealed class CashLedger
         }
     }
 
-    public void Leftover(double interest, double principal, bool hasCertificate)
+    public void Leftover(double interest, double principal)
     {
         if (interest + principal <= Cent)
             return;
@@ -114,8 +108,7 @@ public sealed class CashLedger
         {
             PeriodsLeft++;
             LeftInterest += interest;
-            if (hasCertificate) LeftPrincipalBesideCertificate += principal;
-            else LeftPrincipal += principal;
+            LeftPrincipal += principal;
         }
     }
 }

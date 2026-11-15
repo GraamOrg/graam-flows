@@ -678,6 +678,7 @@ public class ComposableStructure : BaseStructure
     {
         var cfAlloc = BeginPeriod(deal, dynGroup, adjPeriodCf);
         _paidPastBalance = 0;
+        _ocReleasePaid = 0;
 
         // Notional (IO) tranches track the pool balance, not the principal
         // waterfall. Set their begin balance to the pool's begin balance BEFORE
@@ -913,9 +914,11 @@ public class ComposableStructure : BaseStructure
             }
 
             // The turbo is the step that pays the principal held back for the OC release.
-            if (heldBack > 0 && dynGroup.ReleasePayable != null &&
-                step.Equals("EXCESS_TURBO", StringComparison.OrdinalIgnoreCase))
-                heldBack = 0;
+            if (heldBack > 0 && step.Equals("EXCESS_TURBO", StringComparison.OrdinalIgnoreCase))
+            {
+                heldBack = Math.Max(heldBack - _ocReleasePaid, 0);
+                _ocReleasePaid = 0;
+            }
             Mark(step.ToUpperInvariant());
         }
 
@@ -935,6 +938,19 @@ public class ComposableStructure : BaseStructure
         // Called AFTER all principal payments so both pool and note balances are at end-of-period values
         dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
 
+        // The principal the steps left, and what was held back for a release nothing paid, is the
+        // certificate's. It is paid here, as cash. It used to be left in the running totals on
+        // the footing that the certificate's balance falling would show it: the fall was booked
+        // as principal whether or not there was cash behind it (a loss eating the OC), and cash
+        // with no fall behind it (a certificate standing at zero) was shown to no one.
+        var toCertificate = PayCertificate(dynGroup, adjPeriodCf,
+            availableSchedPrin + availablePrepayPrin + availableRecovPrin + heldBack);
+        if (toCertificate > 0)
+        {
+            availableSchedPrin = availablePrepayPrin = availableRecovPrin = heldBack = 0;
+            Mark("CERTIFICATE");
+        }
+
         // Settle notional (IO) tranches to the pool's end balance so the
         // notional amortizes with the pool (real WAL); the IO holder gets no
         // principal cash.
@@ -946,13 +962,9 @@ public class ComposableStructure : BaseStructure
         //  - Interest: the certificate path only ever handles principal, so any
         //    leftover interest (no XS sweep, no excess step consumed it) is
         //    genuinely unallocated and lands here — no double-count.
-        //  - Principal: the certificate already absorbs the OC (Pool - Notes) via
-        //    its balance identity, so route leftover principal here ONLY when there
-        //    is no certificate to catch it (else it would be counted twice).
-        var residualPrincipal =
-            dynGroup.DynamicClasses.Any(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
-                ? 0.0
-                : availableSchedPrin + availablePrepayPrin + availableRecovPrin;
+        //  - Principal: on a deal with a certificate the principal left has just been paid to
+        //    it, so there is none here; with no certificate it lands on the residual.
+        var residualPrincipal = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
         if (!interestDiversionApplied)
         {
             availableInterest = ApplyInterestDiversion(deal, dynGroup, adjPeriodCf, availableInterest);
@@ -971,14 +983,11 @@ public class ComposableStructure : BaseStructure
             // What the residual class took, and what was left with no class to take it.
             var credited = Cash() - cashBeforeResidual;
             ledger.Record("RESIDUAL", adjPeriodCf.CashflowDate, credited, credited);
-            var hasCertificate = dynGroup.DynamicClasses.Any(dc =>
-                dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate);
             var residualTakes = dynGroup.DynamicClasses.Any(dc => dc.IsResidual && dc.DynamicTranches.Any());
             var principalLeft = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
             // Principal held back for the OC release that no turbo step paid is still held here:
             // it was collected and reached no class, whatever the residual took.
-            ledger.Leftover(residualTakes ? 0 : availableInterest,
-                (residualTakes && !hasCertificate ? 0 : principalLeft) + heldBack, hasCertificate);
+            ledger.Leftover(residualTakes ? 0 : availableInterest, (residualTakes ? 0 : principalLeft) + heldBack);
         }
     }
 
@@ -1029,6 +1038,23 @@ public class ComposableStructure : BaseStructure
     /// (SequentialStructure), so anything reaching here is a legitimate — and, for a
     /// well-formed deal, ~0 — residual amount.
     /// </summary>
+    /// <summary>
+    ///     Pays the first certificate class the principal the steps left, on its class row, where
+    ///     the response reads a certificate. Returns what was paid: nothing on a deal with no
+    ///     certificate.
+    /// </summary>
+    private static double PayCertificate(DynamicGroup dynGroup, PeriodCashflows periodCf, double principalLeft)
+    {
+        if (principalLeft <= 0.005)
+            return 0;
+        var certificate = dynGroup.DynamicClasses.FirstOrDefault(dc =>
+            dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate);
+        if (certificate == null)
+            return 0;
+        certificate.GetCashflow(periodCf.CashflowDate).ScheduledPrincipal += principalLeft;
+        return principalLeft;
+    }
+
     private void CreditResidual(DynamicGroup dynGroup, PeriodCashflows periodCf,
         double leftoverInterest, double leftoverPrincipal)
     {
@@ -1056,6 +1082,9 @@ public class ComposableStructure : BaseStructure
     ///     line. The cash is spent either way; this keeps the overpayment in sight.
     /// </summary>
     private double _paidPastBalance;
+
+    /// <summary>What the OC release paid out of the principal held back for it, this period.</summary>
+    private double _ocReleasePaid;
 
     /// <summary>
     ///     What a step spends on a principal payment: the cash the payable reports it paid. Not
@@ -2111,9 +2140,6 @@ public class ComposableStructure : BaseStructure
         // gated by excessSpreadFirstLoss so OC/turbo deals defer to that path.
         if (excessSpreadFirstLoss)
         {
-            var lossBeforeAbsorb = writedownAmt;
-            writedownAmt = AbsorbLossFromExcessSpread(dynGroup, periodCf, writedownAmt);
-
             // Absorbing a loss out of excess spread is not a write-off of the loss — it is the
             // excess-spread strip funding the recovery on the bonds' behalf ("XS increases
             // recoveries"). The absorbed cash must therefore pay down bond principal, so the
@@ -2122,11 +2148,20 @@ public class ComposableStructure : BaseStructure
             // shortfall write-down), leaving the notes permanently over the pool and unable to
             // pay off or write down at maturity. Route it through the recovery waterfall so it
             // amortizes the notes sequentially, building credit support beneath the juniors.
-            var absorbed = lossBeforeAbsorb - writedownAmt;
-            if (absorbed > 0.005)
+            //
+            // The strip gives up what the notes took, and no more. The payment is made first and
+            // the strip then funds what was paid. Taken off the strip first, excess that no note
+            // could take (the notes have retired, or there is no recovery structure) left the
+            // strip and reached no one.
+            var offered = Math.Min(writedownAmt, ExcessSpreadSwept(dynGroup, periodCf));
+            var principalPayable = dynGroup.RecoveryPayable ?? dynGroup.PrepayPayable;
+            var paid = offered > 0.005 && principalPayable != null
+                ? Spend(principalPayable.PayRp(null, periodCf.CashflowDate, offered, () => { }))
+                : 0.0;
+            if (paid > 0.005)
             {
-                var principalPayable = dynGroup.RecoveryPayable ?? dynGroup.PrepayPayable;
-                principalPayable?.PayRp(null, periodCf.CashflowDate, absorbed, () => { });
+                AbsorbLossFromExcessSpread(dynGroup, periodCf, paid);
+                writedownAmt -= paid;
             }
 
             if (writedownAmt <= 0.005)
@@ -2159,6 +2194,16 @@ public class ComposableStructure : BaseStructure
     /// which the caller then cascades to the funded bonds. When the group has no
     /// ExcessInterest strip the loss passes through unchanged.
     /// </summary>
+    /// <summary>The interest the excess-spread strip has been paid this period: what it can give up.</summary>
+    private static double ExcessSpreadSwept(DynamicGroup dynGroup, PeriodCashflows periodCf)
+    {
+        return dynGroup.DynamicClasses.Where(dc => dc.IsExcessInterest)
+            .SelectMany(dc => dc.DynamicTranches)
+            .Select(dynTran => dynTran.GetCashflow(periodCf.CashflowDate))
+            .Where(cf => cf != null)
+            .Sum(cf => Math.Max(cf.Interest, 0));
+    }
+
     private double AbsorbLossFromExcessSpread(DynamicGroup dynGroup, PeriodCashflows periodCf, double loss)
     {
         foreach (var leaf in dynGroup.DynamicClasses.Where(dc => dc.IsExcessInterest))
@@ -2285,8 +2330,10 @@ public class ComposableStructure : BaseStructure
 
         if (ocReleaseAmount > 0 && dynGroup.ReleasePayable != null)
         {
-            // Pay the OC release to CERTIFICATE
-            dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, ocReleaseAmount, () => { });
+            // Pay the OC release to CERTIFICATE. What the structure could not place stays held,
+            // and is paid to the certificate with the rest of the principal the steps leave.
+            _ocReleasePaid += Spend(dynGroup.ReleasePayable.PaySp(null, periodCf.CashflowDate, ocReleaseAmount,
+                () => { }));
         }
         else if (currentOc < targetOc && availableInterest > 0)
         {

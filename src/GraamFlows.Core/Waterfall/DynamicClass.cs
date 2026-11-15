@@ -100,7 +100,9 @@ public class DynamicClass : IPayable
         var balanceBefore = Balance;
         var shownBefore = PrincipalShown(cfDate);
         Pay(cfDate, unschedPrin, schedPrin);
-        return new PrincipalReceipt(PrincipalShown(cfDate) - shownBefore, balanceBefore - Balance);
+        var paid = PrincipalShown(cfDate) - shownBefore;
+        // A certificate's balance is not a claim, so what it is paid is not measured against it.
+        return new PrincipalReceipt(paid, TakesOnlyWhatItHolds ? balanceBefore - Balance : paid);
     }
 
     /// <summary>
@@ -112,7 +114,8 @@ public class DynamicClass : IPayable
     /// <summary>
     ///     The principal the response shows for this class on a pay date. It reads the class where
     ///     the response reads it: a certificate from its class row, any other class from its
-    ///     tranche rows, and a tranche from its own row.
+    ///     tranche rows (so a class with no tranches shows nothing), and a tranche from its own
+    ///     row.
     /// </summary>
     internal double PrincipalShown(DateTime cashflowDate)
     {
@@ -121,10 +124,9 @@ public class DynamicClass : IPayable
                 ? cf.ScheduledPrincipal + cf.UnscheduledPrincipal
                 : 0.0;
 
-        if (DynamicTranches == null || DynamicTranches.Count == 0 ||
-            Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+        if (this is MarketTranche.DynamicTranche || Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
             return Row(this, cashflowDate);
-        return DynamicTranches.Sum(dt => Row(dt, cashflowDate));
+        return DynamicTranches?.Sum(dt => Row(dt, cashflowDate)) ?? 0.0;
     }
 
     public void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)
