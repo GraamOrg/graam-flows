@@ -58,19 +58,50 @@ public class DynamicClass : IPayable
         _deferredInterest <= 0 ? 0 : Math.Max(0, _deferredInterest - Math.Max(0, _deferredMark - Balance));
     public HashSet<string> ShortfallInterestSupport { get; set; }
 
-    public void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        Pay(cfDate, 0, prin);
+        return PayAndReport(cfDate, 0, prin);
     }
 
-    public void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        Pay(cfDate, prin, 0);
+        return PayAndReport(cfDate, prin, 0);
     }
 
-    public void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayUsp(caller, cfDate, prin, payRuleExec);
+        return PayUsp(caller, cfDate, prin, payRuleExec);
+    }
+
+    /// <summary>
+    ///     Pays the class and reports what the payment did: the principal its rows now show beyond
+    ///     what they showed, and what its balance fell by. Measured here, around the one payment,
+    ///     by the class that recorded it.
+    /// </summary>
+    private PrincipalReceipt PayAndReport(DateTime cfDate, double unschedPrin, double schedPrin)
+    {
+        var balanceBefore = Balance;
+        var shownBefore = PrincipalShown(cfDate);
+        Pay(cfDate, unschedPrin, schedPrin);
+        return new PrincipalReceipt(PrincipalShown(cfDate) - shownBefore, balanceBefore - Balance);
+    }
+
+    /// <summary>
+    ///     The principal the response shows for this class on a pay date. It reads the class where
+    ///     the response reads it: a certificate from its class row, any other class from its
+    ///     tranche rows, and a tranche from its own row.
+    /// </summary>
+    internal double PrincipalShown(DateTime cashflowDate)
+    {
+        static double Row(DynamicClass dc, DateTime date) =>
+            dc.Cashflows.TryGetValue(dc.AdjustedCashflowDate(date), out var cf)
+                ? cf.ScheduledPrincipal + cf.UnscheduledPrincipal
+                : 0.0;
+
+        if (DynamicTranches == null || DynamicTranches.Count == 0 ||
+            Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate)
+            return Row(this, cashflowDate);
+        return DynamicTranches.Sum(dt => Row(dt, cashflowDate));
     }
 
     public void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)

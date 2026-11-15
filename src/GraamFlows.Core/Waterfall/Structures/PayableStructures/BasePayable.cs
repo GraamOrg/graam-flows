@@ -6,9 +6,9 @@ namespace GraamFlows.Waterfall.Structures.PayableStructures;
 
 public abstract class BasePayable : IPayable
 {
-    public abstract void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
-    public abstract void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
-    public abstract void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
+    public abstract PrincipalReceipt PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
+    public abstract PrincipalReceipt PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
+    public abstract PrincipalReceipt PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec);
     public abstract void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec);
 
     public abstract double PayInterest(IPayable caller, DateTime cfDate, double availableFunds,

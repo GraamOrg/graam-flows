@@ -16,19 +16,25 @@ public class SequentialStructure : BasePayable
 
     public override bool IsLeaf => false;
 
-    public override void PaySp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PaySp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (payable, amt) => payable.PaySp(this, cfDate, amt, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (payable, amt) => receipt += payable.PaySp(this, cfDate, amt, payRuleExec), payRuleExec);
+        return receipt;
     }
 
-    public override void PayUsp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PayUsp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (payable, amt) => payable.PayUsp(this, cfDate, amt, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (payable, amt) => receipt += payable.PayUsp(this, cfDate, amt, payRuleExec), payRuleExec);
+        return receipt;
     }
 
-    public override void PayRp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
+    public override PrincipalReceipt PayRp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
-        PayPayables(cfDate, prin, (payable, amt) => payable.PayRp(this, cfDate, amt, payRuleExec), payRuleExec);
+        var receipt = PrincipalReceipt.None;
+        PayPayables(cfDate, prin, (payable, amt) => receipt += payable.PayRp(this, cfDate, amt, payRuleExec), payRuleExec);
+        return receipt;
     }
 
     public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)

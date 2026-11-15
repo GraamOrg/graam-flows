@@ -677,6 +677,7 @@ public class ComposableStructure : BaseStructure
         IPayRuleExecutor payRuleExecutor, List<string> executionOrder)
     {
         var cfAlloc = BeginPeriod(deal, dynGroup, adjPeriodCf);
+        _paidPastBalance = 0;
 
         // Notional (IO) tranches track the pool balance, not the principal
         // waterfall. Set their begin balance to the pool's begin balance BEFORE
@@ -717,9 +718,10 @@ public class ComposableStructure : BaseStructure
             if (ledger == null) return;
             var funds = Funds();
             var cash = Cash();
-            ledger.Record(name, adjPeriodCf.CashflowDate, ledgerFunds - funds, cash - ledgerCash);
+            ledger.Record(name, adjPeriodCf.CashflowDate, ledgerFunds - funds, cash - ledgerCash, _paidPastBalance);
             ledgerFunds = funds;
             ledgerCash = cash;
+            _paidPastBalance = 0;
         }
 
         // OC release: reduce scheduled principal to notes when OC exceeds target,
@@ -1049,6 +1051,23 @@ public class ComposableStructure : BaseStructure
     /// Draw from reserve account to cover a shortfall.
     /// Returns the amount actually drawn (may be less than shortfall if reserve insufficient).
     /// </summary>
+    /// <summary>
+    ///     Principal paid to classes beyond what their balances fell by since the ledger's last
+    ///     line. The cash is spent either way; this keeps the overpayment in sight.
+    /// </summary>
+    private double _paidPastBalance;
+
+    /// <summary>
+    ///     What a step spends on a principal payment: the cash the payable reports it paid. Not
+    ///     what a balance fell by, which is a different number whenever a class is paid more than
+    ///     it holds or a class outside the measured set is paid.
+    /// </summary>
+    private double Spend(PrincipalReceipt receipt)
+    {
+        _paidPastBalance += receipt.PastBalance;
+        return receipt.Paid;
+    }
+
     private double DrawFromReserve(DynamicGroup dynGroup, double shortfall)
     {
         if (shortfall <= 0) return 0;
@@ -1511,9 +1530,7 @@ public class ComposableStructure : BaseStructure
             if (cure <= 0.005)
                 continue;
 
-            var noteBalBefore = dynGroup.Balance();
-            noteStack.PaySp(null, cfDate, cure, () => { });
-            var diverted = noteBalBefore - dynGroup.Balance();
+            var diverted = Spend(noteStack.PaySp(null, cfDate, cure, () => { }));
             availableInterest -= diverted;
             totalDiverted += diverted;
         }
@@ -1668,28 +1685,22 @@ public class ComposableStructure : BaseStructure
         if (index < schedChildren.Count && availableSchedPrin > 0.01)
         {
             var child = schedChildren[index];
-            var balBefore = child.CurrentBalance(adjPeriodCf.CashflowDate);
-            child.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
-                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-            availableSchedPrin -= (balBefore - child.CurrentBalance(adjPeriodCf.CashflowDate));
+            availableSchedPrin -= Spend(child.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
+                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
         }
 
         if (index < prepayChildren.Count && availablePrepayPrin > 0.01)
         {
             var child = prepayChildren[index];
-            var balBefore = child.CurrentBalance(adjPeriodCf.CashflowDate);
-            child.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
-                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-            availablePrepayPrin -= (balBefore - child.CurrentBalance(adjPeriodCf.CashflowDate));
+            availablePrepayPrin -= Spend(child.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
+                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
         }
 
         if (index < recovChildren.Count && availableRecovPrin > 0.01)
         {
             var child = recovChildren[index];
-            var balBefore = child.CurrentBalance(adjPeriodCf.CashflowDate);
-            child.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
-                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-            availableRecovPrin -= (balBefore - child.CurrentBalance(adjPeriodCf.CashflowDate));
+            availableRecovPrin -= Spend(child.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
+                () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
         }
 
         return (availableSchedPrin, availablePrepayPrin, availableRecovPrin);
@@ -1729,16 +1740,13 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.ScheduledPayable == null || availableSchedPrin < 0.01)
             return availableSchedPrin;
 
-        var noteBalanceBefore = dynGroup.PrincipalPayableBalance();
-        dynGroup.ScheduledPayable.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
-            () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.PrincipalPayableBalance();
+        var paid = Spend(dynGroup.ScheduledPayable.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
+            () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
 
         // After scheduled principal, check if reserve draw needed for note > pool
         CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
 
-        var paidAmount = noteBalanceBefore - noteBalanceAfter;
-        return availableSchedPrin - paidAmount;
+        return availableSchedPrin - paid;
     }
 
     /// <summary>
@@ -1752,16 +1760,13 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.PrepayPayable == null || availablePrepayPrin < 0.01)
             return availablePrepayPrin;
 
-        var noteBalanceBefore = dynGroup.PrincipalPayableBalance();
-        dynGroup.PrepayPayable.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
-            () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.PrincipalPayableBalance();
+        var paid = Spend(dynGroup.PrepayPayable.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
+            () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
 
         // After unscheduled principal, check if reserve draw needed for note > pool
         CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
 
-        var paidAmount = noteBalanceBefore - noteBalanceAfter;
-        return availablePrepayPrin - paidAmount;
+        return availablePrepayPrin - paid;
     }
 
     /// <summary>
@@ -1775,16 +1780,13 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.RecoveryPayable == null || availableRecovPrin < 0.01)
             return availableRecovPrin;
 
-        var noteBalanceBefore = dynGroup.PrincipalPayableBalance();
-        dynGroup.RecoveryPayable.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
-            () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf));
-        var noteBalanceAfter = dynGroup.PrincipalPayableBalance();
+        var paid = Spend(dynGroup.RecoveryPayable.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
+            () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
 
         // After recovery principal, check if reserve draw needed for note > pool
         CoverNoteExcessFromReserve(dynGroup, adjPeriodCf);
 
-        var paidAmount = noteBalanceBefore - noteBalanceAfter;
-        return availableRecovPrin - paidAmount;
+        return availableRecovPrin - paid;
     }
 
     /// <summary>
@@ -2298,10 +2300,9 @@ public class ComposableStructure : BaseStructure
                 // Track actual amount absorbed — if notes are fully paid off,
                 // PaySp won't absorb anything and funds should remain available.
                 var turboPayable = dynGroup.TurboPayable ?? dynGroup.ScheduledPayable;
-                var noteBalBefore = dynGroup.Balance();
-                turboPayable?.PaySp(null, periodCf.CashflowDate, turboAmount, () => { });
-                var actualTurboPaid = noteBalBefore - dynGroup.Balance();
-                availableInterest -= actualTurboPaid;
+                if (turboPayable != null)
+                    availableInterest -= Spend(turboPayable.PaySp(null, periodCf.CashflowDate, turboAmount,
+                        () => { }));
             }
         }
 

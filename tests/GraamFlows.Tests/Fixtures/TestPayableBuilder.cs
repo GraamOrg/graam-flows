@@ -68,28 +68,31 @@ public class MockPayable : IPayable
 
     public bool IsLeaf => true;
 
-    public void PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PaySp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
         var toPay = Math.Min(prin, Balance);
         Balance -= toPay;
         TotalSpPaid += toPay;
         PaymentHistory.Add((cfDate, toPay, "SP"));
+        return new PrincipalReceipt(toPay, toPay);
     }
 
-    public void PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PayUsp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
         var toPay = Math.Min(prin, Balance);
         Balance -= toPay;
         TotalUspPaid += toPay;
         PaymentHistory.Add((cfDate, toPay, "USP"));
+        return new PrincipalReceipt(toPay, toPay);
     }
 
-    public void PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
+    public PrincipalReceipt PayRp(IPayable caller, DateTime cfDate, double prin, Action payRuleExec)
     {
         var toPay = Math.Min(prin, Balance);
         Balance -= toPay;
         TotalRpPaid += toPay;
         PaymentHistory.Add((cfDate, toPay, "RP"));
+        return new PrincipalReceipt(toPay, toPay);
     }
 
     public void PayWritedown(IPayable caller, DateTime cfDate, double amount, Action payRuleExec)

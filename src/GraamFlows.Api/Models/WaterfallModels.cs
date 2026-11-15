@@ -1274,6 +1274,12 @@ public class CashLedgerStepDto
     public int PeriodsOff { get; set; }
     public DateTime? FirstPeriodOff { get; set; }
 
+    /// <summary>
+    ///     Principal paid to classes beyond what their balances fell by. Taken and paid agree on
+    ///     it; the class that received it did not hold that much.
+    /// </summary>
+    public double PaidPastBalance { get; set; }
+
     /// <summary>The largest single-period difference; positive is taken and not paid.</summary>
     public double LargestGap { get; set; }
 }

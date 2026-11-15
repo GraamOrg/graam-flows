@@ -32,6 +32,12 @@ public sealed class CashLedger
         /// <summary>Periods in which the two sides differed by more than a cent.</summary>
         public int PeriodsOff { get; internal set; }
 
+        /// <summary>
+        ///     Principal paid to classes beyond what their balances fell by. The cash is taken and
+        ///     paid, so the two sides agree; the class that got it did not hold that much.
+        /// </summary>
+        public double PaidPastBalance { get; internal set; }
+
         public DateTime? FirstPeriodOff { get; internal set; }
 
         /// <summary>The largest single-period difference, signed: positive is taken and not paid.</summary>
@@ -75,7 +81,7 @@ public sealed class CashLedger
         lock (_lock) Collected += amount;
     }
 
-    public void Record(string step, DateTime date, double taken, double paid)
+    public void Record(string step, DateTime date, double taken, double paid, double paidPastBalance = 0)
     {
         lock (_lock)
         {
@@ -88,6 +94,7 @@ public sealed class CashLedger
             s.Periods++;
             s.Taken += taken;
             s.Paid += paid;
+            if (paidPastBalance > Cent) s.PaidPastBalance += paidPastBalance;
             var gap = taken - paid;
             if (Math.Abs(gap) <= Cent)
                 return;
