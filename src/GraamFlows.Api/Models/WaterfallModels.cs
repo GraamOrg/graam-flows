@@ -1238,10 +1238,14 @@ public class CashLedgerDto
     /// <summary>Interest left after the last step with no residual class to take it.</summary>
     public double LeftInterest { get; set; }
 
-    /// <summary>Principal left after the last step with no residual class and no certificate.</summary>
+    /// <summary>
+    ///     Principal left after the last step that no class took: on a deal with a certificate, what
+    ///     no structure could place while a note still had a balance; otherwise, what no residual
+    ///     class took. Counted total by total.
+    /// </summary>
     public double LeftPrincipal { get; set; }
 
-    /// <summary>Cash paid out beyond what was collected: what the running totals stood below zero by.</summary>
+    /// <summary>Cash paid out beyond what was collected: what the running totals stood below zero by at the end of each period, total by total.</summary>
     public double Overdrawn { get; set; }
 
     /// <summary>Periods that ended with cash no class took.</summary>

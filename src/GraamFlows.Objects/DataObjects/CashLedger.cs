@@ -61,7 +61,13 @@ public sealed class CashLedger
     /// <summary>Interest left after the last step with no residual class to take it.</summary>
     public double LeftInterest { get; private set; }
 
-    /// <summary>Principal left after the last step with no residual class and no certificate to take it.</summary>
+    /// <summary>
+    ///     Principal left after the last step that no class took. On a deal with a certificate that
+    ///     is principal the structures could not place while a note still had a balance (once the
+    ///     notes are gone the certificate is paid it); on a deal without one, principal with no
+    ///     residual class to take it. Counted total by total, so an overdraft on one principal
+    ///     total does not hide principal left on another.
+    /// </summary>
     public double LeftPrincipal { get; private set; }
 
     /// <summary>
@@ -115,17 +121,23 @@ public sealed class CashLedger
         }
     }
 
-    public void Leftover(double interest, double principal)
+    /// <summary>
+    ///     What the period's running totals ended at, each given on its own: the interest total and
+    ///     each principal total. A positive total is left; a negative one is overdrawn. They are
+    ///     not netted, so an overdraft on one total does not hide cash left on another.
+    /// </summary>
+    public void Leftover(double interest, params double[] principal)
     {
         lock (_lock)
         {
-            var overdrawn = Math.Max(-interest, 0) + Math.Max(-principal, 0);
+            var overdrawn = Math.Max(-interest, 0) + principal.Sum(p => Math.Max(-p, 0));
             if (overdrawn > Cent) Overdrawn += overdrawn;
-            if (Math.Max(interest, 0) + Math.Max(principal, 0) <= Cent)
+            var leftPrincipal = principal.Sum(p => Math.Max(p, 0));
+            if (Math.Max(interest, 0) + leftPrincipal <= Cent)
                 return;
             PeriodsLeft++;
             LeftInterest += Math.Max(interest, 0);
-            LeftPrincipal += Math.Max(principal, 0);
+            LeftPrincipal += leftPrincipal;
         }
     }
 }

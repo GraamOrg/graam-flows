@@ -224,6 +224,107 @@ public class PrincipalReceiptTests
     }
 
     [Fact]
+    public void An_overdraft_on_one_principal_total_does_not_hide_principal_left_on_another()
+    {
+        // The scheduled step force-pays A in full in the first period, about 9M beyond the
+        // scheduled principal it held. The other principal steps name A alone, so once A is gone
+        // their principal reaches no note while B still stands. The period ends with scheduled
+        // principal overdrawn and prepaid and recovered principal left: reported apart, not netted.
+        var pool = Losses(600_000);
+        var request = Deal(pool, order: StripFirstOrder, seniorBalance: 10_000_000, withTurbo: false);
+        Step(request, "PRINCIPAL", "scheduled").Default = new PayableStructureDto
+            { Type = "FORCE_PAYDOWN", Forced = Single("A1"), Support = Seq("B1") };
+        Step(request, "PRINCIPAL", "unscheduled").Default = Seq("A1");
+        Step(request, "PRINCIPAL", "recovery").Default = Seq("A1");
+        var r = Run(request);
+        var ledger = r.CashLedger!;
+
+        var overdrew = 10_000_000 - pool[0].ScheduledPrincipal;
+        ledger.Steps.Single(s => s.Step == "PRINCIPAL_SCHEDULED").Overdrew.Should().BeApproximately(overdrew, 0.01);
+        ledger.Overdrawn.Should().BeApproximately(overdrew, 0.01, "the run's overdraft is the step's");
+        ledger.LeftPrincipal.Should().BeApproximately(
+            pool.Sum(p => p.UnscheduledPrincipal + p.RecoveryPrincipal), 0.01,
+            "every unit of prepaid and recovered principal is left, the first period's included");
+        LedgerAddsUp(ledger);
+        ResponsePaysOut(r, pool).Should().BeApproximately(
+            pool.Sum(Collected) + ledger.Overdrawn - ledger.LeftInterest - ledger.LeftPrincipal, 0.05);
+    }
+
+    [Fact]
+    public void A_residual_taking_the_principal_left_settles_an_overdraft_another_total_covered()
+    {
+        // The scheduled step force-pays A (1.2M) out of about 1M of scheduled principal, overdrawing
+        // that total by about 0.2M. Prepaid and recovered principal (0.5M) reach no note and the
+        // residual takes the 0.3M the three totals come to. No cash was paid out beyond what was
+        // collected: the residual's line shows it settled the overdraft, and the run shows none.
+        var pool = Losses(600_000);
+        var request = Deal(pool, order: StripFirstOrder, seniorBalance: 1_200_000, withTurbo: false,
+            withResidual: true);
+        Step(request, "PRINCIPAL", "scheduled").Default = new PayableStructureDto
+            { Type = "FORCE_PAYDOWN", Forced = Single("A1"), Support = Seq("B1") };
+        Step(request, "PRINCIPAL", "unscheduled").Default = Seq("A1");
+        Step(request, "PRINCIPAL", "recovery").Default = Seq("A1");
+        var r = Run(request);
+        var ledger = r.CashLedger!;
+
+        var overdrew = 1_200_000 - pool[0].ScheduledPrincipal;
+        ledger.Steps.Single(s => s.Step == "PRINCIPAL_SCHEDULED").Overdrew.Should().BeApproximately(overdrew, 0.01);
+        ledger.Steps.Single(s => s.Step == "RESIDUAL").Overdrew.Should().BeApproximately(-overdrew, 0.01);
+        ledger.Overdrawn.Should().BeApproximately(0, 0.01);
+        ledger.Steps.Sum(s => s.Overdrew).Should().BeApproximately(ledger.Overdrawn, 0.01);
+        ledger.LeftPrincipal.Should().BeApproximately(0, 0.01);
+        EveryStepBalances(ledger);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_release_after_an_interest_overdraft_pays_nothing_and_the_overdraft_stands(bool withReserveDeposit)
+    {
+        // The turbo is a forced paydown of A out of interest: it pays A in full whatever interest is
+        // left, and overdraws the interest total. The release that follows has nothing to pay. It
+        // used to set the total back to zero, so the overdraft showed as paid on the release and
+        // the run reported nothing overdrawn.
+        var pool = Losses(600_000);
+        var request = Deal(pool, order: OcOrder, seniorBalance: 10_000_000);
+        var turbo = Step(request, "EXCESS_TURBO");
+        turbo.Structure = new PayableStructureDto { Type = "FORCE_PAYDOWN", Forced = Single("A1"), Support = Seq("B1") };
+        turbo.OcTarget = new OcTargetDto { TargetPct = 0.30 };
+        if (withReserveDeposit)
+        {
+            // A reserve below its target between the turbo and the release: nothing is deposited
+            // out of an overdraft, and the deposit step does not cancel it either.
+            request.Deal.Tranches.Add(new TrancheDto
+            {
+                TrancheName = "RESERVE", OriginalBalance = 0, TrancheType = "CapFundsReserve",
+                CashflowType = "Reserve", CouponType = "None", FirstPayDate = FirstPayDate, PayDay = FirstPayDate.Day,
+                ReserveConfig = new ReserveAccountConfigDto
+                    { TargetPct = 0.05, TargetBase = "CutoffPoolBalance", CutoffPoolBalance = PoolBalance }
+            });
+            var order = request.Deal.UnifiedWaterfall!.ExecutionOrder!;
+            order.Insert(order.IndexOf("EXCESS_RELEASE"), "RESERVE_DEPOSIT");
+            request.Deal.UnifiedWaterfall.Steps.Add(new WaterfallStepDto { Type = "RESERVE_DEPOSIT" });
+        }
+
+        var r = Run(request);
+        var ledger = r.CashLedger!;
+
+        var turboStep = ledger.Steps.Single(s => s.Step == "EXCESS_TURBO");
+        turboStep.Overdrew.Should().BeGreaterThan(1_000_000, "the fixture: the turbo overdraws interest");
+        var release = ledger.Steps.Single(s => s.Step == "EXCESS_RELEASE");
+        release.Overdrew.Should().BeApproximately(0, 0.01, "the release neither makes nor cancels the overdraft");
+        release.TakenNotPaid.Should().BeApproximately(0, 0.01);
+        release.PaidNotTaken.Should().BeApproximately(0, 0.01);
+        ledger.Steps.Where(s => s.Step != "EXCESS_TURBO").Should().OnlyContain(s => Math.Abs(s.Overdrew) < 0.01,
+            "no later step makes or cancels the overdraft");
+        ledger.Overdrawn.Should().BeApproximately(turboStep.Overdrew, 0.01, "the run's overdraft is the turbo's");
+        LedgerAddsUp(ledger);
+        ResponsePaysOut(r, pool).Should().BeApproximately(
+            pool.Sum(Collected) + ledger.Overdrawn - ledger.LeftInterest - ledger.LeftPrincipal, 0.05);
+    }
+
+    [Fact]
     public void A_certificate_at_the_end_of_the_turbo_structure_is_paid_that_cash_once()
     {
         // The stored-deal case. An OC deal's turbo runs through the notes and then the
@@ -683,6 +784,30 @@ public class PrincipalReceiptTests
         EveryPeriodPaysOutWhatItCollected(r, pool);
     }
 
+    [Theory]
+    [InlineData("CERT1", "CERT2")]
+    [InlineData("CERT2", "CERT1")]
+    public void A_release_naming_both_certificates_pays_the_first_it_names_the_interest_and_the_principal(
+        string first, string second)
+    {
+        // The release names both certificates. Its interest goes to the first it names, and so does
+        // the principal left once the notes are gone: the release's order, not the deal's class
+        // order. (It used to send the principal to whichever came first among the deal's classes.)
+        var pool = Repaying(10, 0.10);
+        var r = Run(Plain(pool,
+            new List<TrancheDto>
+            {
+                Note("A", 60_000_000, 0), Certificate("CERT1", 0, subOrder: 8), Certificate("CERT2", 40_000_000)
+            },
+            Seq("A"), Seq("A"), Seq("A"), Seq(first, second)));
+
+        r.TrancheCashflows[first].Sum(c => c.Interest).Should().BeGreaterThan(1_000_000, "the release pays it");
+        r.TrancheCashflows[second].Sum(c => c.Interest).Should().BeApproximately(0, 0.01);
+        Principal(r, first).Should().BeApproximately(pool.Sum(p => p.ScheduledPrincipal) - 60_000_000, 0.01);
+        Principal(r, second).Should().BeApproximately(0, 0.01);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
+    }
+
     [Fact]
     public void A_reserve_draw_the_notes_cannot_take_goes_back_to_the_reserve()
     {
@@ -731,6 +856,17 @@ public class PrincipalReceiptTests
 
         Principal(r, "A").Should().BeApproximately(3_000_000, 0.01, "the fixture: A retires");
         EveryStepBalances(r.CashLedger!);
+
+        // The reserve's own row shows the draw that was spent, not a larger draw and a deposit:
+        // its deposits are what the deposit step put in (this fixture releases no excess), and
+        // the first period's draw is the 1,000,000 that A could take, not the 1,500,000 asked.
+        var reserve = r.TrancheCashflows["RESERVE"];
+        reserve.Sum(row => row.ScheduledPrincipal).Should().BeApproximately(
+            r.CashLedger!.Steps.Single(s => s.Step == "RESERVE_DEPOSIT").Paid, 0.01, "deposits are the deposit step's");
+        reserve[0].UnscheduledPrincipal.Should().BeApproximately(-1_000_000, 0.01, "the draw A took");
+        foreach (var row in reserve)
+            (row.ScheduledPrincipal + row.UnscheduledPrincipal).Should().BeApproximately(row.Balance - row.BeginBalance,
+                0.01, "deposits less draws are what the balance moved by");
     }
 
     [Fact]

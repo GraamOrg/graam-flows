@@ -903,7 +903,9 @@ public class ComposableStructure : BaseStructure
                     }
 
                     PayExcessReleaseStep(dynGroup, adjPeriodCf, availableInterest);
-                    availableInterest = 0;
+                    // The release pays out what was left. A negative total is an overdraft an
+                    // earlier step made; the release pays nothing and the overdraft stands.
+                    availableInterest = Math.Min(availableInterest, 0);
                     break;
 
                 case "SUPPLEMENTAL_REDUCTION":
@@ -999,15 +1001,25 @@ public class ComposableStructure : BaseStructure
         {
             // What the residual class took, and what was left with no class to take it.
             var credited = Cash() - cashBeforeResidual;
-            ledger.Record("RESIDUAL", adjPeriodCf.CashflowDate, credited, credited);
             var residualTakes = dynGroup.DynamicClasses.Any(dc => dc.IsResidual && dc.DynamicTranches.Any());
             var principalLeft = availableSchedPrin + availablePrepayPrin + availableRecovPrin;
             // The residual takes what is left when it is more than nothing; a negative total is
             // an overdraft, which no class takes. Principal held back for a release nothing paid
             // is the certificate's, and is held here only on a deal with no certificate.
             var interestReported = residualTakes && availableInterest > 0.005 ? 0 : availableInterest;
-            var principalReported = residualTakes && !hasCertificate && principalLeft > 0.005 ? 0 : principalLeft;
-            ledger.Leftover(interestReported, principalReported + heldBack);
+            var residualTookPrincipal = residualTakes && !hasCertificate && principalLeft > 0.005;
+            // Taking the principal totals' sum, the residual also settles an overdraft one of
+            // them stood at (another total's cash covered it), as the certificate's line does.
+            var settled = residualTookPrincipal
+                ? Math.Max(-availableSchedPrin, 0) + Math.Max(-availablePrepayPrin, 0) + Math.Max(-availableRecovPrin, 0)
+                : 0.0;
+            ledger.Record("RESIDUAL", adjPeriodCf.CashflowDate, credited, credited, 0, -settled);
+            // What no class took is reported total by total: an overdraft on one does not hide
+            // principal left on another.
+            if (residualTookPrincipal)
+                ledger.Leftover(interestReported, heldBack);
+            else
+                ledger.Leftover(interestReported, availableSchedPrin, availablePrepayPrin, availableRecovPrin, heldBack);
         }
     }
 
@@ -1067,15 +1079,16 @@ public class ComposableStructure : BaseStructure
     {
         if (principalLeft <= 0.005)
             return 0;
-        // With more than one certificate class, the one the release structure names; else the
-        // first. (Each carries the whole overcollateralization as its balance, so the balance
-        // cannot say which.)
+        // With more than one certificate class, the first the release structure names, in the
+        // release's own order (the order the release step pays its interest in); else the first.
+        // (Each carries the whole overcollateralization as its balance, so the balance cannot say
+        // which.)
         var certificates = dynGroup.DynamicClasses
             .Where(dc => dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate).ToList();
         if (certificates.Count == 0)
             return 0;
-        var released = (dynGroup.ReleasePayable ?? dynGroup.ExcessPayable)?.Leafs();
-        var certificate = certificates.FirstOrDefault(dc => released?.Contains(dc) == true) ?? certificates[0];
+        var certificate = ReleaseRecipientsInOrder(dynGroup.ReleasePayable ?? dynGroup.ExcessPayable)
+            .FirstOrDefault(certificates.Contains) ?? certificates[0];
         certificate.GetCashflow(periodCf.CashflowDate).ScheduledPrincipal += principalLeft;
         return principalLeft;
     }
@@ -1779,10 +1792,11 @@ public class ComposableStructure : BaseStructure
         if (reserveDraw > 0 && dynGroup.ScheduledPayable != null)
         {
             // Pay down notes with reserve funds (sequential). What the structure's classes could
-            // not take goes back to the reserve: it was drawn for the notes and reached none.
+            // not take goes back to the reserve: it was drawn for the notes and reached none, so
+            // the draw is undone by that much (not booked as a deposit).
             var paid = Spend(dynGroup.ScheduledPayable.PaySp(null, periodCf.CashflowDate, reserveDraw, () => { }));
             if (reserveDraw - paid > 0.005)
-                dynGroup.FundsAccount!.Credit(reserveDraw - paid);
+                dynGroup.FundsAccount!.Return(reserveDraw - paid);
         }
     }
 
@@ -2401,7 +2415,8 @@ public class ComposableStructure : BaseStructure
 
         // Calculate deposit needed to reach target
         var depositNeeded = reserve.DepositNeeded(poolBalance, noteBalance);
-        var deposit = Math.Min(availableInterest, depositNeeded);
+        // Nothing is deposited out of an overdraft (and the overdraft is not cancelled).
+        var deposit = Math.Max(Math.Min(availableInterest, depositNeeded), 0);
 
         if (deposit > 0)
             reserve.Credit(deposit);

@@ -113,6 +113,21 @@ public class DynamicFundsAccount : DynamicClass
     }
 
     /// <summary>
+    ///     Puts back cash withdrawn this period that reached no one. It undoes that much of the
+    ///     period's withdrawals, so the account's row shows the draw that was spent, not a larger
+    ///     draw and a deposit. Anything beyond the period's withdrawals is a deposit.
+    /// </summary>
+    public void Return(double amount)
+    {
+        if (amount <= 0) return;
+        var undone = Math.Min(amount, _periodWithdrawals);
+        _accountBalance += amount;
+        _periodWithdrawals -= undone;
+        _periodDeposits += amount - undone;
+        SetBalance(_accountBalance); // Keep base class Balance in sync
+    }
+
+    /// <summary>
     /// Record cashflows for the period (like a tranche)
     /// </summary>
     public void RecordCashflow(DateTime cfDate)
