@@ -77,6 +77,88 @@ public class NotesWrittenDownToPoolTests
         (Rows(cf, "A")[last].Balance + Rows(cf, "B")[last].Balance).Should().BeGreaterThan(pool[last].Balance + 1.0);
     }
 
+    // ---- The same amount, stated on the WRITEDOWN step ----------------------------------------
+    //
+    // `size: overPool` on the WRITEDOWN step is this option's amount taken in place of the
+    // period's loss, where the option adds it at the end of the period. With no step paying the
+    // notes out of excess ahead of the write-down, the two are the same number.
+
+    private static readonly string[] Order =
+    {
+        "EXPENSE", "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN"
+    };
+
+    /// <summary>100M pool, 1M a month scheduled, and 500k defaulted at 40% recovery from month 2.</summary>
+    private static CollateralCashflows LossPool()
+    {
+        var b = new TestCollateralBuilder().WithGroupNum("1");
+        var bal = 100_000_000.0;
+        for (var i = 0; i < 6; i++)
+        {
+            var defaulted = i == 0 ? 0 : 500_000.0;
+            b.WithPeriod(date: FirstPay.AddMonths(i), beginBalance: bal, scheduledPrincipal: 1_000_000,
+                unscheduledPrincipal: 0, interest: 40_000, defaultedPrincipal: defaulted,
+                recoveryPrincipal: defaulted * 0.4);
+            bal -= 1_000_000 + defaulted;
+        }
+
+        return b.Build();
+    }
+
+    private static void AssertSameRows(DealCashflows option, DealCashflows step)
+    {
+        foreach (var name in new[] { "A", "B" })
+        {
+            var o = Rows(option, name);
+            var s = Rows(step, name);
+            s.Should().HaveSameCount(o);
+            for (var i = 0; i < o.Count; i++)
+            {
+                var at = $"{name} period {i + 1}";
+                s[i].ScheduledPrincipal.Should().BeApproximately(o[i].ScheduledPrincipal, 0.01, at);
+                s[i].UnscheduledPrincipal.Should().BeApproximately(o[i].UnscheduledPrincipal, 0.01, at);
+                s[i].Interest.Should().BeApproximately(o[i].Interest, 0.01, at);
+                s[i].Writedown.Should().BeApproximately(o[i].Writedown, 0.01, at);
+                s[i].Balance.Should().BeApproximately(o[i].Balance, 0.01, at);
+            }
+        }
+    }
+
+    [Fact]
+    public void Sized_overPool_on_the_step_a_fee_taken_from_principal_gives_the_options_numbers()
+    {
+        var option = Deal().WithExecutionOrder(Order).WithNotesWrittenDownToPool().BuildAndRun(Pool()).Cashflows;
+        var step = Deal().WithExecutionOrder(Order).WithWritedownSize(WritedownSize.OverPool)
+            .BuildAndRun(Pool()).Cashflows;
+
+        Rows(step, "B").Sum(r => r.Writedown).Should().BeGreaterThan(100_000, "the fee has to bite");
+        AssertSameRows(option, step);
+    }
+
+    [Fact]
+    public void Sized_overPool_on_the_step_collateral_losses_and_the_fee_give_the_options_numbers()
+    {
+        var option = Deal().WithExecutionOrder(Order).WithNotesWrittenDownToPool().BuildAndRun(LossPool())
+            .Cashflows;
+        var step = Deal().WithExecutionOrder(Order).WithWritedownSize(WritedownSize.OverPool)
+            .BuildAndRun(LossPool()).Cashflows;
+
+        // 300k of loss and 60k of fee a month: more than the fee alone.
+        Rows(step, "B")[2].Writedown.Should().BeApproximately(360_000, 0.01);
+        AssertSameRows(option, step);
+    }
+
+    [Fact]
+    public void Stated_both_ways_the_amount_is_written_down_once()
+    {
+        var step = Deal().WithExecutionOrder(Order).WithWritedownSize(WritedownSize.OverPool)
+            .BuildAndRun(LossPool()).Cashflows;
+        var both = Deal().WithExecutionOrder(Order).WithWritedownSize(WritedownSize.OverPool)
+            .WithNotesWrittenDownToPool().BuildAndRun(LossPool()).Cashflows;
+
+        AssertSameRows(step, both);
+    }
+
     [Fact]
     public void With_nothing_taken_from_principal_it_writes_nothing_down()
     {
