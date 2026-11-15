@@ -22,8 +22,12 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 /// recorded on the class and not taken off the step's funds, so the same cash was paid again
 /// further down.
 ///
-/// The tests are on synthetic deals. Each reads the cash ledger: with receipts every step that
-/// pays principal takes off its funds exactly what the classes recorded.
+/// A class takes what it holds: handed more, it takes its balance, reports that, and the rest
+/// stays with the step to go on to the next class.
+///
+/// The tests are on synthetic deals. They do not rest on the cash ledger alone, which reads the
+/// same rows the receipt does: each also adds up what the response pays in a period and holds it
+/// against what the pool collected in that period.
 /// </summary>
 public class PrincipalReceiptTests
 {
@@ -119,66 +123,68 @@ public class PrincipalReceiptTests
     // ---- A step spends what the payment reports -------------------------------------------------
 
     [Theory]
-    [InlineData("scheduled", "PRINCIPAL_SCHEDULED")]
-    [InlineData("unscheduled", "PRINCIPAL_UNSCHEDULED")]
-    [InlineData("recovery", "PRINCIPAL_RECOVERY")]
-    public void A_principal_step_paying_a_class_more_than_it_holds_spends_the_whole_payment(string source,
-        string stepName)
+    [InlineData("scheduled")]
+    [InlineData("unscheduled")]
+    [InlineData("recovery")]
+    public void A_class_named_alone_takes_its_balance_and_the_rest_goes_on(string source)
     {
         // One source's structure is the senior class alone, which retires in the third period.
-        // It goes on being paid that source's principal. Its rows record the cash, so the step
-        // has spent it: it is not left over to be paid to anyone else.
-        var request = Deal(Losses(600_000), order: StripFirstOrder, seniorBalance: 2_500_000, withTurbo: false);
+        // It is paid its balance and no more. That source's principal then has no class in its
+        // structure, and falls to the residual class as leftover.
+        var pool = Losses(600_000);
+        var request = Deal(pool, order: StripFirstOrder, seniorBalance: 2_500_000, withTurbo: false,
+            withResidual: true);
         Step(request, "PRINCIPAL", source).Default = Single("A1");
-        var ledger = Run(request).CashLedger!;
+        var r = Run(request);
 
-        ledger.Steps.Single(s => s.Step == stepName).PaidPastBalance.Should().BeGreaterThan(1_000_000,
-            "the fixture: the retired class is paid past its balance by this step");
-        ledger.Steps.Where(s => s.Step != stepName).Should().OnlyContain(s => s.PaidPastBalance == 0,
-            "the overpayment is reported on the step that made it");
-        EveryStepBalances(ledger);
-        ledger.LeftPrincipal.Should().BeApproximately(0, 0.01);
+        Principal(r, "A1").Should().BeApproximately(2_500_000, 0.01, "the class is paid what it held");
+        r.TrancheCashflows["A1"].Should().OnlyContain(c => c.Balance >= 0);
+        Principal(r, "R").Should().BeGreaterThan(1_000_000, "the fixture: that source's principal goes on");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
     }
 
     [Fact]
-    public void An_OC_turbo_paying_a_class_more_than_it_holds_spends_the_whole_payment()
+    public void An_OC_turbo_whose_class_has_retired_pays_nothing_and_spends_nothing()
     {
-        // The turbo's structure is the senior class alone. Once it retires it is still paid; its
-        // balance stays at zero, so measured on balances the turbo paid nothing and the interest
-        // was paid out a second time by the release.
-        var request = Deal(Losses(600_000), order: OcOrder, seniorBalance: 4_000_000);
+        // The turbo's structure is the senior class alone. Once it retires the turbo has no one
+        // to pay, and the interest goes on to the release.
+        var pool = Losses(600_000);
+        var request = Deal(pool, order: OcOrder, seniorBalance: 4_000_000);
         var turbo = Step(request, "EXCESS_TURBO");
         turbo.Structure = Single("A1");
         turbo.OcTarget = new OcTargetDto { TargetPct = 0.05 };
-        var ledger = Run(request).CashLedger!;
+        var r = Run(request);
 
-        var line = ledger.Steps.Single(s => s.Step == "EXCESS_TURBO");
-        line.Paid.Should().BeGreaterThan(1_000_000, "the fixture: the turbo pays");
-        line.PaidPastBalance.Should().BeGreaterThan(500_000, "the fixture: it goes on paying the retired class");
-        ledger.Steps.Where(s => s.Step != "EXCESS_TURBO").Should().OnlyContain(s => s.PaidPastBalance == 0);
-        EveryStepBalances(ledger);
+        Principal(r, "A1").Should().BeApproximately(4_000_000, 0.01, "the class is paid what it held");
+        r.CashLedger!.Steps.Single(s => s.Step == "EXCESS_TURBO").Paid.Should().BeGreaterThan(100_000,
+            "the fixture: the turbo pays while the class has a balance");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
     }
 
     [Theory]
     [InlineData("interestFirst")]
     [InlineData("principalFirst")]
-    public void An_interleaved_order_paying_a_class_more_than_it_holds_spends_the_whole_payment(string order)
+    public void An_interleaved_order_pays_the_class_behind_a_retired_one(string order)
     {
-        // Interleaved, each level's class is paid directly, and a class is not a structure: it
-        // records all it is handed. The senior class retires in the third period, and scheduled
-        // principal, prepayments and recoveries all go on reaching it.
-        var request = Deal(Losses(600_000), order: new List<string>
+        // Interleaved, each level's class is handed the principal directly. The senior class
+        // retires in the third period; the principal it cannot take goes on to the junior class.
+        var pool = Losses(600_000);
+        var request = Deal(pool, order: new List<string>
         {
             "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN",
             "EXCESS_RELEASE"
-        }, seniorBalance: 2_500_000);
+        }, seniorBalance: 2_500_000, withTurbo: false);
         request.Deal.UnifiedWaterfall!.WaterfallOrder = order;
-        request.Deal.UnifiedWaterfall.Steps.RemoveAll(s => s.Type == "EXCESS_TURBO");
-        var ledger = Run(request).CashLedger!;
+        var r = Run(request);
 
-        ledger.Steps.Single(s => s.Step == "INTEREST").PaidPastBalance.Should().BeGreaterThan(100_000,
-            "the fixture: the retired class is paid past its balance");
-        EveryStepBalances(ledger);
+        Principal(r, "A1").Should().BeApproximately(2_500_000, 0.01, "the class is paid what it held");
+        (Principal(r, "A1") + Principal(r, "B1")).Should().BeApproximately(
+            pool.Sum(p => p.ScheduledPrincipal + p.UnscheduledPrincipal + p.RecoveryPrincipal), 0.01,
+            "every unit of principal collected reaches a note");
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
     }
 
     [Fact]
@@ -190,7 +196,8 @@ public class PrincipalReceiptTests
         request.Deal.UnifiedWaterfall!.Steps.RemoveAll(s => s.Type == "EXCESS_TURBO");
         Step(request, "PRINCIPAL", "recovery").Default = new PayableStructureDto
             { Type = "FORCE_PAYDOWN", Forced = Single("B1"), Support = Seq("A1") };
-        var ledger = Run(request).CashLedger!;
+        var r = Run(request);
+        var ledger = r.CashLedger!;
 
         foreach (var step in ledger.Steps.Where(s => s.Step.StartsWith("PRINCIPAL")))
         {
@@ -282,17 +289,19 @@ public class PrincipalReceiptTests
             step.Default = Seq("R", "A1", "B1");
         var r = Run(request);
 
-        r.TrancheCashflows["R"].Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal).Should()
-            .BeApproximately(5_000_000, 0.01, "the residual is paid its balance once");
+        Principal(r, "R").Should().BeApproximately(5_000_000, 0.01, "the residual is paid its balance once");
         EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, request.CollateralCashflows);
     }
 
     [Fact]
     public void A_deal_whose_classes_are_paid_within_their_balances_reports_nothing_past_balance()
     {
-        var ledger = Run(Deal(Losses(600_000), order: StripFirstOrder, withTurbo: false)).CashLedger!;
-        ledger.Steps.Should().OnlyContain(s => s.PaidPastBalance == 0);
-        EveryStepBalances(ledger);
+        var pool = Losses(600_000);
+        var r = Run(Deal(pool, order: StripFirstOrder, withTurbo: false));
+        r.CashLedger!.Steps.Should().OnlyContain(s => s.PaidPastBalance == 0);
+        EveryStepBalances(r.CashLedger!);
+        EveryPeriodPaysOutWhatItCollected(r, pool);
     }
 
     [Fact]
@@ -317,6 +326,29 @@ public class PrincipalReceiptTests
         (ledger.Steps.Sum(s => s.Paid) + ledger.LeftInterest + ledger.LeftPrincipal +
          ledger.LeftPrincipalBesideCertificate).Should().BeApproximately(ledger.Collected, 0.01,
             "what was collected was paid or is left");
+    }
+
+    private static double Principal(WaterfallResponse r, string name) =>
+        r.TrancheCashflows[name].Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
+
+    /// <summary>
+    /// Every class's interest and principal in a period, added up from the response, is what the
+    /// pool collected in that period. It reads nothing the receipt or the ledger reads.
+    /// </summary>
+    private static void EveryPeriodPaysOutWhatItCollected(WaterfallResponse r, List<PeriodCashflowDto> pool)
+    {
+        // By date, not by position: a class has a row only for the periods it was paid in.
+        var paidOn = r.TrancheCashflows.Values.SelectMany(rows => rows)
+            .GroupBy(row => row.CashflowDate.Date)
+            .ToDictionary(g => g.Key, g => g.Sum(row => row.Interest + row.ScheduledPrincipal + row.UnscheduledPrincipal));
+        paidOn.Keys.Should().BeSubsetOf(pool.Select(p => p.CashflowDate.Date), "no class is paid on another date");
+        foreach (var period in pool)
+        {
+            var collected = period.NetInterest + period.ScheduledPrincipal + period.UnscheduledPrincipal +
+                            period.RecoveryPrincipal;
+            paidOn.GetValueOrDefault(period.CashflowDate.Date).Should().BeApproximately(collected, 0.01,
+                $"{period.CashflowDate:yyyy-MM-dd}");
+        }
     }
 
     private static WaterfallResponse Run(WaterfallRequest request)
@@ -344,7 +376,7 @@ public class PrincipalReceiptTests
 
     /// <summary>Two notes and an excess-spread strip paid from the release step.</summary>
     private static WaterfallRequest Deal(List<PeriodCashflowDto> pool, List<string> order,
-        double seniorBalance = 70_000_000, bool withTurbo = true)
+        double seniorBalance = 70_000_000, bool withTurbo = true, bool withResidual = false)
     {
         var steps = new List<WaterfallStepDto>
         {
@@ -358,7 +390,7 @@ public class PrincipalReceiptTests
         if (withTurbo)
             steps.Insert(4, new WaterfallStepDto { Type = "EXCESS_TURBO", Structure = Seq("A1", "B1") });
 
-        return new WaterfallRequest
+        var request = new WaterfallRequest
         {
             ProjectionDate = FirstPayDate.AddMonths(-1),
             CollateralCashflows = pool,
@@ -382,6 +414,14 @@ public class PrincipalReceiptTests
                 UnifiedWaterfall = new UnifiedWaterfallDto { ExecutionOrder = order.ToList(), Steps = steps }
             }
         };
+        if (withResidual)
+            request.Deal.Tranches.Add(new TrancheDto
+            {
+                TrancheName = "R", OriginalBalance = 0, TrancheType = "Offered", CashflowType = "PI",
+                CouponType = "Residual", FixedCoupon = 0.0, SubordinationOrder = 9, FirstPayDate = FirstPayDate,
+                PayFrequency = 12, PayDay = FirstPayDate.Day
+            });
+        return request;
     }
 
     private static TrancheDto Note(string name, double balance, int subOrder) => new()

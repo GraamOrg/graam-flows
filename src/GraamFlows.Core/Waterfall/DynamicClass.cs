@@ -80,11 +80,34 @@ public class DynamicClass : IPayable
     /// </summary>
     private PrincipalReceipt PayAndReport(DateTime cfDate, double unschedPrin, double schedPrin)
     {
+        // A class takes what it holds. Handed more, it takes its balance and reports that, and
+        // the rest stays with the step to go on to the next class. Left to record all it was
+        // handed, a retired class showed principal it was not owed; and once the step spends
+        // what is recorded, the class behind it would be paid nothing.
+        var handed = unschedPrin + schedPrin;
+        if (handed > 0 && TakesOnlyWhatItHolds)
+        {
+            var held = Math.Max(Balance, 0);
+            if (held < 0.005)
+                return PrincipalReceipt.None;
+            if (handed > held)
+            {
+                unschedPrin *= held / handed;
+                schedPrin *= held / handed;
+            }
+        }
+
         var balanceBefore = Balance;
         var shownBefore = PrincipalShown(cfDate);
         Pay(cfDate, unschedPrin, schedPrin);
         return new PrincipalReceipt(PrincipalShown(cfDate) - shownBefore, balanceBefore - Balance);
     }
+
+    /// <summary>
+    ///     False for a certificate. Its balance is the pool less the notes, set at the end of each
+    ///     period: it says what stands behind the notes, not what the certificate may be paid.
+    /// </summary>
+    private bool TakesOnlyWhatItHolds => Tranche.TrancheTypeEnum != TrancheTypeEnum.Certificate;
 
     /// <summary>
     ///     The principal the response shows for this class on a pay date. It reads the class where
