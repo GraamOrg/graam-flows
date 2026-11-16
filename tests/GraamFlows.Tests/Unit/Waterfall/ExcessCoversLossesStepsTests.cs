@@ -1626,4 +1626,138 @@ public class ExcessCoversLossesStepsTests
         SameNumbers(Run(Steps(MixedLosses())), Run(request), "the strip heading the write-down structure");
     }
 
+
+    // ---- Round-6 review: the tolerance, the non-note check, the thresholds ---------------------
+
+    /// <summary>
+    /// Three periods built by hand: the first collects the principal given, the rest a plain month.
+    /// </summary>
+    private static List<PeriodCashflowDto> Periods(double scheduled, double prepay, double defaulted, double recovered)
+    {
+        var periods = new List<PeriodCashflowDto>();
+        var balance = PoolBalance;
+        for (var i = 0; i < 3; i++)
+        {
+            var (sp, up, d, r) = i == 0 ? (scheduled, prepay, defaulted, recovered) : (balance * 0.01, 0.0, 0.0, 0.0);
+            var interest = balance * Wac / 100 / 12;
+            var end = balance - sp - up - d;
+            periods.Add(new PeriodCashflowDto
+            {
+                Period = i + 1, CashflowDate = FirstPayDate.AddMonths(i), GroupNum = "1", BeginBalance = balance,
+                Balance = end, ScheduledPrincipal = sp, UnscheduledPrincipal = up, Interest = interest,
+                NetInterest = interest, DefaultedPrincipal = d, RecoveryPrincipal = r, CollateralLoss = d - r, Wac = Wac
+            });
+            balance = end;
+        }
+
+        return periods;
+    }
+
+    [Theory]
+    [MemberData(nameof(FieldsStated))]
+    public void Each_principal_total_is_held_to_a_unit_on_its_own(string? size, double? target)
+    {
+        // A pro-rata split of prepayments and one of recoveries each drop under a unit (0.70 and
+        // 0.80 here): correct, and each within the tolerance. Summed they pass a unit, which
+        // stopped this deal. At a cent the run stops on either.
+        var request = Steps(Periods(scheduled: 600_000, prepay: 4_000_007, defaulted: 8, recovered: 8), size, target,
+            OrderFor(size, target));
+        request.Deal.Tranches.Single(t => t.TrancheName == "A1").OriginalBalance = 1_000_000;
+        request.Deal.Tranches.Single(t => t.TrancheName == "B1").OriginalBalance = 90_000_000;
+        request.Deal.Tranches.Add(Note("A2", 9_000_000, 0));
+        var split = new PayableStructureDto
+        {
+            Type = "SEQ", Children = new List<PayableStructureDto> { ProRata("A2", "A1"), Single("B1") }
+        };
+        foreach (var step in request.Deal.UnifiedWaterfall!.Steps)
+        {
+            if (step.Type == "INTEREST") step.Structure = Seq("A1", "A2", "B1");
+            if (step.Type == "WRITEDOWN") step.Structure = Seq("B1", "A2", "A1");
+            if (step.Type == "PRINCIPAL")
+                step.Default = step.Source == "scheduled" ? Seq("A1", "A2", "B1") : split;
+        }
+
+        var (ran, refused) = Try(request);
+        refused.Should().BeNull();
+        var notes = new[] { "A1", "A2", "B1" }.Sum(n => ran!.TrancheCashflows[n][0].Balance);
+        notes.Should().BeApproximately(request.CollateralCashflows[0].Balance, 2.0,
+            "the notes end the period within the drops of the pool");
+    }
+
+    [Fact]
+    public void A_negative_turbo_payment_to_a_class_that_is_not_a_note_stops_the_run()
+    {
+        // A forced paydown with a funded residual class as its support: asked for the excess, it
+        // pays the junior note in full and "pays" the residual class the difference, a negative
+        // amount. With no recoveries the turbo is the first payment through it.
+        var request = Steps(Collateral(defaulted: _ => 600_000, recoveryRate: 0));
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "R", OriginalBalance = 5_000_000, TrancheType = "Offered", CashflowType = "PI",
+            CouponType = "Residual", FixedCoupon = 0.0, SubordinationOrder = 9, FirstPayDate = FirstPayDate,
+            PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        Recovery(request).Default = new PayableStructureDto
+            { Type = "FORCE_PAYDOWN", Forced = Single("B1"), Support = Single("R") };
+        Refusal(request).Should().Contain("EXCESS_TURBO with a target of zero paid -")
+            .And.Contain("to R on").And.Contain("which the engine does not count as a note");
+    }
+
+    [Fact]
+    public void Notes_less_than_a_unit_above_the_pool_are_paid_down_to_it()
+    {
+        // The senior note is stored half a dollar over the pool. At no loss the turbo pays that
+        // half dollar out of excess in the first period, and nothing after.
+        var request = Steps(Collateral(defaulted: _ => 0, recoveryRate: 0));
+        request.Deal.Tranches.Single(t => t.TrancheName == "A1").OriginalBalance = A1Balance + 0.5;
+        var r = Run(request);
+        r.TrancheCashflows["A1"][0].UnscheduledPrincipal.Should().BeApproximately(0.5, 0.001);
+        r.TrancheCashflows["A1"][1].UnscheduledPrincipal.Should().BeApproximately(0, 0.001);
+        NotesAt(r, 0).Should().BeApproximately(request.CollateralCashflows[0].Balance, 0.001);
+    }
+
+    [Fact]
+    public void OverPool_on_a_deal_the_built_in_rule_runs_on_returns_the_rules_numbers()
+    {
+        // The order names no excess step, so the built-in rule still runs; sized overPool, the
+        // write-down it hands the rule is the notes over the pool, which on a deal whose notes
+        // start at the pool is the period's loss less what the rule paid.
+        var pool = MixedLosses();
+        var sized = BuiltInRule(pool);
+        sized.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Size = "overPool";
+        var rule = Run(BuiltInRule(pool));
+        rule.TrancheCashflows["B1"].Sum(c => c.Writedown).Should().BeGreaterThan(1_000_000, "the fixture");
+        SameNumbers(rule, Run(sized), "overPool beside the built-in rule");
+    }
+
+    [Theory]
+    [InlineData("recovery")]
+    [InlineData("unscheduled")]
+    public void Each_forbearance_flow_in_the_collateral_is_not_supported(string flow)
+    {
+        var pool = MixedLosses();
+        if (flow == "recovery") pool[2].ForbearanceRecovery = 100_000;
+        else pool[2].ForbearanceUnscheduled = 100_000;
+        Refusal(Steps(pool)).Should().Contain("not supported on a deal with a forbearance balance (first on 04/25/2026)");
+    }
+
+    [Theory]
+    [InlineData("default")]
+    [InlineData("rules")]
+    [InlineData("useStructure")]
+    [InlineData("onTriggerFail")]
+    public void A_zero_target_turbo_stating_a_structure_any_other_way_is_refused(string field)
+    {
+        var request = Steps(MixedLosses());
+        var turbo = Turbo(request);
+        switch (field)
+        {
+            case "default": turbo.Default = Seq("A1", "B1"); break;
+            case "rules": turbo.Rules = new List<WaterfallRuleDto> { new() { Structure = Seq("A1", "B1") } }; break;
+            case "useStructure": turbo.UseStructure = "recovery"; break;
+            default: turbo.OnTriggerFail = new TriggerConditionDto { Structure = Seq("A1", "B1") }; break;
+        }
+
+        Refusal(request).Should().Contain("states target 0 and a structure of its own");
+    }
 }

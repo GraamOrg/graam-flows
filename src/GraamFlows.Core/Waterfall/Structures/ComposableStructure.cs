@@ -977,17 +977,18 @@ public class ComposableStructure : BaseStructure
     private static void RefuseUnpaidPrincipal(IDeal deal, DynamicGroup dynGroup, string step, DateTime date,
         params double[] principalTotals)
     {
-        // Each principal step leaves under a cent unpaid; a whole unit is not rounding.
-        var overpaid = principalTotals.Sum(p => Math.Max(-p, 0));
-        if (overpaid > PaymentCheckUnit)
+        // Each total is held to a unit on its own: a pro-rata split drops up to a unit, and the
+        // three totals each have their own split, so their sum can pass a unit on a correct deal.
+        var overpaid = principalTotals.Where(p => p < -PaymentCheckUnit).Sum(p => -p);
+        if (overpaid > 0)
             throw new DealModelingException(deal.DealName,
                 $"{step} measures the notes against the pool on {date:MM/dd/yyyy} after the principal " +
                 $"steps paid out {overpaid:#,##0.00} more principal than the period collected. The notes " +
                 "would stand under the pool by cash the period does not have. Check the principal " +
                 "structures for a form that pays more than it is given (a forced paydown).");
 
-        var unpaidPrincipal = principalTotals.Sum(p => Math.Max(p, 0));
-        if (unpaidPrincipal <= PaymentCheckUnit || dynGroup.Balance() <= 0.005)
+        var unpaidPrincipal = principalTotals.Where(p => p > PaymentCheckUnit).Sum();
+        if (unpaidPrincipal <= 0 || dynGroup.Balance() <= 0.005)
             return;
 
         throw new DealModelingException(deal.DealName,
@@ -2892,8 +2893,8 @@ public class ComposableStructure : BaseStructure
                 throw new DealModelingException(deal.DealName,
                     $"EXCESS_TURBO with a target of zero paid {paid:#,##0.00} to {dc.Tranche.TrancheName} on " +
                     $"{date:MM/dd/yyyy}, which the engine does not count as a note. The step pays the notes " +
-                    "down to the pool, through the recovery structure: that structure reaches a class with a " +
-                    "balance that is not a note.");
+                    "down to the pool through the recovery structure, and that structure paid a class that is " +
+                    "not a note.");
         }
 
         if (receipt.Paid > amount + PaymentCheckUnit)

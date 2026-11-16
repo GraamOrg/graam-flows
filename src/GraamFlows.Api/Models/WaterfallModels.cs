@@ -898,7 +898,8 @@ public class WaterfallStepDto
     ///     For EXCESS_TURBO: a target of zero. The step pays the notes principal out of the interest
     ///     the steps ahead of it left, until the funded classes are down to the pool: excess spread
     ///     covering the period's losses ("to pay principal in an amount up to the Realized Losses").
-    ///     It pays through the step's own structure, which it must state. Zero is the only value:
+    ///     It pays as recovery principal through the recovery structure as each period's rules leave
+    ///     it, and states no structure of its own (one stated is refused). Zero is the only value:
     ///     an overcollateralization target is stated in <see cref="OcTarget" />, and a step states
     ///     one or the other. Absent, a turbo step with no OC target pays nothing, as before.
     /// </summary>

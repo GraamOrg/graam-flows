@@ -53,7 +53,7 @@ public static class LossStepsMapper
                     $"Deal {dealName}: EXCESS_TURBO states both target 0 and an ocTarget. A step pays the " +
                     "notes down to the pool or builds overcollateralization, not both.");
             if (step.Structure != null || step.Default != null || step.Rules is { Count: > 0 } ||
-                step.UseStructure != null)
+                step.UseStructure != null || step.OnTriggerFail != null)
                 throw new ArgumentException(
                     $"Deal {dealName}: EXCESS_TURBO states target 0 and a structure of its own. With a " +
                     "target of zero it pays through the recovery-principal structure as each period's rules " +

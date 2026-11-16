@@ -394,7 +394,7 @@ How excess spread meets losses is stated in two step fields. Neither is on unles
 ]
 ```
 
-- `EXCESS_TURBO` with `target: 0` pays the notes principal out of the interest the steps ahead of it left, until the funded classes are down to the pool. It pays as recovery principal, through the recovery-principal structure as that period's rules leave it, which is what the built-in excess-spread rule pays through; it states no structure of its own and is refused if it does. It spends what the structure reports it paid, so what the classes cannot take stays with the interest and goes on to the next step. Zero is the only value; an overcollateralization target is stated in `ocTarget`, and a step states one or the other.
+- `EXCESS_TURBO` with `target: 0` pays the notes principal out of the interest the steps ahead of it left, until the funded classes are down to the pool. It pays as recovery principal, through the recovery-principal structure as that period's rules leave it, which is what the built-in excess-spread rule pays through; it states no structure of its own (`structure`, `default`, `rules`, `useStructure` or `onTriggerFail`) and is refused if it does. It spends what the structure reports it paid, so what the classes cannot take stays with the interest and goes on to the next step. Zero is the only value; an overcollateralization target is stated in `ocTarget`, and a step states one or the other.
 - `WRITEDOWN` with `size: "overPool"` writes down what the funded classes still stand above the pool by after the steps ahead of it, in place of the period's loss. `size: "periodLoss"` (defaulted principal less recoveries) is the default.
 
 A loss smaller than the period's excess writes nothing down and the release step pays the excess less the loss. A larger loss writes down only the remainder. A deal whose documents pay the excess-spread class ahead of any loss cover states neither field and names a release step in its order: the notes take the period's loss and the release step pays the whole excess. (With neither field and no excess step in the order, the built-in excess-spread rule still runs.)
@@ -434,9 +434,9 @@ Steps that never pay the notes principal sit anywhere, any number of times; one 
 **3. What the two measuring steps find as they run.** Whatever the order and the structures are:
 
 - A zero-target turbo and an `overPool` write-down stop the run if the period's principal is collected and not paid while the notes still have a balance (the pool fell by that principal and the notes did not, so it would be read as a loss), or if the principal steps paid out more principal than the period collected (the notes would stand under the pool by cash the period does not have).
-- A zero-target turbo stops the run if it pays a class that is not a note, records a negative payment to a note (a structure that nets between classes), or is paid more than it gave the structure (a forced paydown; a tranche filed under another class). A recovery structure may name a class that is not a note, a zero-balance residual say, as long as the turbo never pays it.
+- A zero-target turbo stops the run if it pays a class that is not a note, records a negative payment to a note (a structure that nets between classes), or if the structure pays out more than the turbo gave it (a forced paydown; a tranche filed under another class). A recovery structure may name a class that is not a note, a zero-balance residual say, as long as the turbo never pays it.
 - An `overPool` write-down stops the run if it writes down a class that is not a note (an IO class heading the write-down order): the notes would still stand above the pool and the same loss would be written down again.
-- Each check works to one unit, not one cent: a pro-rata split drops up to a unit when its last class retires, and sub-cent payments are not recorded.
+- Each check works to one unit, not one cent, and each principal total (scheduled, unscheduled, recovery) is held to it on its own: a pro-rata split drops up to a unit when its last class retires, each total has its own split, and sub-cent payments are not recorded.
 
 **Limits.**
 
