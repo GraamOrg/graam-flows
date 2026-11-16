@@ -69,6 +69,12 @@ public class RevolvingProgramDto
     public double? SeriesRequiredTransferorPct { get; set; }
     public double? RequiredTransferorPct { get; set; }
 
+    /// <summary>
+    ///     A series stack's floating numerator is the adjusted amount at the opening of the month
+    ///     before. Absent is false.
+    /// </summary>
+    public bool? FloatingFromPriorMonth { get; set; }
+
     /// <summary>Set on a de-linked note series: each series is then one tranche of one class.</summary>
     public RevolvingDelinkedDto? Delinked { get; set; }
 }
