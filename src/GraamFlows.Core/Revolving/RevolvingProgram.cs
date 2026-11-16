@@ -268,6 +268,14 @@ public sealed record RevolvingProgram
 
     /// <summary>Set on a de-linked note series. Null is a series stack.</summary>
     public DelinkedNotes? Delinked { get; init; }
+
+    /// <summary>
+    ///     A series stack whose floating numerator for a month is the series' adjusted amount at the
+    ///     opening of the month before: the amount at the start of the monthly period, before the
+    ///     deposit its distribution date makes. A deposit then lowers the share from the month after.
+    ///     A de-linked note series always works this way. False takes the month's own opening.
+    /// </summary>
+    public bool FloatingFromPriorMonth { get; init; }
 }
 
 public sealed record RevolvingClass

@@ -90,7 +90,9 @@ public static class RevolvingEngine
             var owing = _series.Where(s => !s.Retired && Issued(s, dates)).ToList();
             var live = owing.Where(s => !Finished(s)).ToList();
             foreach (var s in live)
-                s.Numerator = Delinked ? s.PriorNumerator ?? s.AdjustedInvested : s.AdjustedInvested;
+                s.Numerator = Delinked || _program.FloatingFromPriorMonth
+                    ? s.PriorNumerator ?? s.AdjustedInvested
+                    : s.AdjustedInvested;
             var allocations = SeriesAllocator.Allocate(pool, _program.PoolMeasure, _program.PrincipalFreeze!.Value,
                     live.Select(s => new SeriesClaim(s.Config.Name, s.Numerator, s.Phase,
                         s.FrozenPrincipalPct, s.FrozenNumerator)).ToList())
@@ -715,6 +717,10 @@ public static class RevolvingEngine
             {
                 s.PriorNumerator = s.OpeningAdjusted;
                 s.PriorFunding = s.OpeningFunding;
+            }
+            else if (_program.FloatingFromPriorMonth)
+            {
+                s.PriorNumerator = s.OpeningAdjusted;
             }
 
             TrackPhase(s, dates);

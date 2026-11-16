@@ -167,6 +167,50 @@ public class RevolvingEngineTests
     }
 
     [Fact]
+    public void AFloatingShareFromThePriorMonthFallsAMonthAfterEachDeposit()
+    {
+        // A series accumulating 250 a month: on its own month's opening the share falls in the
+        // month after each deposit; from the prior month's opening it falls a month later again,
+        // as a trust that measures the series at the start of its monthly period prints it.
+        var subject = CardProgram.Series("S", 900.0, 100.0, 50.0) with
+        {
+            AccumulationStart = new DateTime(2026, 8, 1),
+            ExpectedDate = new DateTime(2026, 12, 15),
+            ControlledAmounts = new[] { 250.0 }
+        };
+        var rest = CardProgram.Series("Rest", 4_000.0, 0.0, 0.0);
+        // The series' floating numerator each month: its share of the month's opening pool.
+        (double[] Numerators, double[] Deposits) Run(bool prior)
+        {
+            var program = CardProgram.Program(freeze: PrincipalFreeze.FrozenNumerator) with
+            {
+                FloatingFromPriorMonth = prior
+            };
+            var run = CardProgram.Run(program, 10_000.0, new[] { subject, rest },
+                CardProgram.Drivers(newReceivables: null), 3);
+            var result = CardProgram.Execute(run);
+            var rows = Only(result, "S").Periods;
+            var numerators = rows.Select((p, i) => p.FloatingPct / 100.0 * result.Periods[i].Pool.Beginning)
+                .ToArray();
+            return (numerators, rows.Select(p => p.FundingDeposit).ToArray());
+        }
+
+        var own = Run(false);
+        var prior = Run(true);
+
+        own.Deposits[0].Should().BeApproximately(250.0, 1e-6);
+        own.Numerators[0].Should().BeApproximately(1_050.0, 1e-6);
+        own.Numerators[1].Should().BeApproximately(800.0, 1e-6);
+        own.Numerators[2].Should().BeApproximately(550.0, 1e-6);
+        // The first deposit has not reached the prior month's opening yet; then it trails a month.
+        prior.Numerators[0].Should().BeApproximately(1_050.0, 1e-6);
+        prior.Numerators[1].Should().BeApproximately(1_050.0, 1e-6);
+        prior.Numerators[2].Should().BeApproximately(800.0, 1e-6);
+        // The deposits themselves do not move.
+        prior.Deposits.Should().Equal(own.Deposits);
+    }
+
+    [Fact]
     public void Series2023Dash3MakesItsSingleDepositWithSharedPrincipal()
     {
         // American Express Series 2023-3, August 2026 monthly period, paid on the September 2026

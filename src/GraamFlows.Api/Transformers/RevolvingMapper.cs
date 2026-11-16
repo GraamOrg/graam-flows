@@ -143,6 +143,7 @@ public static class RevolvingMapper
             Triggers = (dto.Triggers ?? new List<RevolvingTriggerDto>()).Select(ToTrigger).ToList(),
             SeriesRequiredTransferorPct = dto.SeriesRequiredTransferorPct,
             RequiredTransferorPct = dto.RequiredTransferorPct,
+            FloatingFromPriorMonth = dto.FloatingFromPriorMonth ?? false,
             Delinked = dto.Delinked == null
                 ? null
                 : new DelinkedNotes
