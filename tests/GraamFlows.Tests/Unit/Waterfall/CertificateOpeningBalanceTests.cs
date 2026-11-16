@@ -227,12 +227,11 @@ public class CertificateOpeningBalanceTests
     }
 
     [Fact]
-    public void A_fall_in_the_balance_is_not_booked_as_principal_in_the_period_the_certificate_was_opened()
+    public void A_fall_in_the_balance_is_not_booked_as_principal_in_any_period()
     {
         // The pool loses 1M in each of months 1 and 2 and nothing writes the note down, so the
-        // certificate's balance falls by it. Month 2 books that fall in the principal column, as
-        // the engine already did. Month 1 did not on a certificate that stood at zero, and
-        // opening it from the pool does not make it start.
+        // certificate's balance falls by it. A fall is not cash, and no period books it, the one
+        // the certificate was opened in included (#161 stopped the end-of-period reset booking it).
         var b = new TestCollateralBuilder().WithGroupNum("1");
         var bal = 100_000_000.0;
         for (var i = 0; i < 3; i++)
@@ -252,7 +251,8 @@ public class CertificateOpeningBalanceTests
         cert[0].BeginBalance.Should().BeApproximately(20_000_000, 0.01);
         cert[0].Balance.Should().BeApproximately(19_000_000, 0.01);
         Principal(cert[0]).Should().BeApproximately(0, 0.01);
-        Principal(cert[1]).Should().BeApproximately(1_000_000, 0.01, "later periods book the fall, as before");
+        Principal(cert[1]).Should().BeApproximately(0, 0.01, "a later period does not book the fall either");
+        cert[1].Balance.Should().BeApproximately(18_000_000, 0.01);
     }
 
     [Fact]

@@ -204,12 +204,12 @@ public class CashLedgerTests
         var turbo = steps["EXCESS_TURBO"];
 
         var paidToNotes = steps["PRINCIPAL_SCHEDULED"].Paid;
-        // The certificate is sent with no balance, so the release structure cannot place the
-        // first period's 2M. It stays held and is paid to the certificate with what the steps
-        // leave; the other five periods' releases are paid by the turbo step.
-        (turbo.Taken + steps["CERTIFICATE"].Paid).Should().BeApproximately(6 * 2_000_000 - paidToNotes, 0.01,
-            "the principal the notes did not get is what was held back, and all of it is paid");
-        steps["CERTIFICATE"].Paid.Should().BeApproximately(2_000_000, 0.01, "the first period's release");
+        // The certificate is sent with no balance and opens at the pool less the notes, so the
+        // release structure places every period's release, the first included, in the turbo step.
+        turbo.Taken.Should().BeApproximately(6 * 2_000_000 - paidToNotes, 0.01,
+            "the principal the notes did not get is what was held back, and the turbo pays all of it");
+        (steps.TryGetValue("CERTIFICATE", out var leftover) ? leftover.Paid : 0.0).Should().BeApproximately(0, 0.01,
+            "nothing is left held back for the end of the period");
         steps["RESIDUAL"].Paid.Should().BeApproximately(0, 0.01,
             "there is no residual class, and the certificate's balance being reset is not a payment");
         steps.Should().OnlyContain(s => s.Value.TakenNotPaid < 0.01 && s.Value.PaidNotTaken < 0.01);
