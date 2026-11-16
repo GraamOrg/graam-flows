@@ -277,6 +277,8 @@ public class ComposableStructure : BaseStructure
                 }
                 else
                 {
+                    // Once per group, before its first period moves a balance.
+                    ValidateStartWrittenDown(deal, dynGroup);
                     adjPeriodCf.FeeBasis = periodOpening;
                     if (notesSettle > DateTime.MinValue && notesSettle < adjPeriodCf.CashflowDate)
                         adjPeriodCf.PeriodYears30360 = thirty360.YearFraction(notesSettle, adjPeriodCf.CashflowDate);
@@ -1091,6 +1093,42 @@ public class ComposableStructure : BaseStructure
             names + (on.HasValue ? $", on {on:MM/dd/yyyy}" : "") + "). They are written down together, and the " +
             "write-up, which restores the classes most senior first, would restore them one after another in " +
             "an order the documents do not state. State the write-down sequentially.");
+    }
+
+    /// <summary>
+    ///     A class sent with <c>writtenDown</c> (graam-harmony#6199 Q13): what it had been written down
+    ///     by, and not yet written back up, when the run starts. Only WRITEUP and the turbo's pay-back
+    ///     read it, and only for a note, so it is refused anywhere else rather than carried unread.
+    ///     A class cannot have lost more than it no longer has: the field is at most its original
+    ///     balance less its balance at the start. Checked once per group, as its first period opens,
+    ///     since every later period has moved the balances.
+    /// </summary>
+    private static void ValidateStartWrittenDown(IDeal deal, DynamicGroup dynGroup)
+    {
+        foreach (var dc in dynGroup.DynamicClasses)
+        {
+            var written = dc.Tranche.WrittenDown;
+            if (written == 0)
+                continue;
+            var name = dc.Tranche.TrancheName;
+            if (double.IsNaN(written) || double.IsInfinity(written) || written < 0)
+                throw new DealModelingException(deal.DealName,
+                    $"{name} states writtenDown {written}. It is what the class had been written down by and " +
+                    "not yet written back up when the run starts: zero or more.");
+            if (!deal.WritesUp)
+                throw new DealModelingException(deal.DealName,
+                    $"{name} states writtenDown {written:#,##0.00} on a deal with no WRITEUP step. Only WRITEUP " +
+                    "and the turbo's pay-back read it; add WRITEUP or leave the field out.");
+            if (dynGroup.DealClasses?.Contains(dc) != true)
+                throw new DealModelingException(deal.DealName,
+                    $"{name} states writtenDown {written:#,##0.00} and the engine does not count it as a note. " +
+                    "WRITEUP writes notes back up; a class that is not one is never written up.");
+            var lost = dc.Tranche.OriginalBalance - dc.Balance;
+            if (written > lost + PaymentCheckUnit)
+                throw new DealModelingException(deal.DealName,
+                    $"{name} states writtenDown {written:#,##0.00}, more than it no longer has: its original " +
+                    $"balance less its balance at the start is {lost:#,##0.00}.");
+        }
     }
 
     /// <summary>What a zero-target EXCESS_TURBO needs besides its position.</summary>

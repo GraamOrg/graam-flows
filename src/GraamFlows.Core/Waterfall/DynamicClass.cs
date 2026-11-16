@@ -26,6 +26,9 @@ public class DynamicClass : IPayable
         Tranche = tranche;
         DealStructure = Tranche.GetDealStructure();
         SetBalance(tranche.OriginalBalance * tranche.Factor);
+        // Write-downs taken before the run starts (graam-harmony#6199 Q13). Checked against the
+        // deal's WRITEUP and the class's balance in ComposableStructure.ValidateStartWrittenDown.
+        CumWritedown = tranche.WrittenDown;
     }
 
     public DynamicGroup DynamicGroup { get; }

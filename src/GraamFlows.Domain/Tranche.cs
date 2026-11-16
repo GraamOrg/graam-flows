@@ -64,6 +64,9 @@ public class Tranche : ITranche
 
     [Database("Factor")] public double Factor { get; set; }
 
+    /// <inheritdoc cref="ITranche.WrittenDown" />
+    public double WrittenDown { get; set; }
+
     [Database("Fixed_Coupon")] public double FixedCoupon { get; set; }
 
     [Database("Tranche_Type")] public string TrancheType { get; set; }

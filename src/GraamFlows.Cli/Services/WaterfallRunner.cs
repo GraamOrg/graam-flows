@@ -183,6 +183,7 @@ public class WaterfallRunner
                 DealName = dto.DealName,
                 OriginalBalance = effectiveOriginalBalance,
                 Factor = effectiveFactor,
+                WrittenDown = trancheDto.WrittenDown ?? 0,
                 CouponType = trancheDto.CouponType,
                 FixedCoupon = trancheDto.FixedCoupon ?? 0,
                 FloaterSpread = trancheDto.FloaterSpread ?? 0,

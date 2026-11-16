@@ -1737,6 +1737,89 @@ public class ExcessCoversLossesStepsTests
         Try(without).Refused.Should().BeNull("the same deal without WRITEUP");
     }
 
+    // ---- Write-downs taken before the run starts (graam-harmony#6199 Q13) -------------------------
+
+    /// <summary>
+    /// A run from a trustee date: B1 was issued at 31,000,000 and stands at 30,000,000 after a
+    /// 1,000,000 write-down not yet written back up. The notes tie to the 100,000,000 pool.
+    /// </summary>
+    private static WaterfallRequest StartsWrittenDown(WaterfallRequest request, double? writtenDown = 1_000_000)
+    {
+        var b1 = request.Deal.Tranches.Single(t => t.TrancheName == "B1");
+        b1.OriginalBalance = 31_000_000;
+        b1.Factor = 30_000_000.0 / 31_000_000;
+        b1.WrittenDown = writtenDown;
+        return request;
+    }
+
+    [Fact]
+    public void A_write_down_taken_before_the_run_starts_is_paid_back_out_of_excess()
+    {
+        var pool = Collateral(defaulted: _ => 0, recoveryRate: 0.5);
+        var r = Run(StartsWrittenDown(WriteUpSteps(pool)));
+
+        var owed = 1_000_000.0;
+        var whole = -1;
+        for (var i = 0; i < pool.Count; i++)
+        {
+            var excess = Excess(pool[i], r, i);
+            var paidBack = Math.Min(owed, excess);
+            (-r.TrancheCashflows["B1"][i].Writedown).Should().BeApproximately(paidBack, 0.01,
+                $"period {i + 1}: the excess pays back the write-down the class started with");
+            r.TrancheCashflows["XS"][i].Interest.Should().BeApproximately(excess - paidBack, 0.01, $"period {i + 1}");
+            NotesAt(r, i).Should().BeApproximately(pool[i].Balance, 0.01, $"period {i + 1}: the notes end at the pool");
+            owed -= paidBack;
+            if (whole < 0 && owed < 0.01)
+                whole = i;
+        }
+
+        whole.Should().BeGreaterThan(0, "the fixture: paying it back takes more than one period");
+        r.TrancheCashflows["B1"].Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal).Should().Be(0,
+            "the fixture: the junior class is paid no principal while A1 is outstanding");
+        r.TrancheCashflows["B1"][pool.Count - 1].Balance.Should().BeApproximately(31_000_000, 0.01,
+            "the class is restored to its issued balance");
+    }
+
+    [Fact]
+    public void Sent_without_writtenDown_the_same_run_pays_the_excess_to_the_strip()
+    {
+        var pool = Collateral(defaulted: _ => 0, recoveryRate: 0.5);
+        var r = Run(StartsWrittenDown(WriteUpSteps(pool), writtenDown: null));
+        for (var i = 0; i < 6; i++)
+            r.TrancheCashflows["XS"][i].Interest.Should().BeApproximately(Excess(pool[i], r, i), 0.01, $"period {i + 1}");
+    }
+
+    [Fact]
+    public void WrittenDown_on_a_deal_with_no_WRITEUP_is_refused()
+    {
+        var request = StartsWrittenDown(Steps(Collateral(defaulted: _ => 0, recoveryRate: 0.5)));
+        Refusal(request).Should().Contain("B1 states writtenDown 1,000,000.00 on a deal with no WRITEUP step");
+    }
+
+    [Fact]
+    public void WrittenDown_beyond_what_the_class_no_longer_has_is_refused()
+    {
+        var request = StartsWrittenDown(WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5)),
+            writtenDown: 1_500_000);
+        Refusal(request).Should().Contain("more than it no longer has: its original balance less its balance at " +
+                                          "the start is 1,000,000.00");
+    }
+
+    [Fact]
+    public void WrittenDown_on_a_class_that_is_not_a_note_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        request.Deal.Tranches.Single(t => t.TrancheName == "XS").WrittenDown = 1_000;
+        Refusal(request).Should().Contain("XS states writtenDown 1,000.00 and the engine does not count it as a note");
+    }
+
+    [Fact]
+    public void A_negative_writtenDown_is_refused()
+    {
+        var request = StartsWrittenDown(WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5)), writtenDown: -5);
+        Refusal(request).Should().Contain("B1 states writtenDown -5");
+    }
+
     // ---- What the turbo spends, and what stops it ----------------------------------------------
 
     [Fact]
