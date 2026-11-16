@@ -425,6 +425,33 @@ public class ModificationLossTests
     }
 
     [Fact]
+    public void AWritedownSizedOverPool_Throws()
+    {
+        // The ladder reserves each notional priority's capacity for the period's write-down
+        // before INTEREST. Sized overPool, that amount is not known until the notes have been
+        // paid, so the reservation would be made against the wrong number.
+        var act = () => Ladder()
+            .WithWritedownSize(WritedownSize.OverPool)
+            .BuildAndRun(OnePeriod(modificationLoss: 400_000));
+
+        act.Should().Throw<Exception>().WithMessage("*overPool*MODIFICATION_LOSS*");
+    }
+
+    [Fact]
+    public void AfterAZeroTargetTurbo_Throws()
+    {
+        // The ladder's interest priorities reduce the notes' coupons: it is one of the steps that
+        // pay the notes from collections, and those run ahead of a zero-target turbo.
+        var act = () => Ladder()
+            .WithExcessTurboToPool()
+            .WithExecutionOrder("EXCESS_TURBO", "MODIFICATION_LOSS", "INTEREST", "PRINCIPAL_SCHEDULED",
+                "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY")
+            .BuildAndRun(OnePeriod(modificationLoss: 400_000));
+
+        act.Should().Throw<Exception>().WithMessage("*MODIFICATION_LOSS runs after EXCESS_TURBO*");
+    }
+
+    [Fact]
     public void AWriteUpClassTheRosterDoesNotCarry_Throws()
     {
         // "A-H" against a roster spelling it "AH" — assembly emits both. The transfer was

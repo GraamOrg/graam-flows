@@ -99,6 +99,8 @@ public class ComposableStructure : BaseStructure
         var thirty360 = new Thirty360Us();
         var lastCollateralDate = periodCashflows.Count > 0 ? periodCashflows.Max(pc => pc.CashflowDate) : DateTime.MinValue;
 
+        ValidateLossStepCollateral(deal, periodCashflows);
+
         foreach (var period in periodCashflows.GroupBy(pc => pc.CashflowDate))
         {
             if (dealTerminated)
@@ -184,6 +186,14 @@ public class ComposableStructure : BaseStructure
                         prior.Periods + 1,
                         prior.Value + periodCf.ScheduledPrincipal + periodCf.UnscheduledPrincipal
                             + periodCf.RecoveryPrincipal + periodCf.Interest);
+
+                    if (deal.FirstPeriodCollateralPolicyEnum == FirstPeriodCollateralPolicyEnum.Drop &&
+                        StatesALossField(deal))
+                        throw new DealModelingException(deal.DealName,
+                            NotSupportedWithLossFields(deal) +
+                            $"firstPeriodCollateralPolicy Drop, which leaves out the collateral period of " +
+                            $"{periodCf.CashflowDate:MM/dd/yyyy}. The pool falls by that period's principal and " +
+                            "the notes are not paid it, so it would be written down as a loss. Use Align or Fold.");
 
                     if (deal.FirstPeriodCollateralPolicyEnum != FirstPeriodCollateralPolicyEnum.Drop)
                     {
@@ -611,6 +621,8 @@ public class ComposableStructure : BaseStructure
                     "would be docked twice. Move MODIFICATION_LOSS ahead of WRITEDOWN.");
         }
 
+        ValidateLossSteps(deal, dynGroup, executionOrder);
+
         // The coverage cascade IS a per-level interleaving of interest and principal
         // (each failing level diverts interest to principal mid-interest-waterfall),
         // so combining it with the interleaved waterfall orders would run two
@@ -666,6 +678,373 @@ public class ComposableStructure : BaseStructure
                         $"Class '{dc.Tranche.TrancheName}' (Exchanged) references unknown component class " +
                         $"'{component}'.");
         }
+    }
+
+    /// <summary>What a step of the execution order does to the notes.</summary>
+    private enum StepEffect
+    {
+        /// <summary>Pays the notes out of the period's collections: their coupons, their principal.</summary>
+        PaysNotesFromCollections,
+
+        /// <summary>Pays the notes principal out of the interest the collections steps left.</summary>
+        PaysNotesFromExcess,
+
+        /// <summary>Writes the notes down.</summary>
+        WritesNotesDown,
+
+        /// <summary>Pays out all the interest left.</summary>
+        PaysOutInterestLeft,
+
+        /// <summary>
+        ///     Never pays the notes principal: it takes what it is owed out of the interest left and
+        ///     leaves the rest for the next step.
+        /// </summary>
+        NeverPaysNotesPrincipal
+    }
+
+    /// <summary>
+    ///     Every name the step switch answers to, with what the step does to the notes. The switch
+    ///     runs no name that is not listed here, so a step added to it has to state its effect
+    ///     before it can run, and the position rule in <see cref="ValidateLossSteps" /> reads the
+    ///     effect, not the name.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, StepEffect> StepEffects =
+        new Dictionary<string, StepEffect>(StringComparer.OrdinalIgnoreCase)
+        {
+            // INTEREST pays principal too: a coverage cascade's diversion.
+            ["INTEREST"] = StepEffect.PaysNotesFromCollections,
+            ["PRINCIPAL_SCHEDULED"] = StepEffect.PaysNotesFromCollections,
+            ["PRINCIPAL_UNSCHEDULED"] = StepEffect.PaysNotesFromCollections,
+            ["PRINCIPAL_RECOVERY"] = StepEffect.PaysNotesFromCollections,
+            ["SUPPLEMENTAL_REDUCTION"] = StepEffect.PaysNotesFromCollections,
+            ["MODIFICATION_LOSS"] = StepEffect.PaysNotesFromCollections,
+            ["EXCESS_TURBO"] = StepEffect.PaysNotesFromExcess,
+            ["WRITEDOWN"] = StepEffect.WritesNotesDown,
+            ["EXCESS"] = StepEffect.PaysOutInterestLeft,
+            ["EXCESS_RELEASE"] = StepEffect.PaysOutInterestLeft,
+            ["EXPENSE"] = StepEffect.NeverPaysNotesPrincipal,
+            ["RESERVE_DEPOSIT"] = StepEffect.NeverPaysNotesPrincipal,
+            // Pays the notes carried-over interest, never principal.
+            ["CAP_CARRYOVER"] = StepEffect.NeverPaysNotesPrincipal
+        };
+
+    /// <summary>
+    ///     The two step fields that say how excess spread meets losses (WRITEDOWN's size and
+    ///     EXCESS_TURBO's zero target) are only right in some execution orders. A wrong order
+    ///     still runs and returns a plausible grid with principal or a loss counted wrongly, so it
+    ///     is refused. A deal that states neither field is not checked.
+    ///     <para>
+    ///         An order can be wrong three ways, and the rule has a part for each, all read off
+    ///         <see cref="StepEffects" />. Presence: the steps that pay the notes what the
+    ///         collections owe them are all there (<see cref="ValidateStepCounts" />). Count: no
+    ///         step that pays the notes, writes them down or pays out the interest left is named
+    ///         twice. Position: the steps that pay the notes from collections run first, then
+    ///         EXCESS_TURBO, and no step that pays the notes runs after an overPool WRITEDOWN or
+    ///         after the step that pays out the interest left. Steps that never pay the notes
+    ///         principal sit anywhere, any number of times.
+    ///     </para>
+    ///     <para>
+    ///         The rule lists what is wrong with an order, and an order is not all a deal is. So
+    ///         two more things stand beside it. The fields are accepted only on a deal of the
+    ///         shape they have been tested on (<see cref="ValidateLossStepShape" />,
+    ///         <see cref="ValidateLossStepCollateral" />); any other is refused as not supported
+    ///         with these fields. And the two steps that measure the notes against the pool check
+    ///         what they find as they run (<see cref="RefuseUnpaidPrincipal" />,
+    ///         <see cref="PayExcessTurboToPool" />), whatever the order or the structures are.
+    ///     </para>
+    /// </summary>
+    private static void ValidateLossSteps(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
+    {
+        var overPool = deal.WritedownSize == WritedownSize.OverPool;
+        if (!overPool && !deal.ExcessTurboToPool)
+            return;
+
+        ValidateLossStepShape(deal, dynGroup);
+
+        if (overPool && executionOrder.Any(s => s.Equals("MODIFICATION_LOSS", StringComparison.OrdinalIgnoreCase)))
+            throw new DealModelingException(deal.DealName,
+                "WRITEDOWN is sized overPool on a deal with a MODIFICATION_LOSS step. That step runs " +
+                "ahead of INTEREST and reserves each class's capacity for the period's write-down, " +
+                "which overPool does not know until the notes have been paid. Size the write-down " +
+                "periodLoss.");
+
+        if (deal.ExcessTurboToPool)
+            ValidateTurboToPool(deal, dynGroup, executionOrder);
+
+        // A name the table does not list is refused by the step switch, which says so.
+        var running = executionOrder.Where(StepEffects.ContainsKey).ToList();
+        ValidateStepCounts(deal, running, overPool);
+
+        // The step after which collections can no longer pay the notes, and the step after which
+        // nothing can. Null until the order reaches one.
+        string? closedToCollections = null, closedToTheNotes = null;
+        foreach (var step in running)
+        {
+            var effect = StepEffects[step];
+
+            var blocker = effect switch
+            {
+                StepEffect.PaysNotesFromCollections => closedToCollections,
+                StepEffect.PaysNotesFromExcess => closedToTheNotes,
+                _ => null
+            };
+            if (blocker != null)
+                throw new DealModelingException(deal.DealName, OutOfPlace(deal, step, blocker));
+
+            switch (effect)
+            {
+                case StepEffect.PaysNotesFromExcess:
+                    closedToCollections ??= step;
+                    break;
+                case StepEffect.WritesNotesDown when overPool:
+                case StepEffect.PaysOutInterestLeft:
+                    closedToCollections ??= step;
+                    closedToTheNotes ??= step;
+                    break;
+            }
+        }
+    }
+
+    private static readonly string[] PrincipalBySource =
+    {
+        "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY"
+    };
+
+    /// <summary>
+    ///     Presence and count. The notes are measured against the pool once collections have paid
+    ///     them, so a collections step the order leaves out has its principal or its coupons
+    ///     counted as a loss or as excess. A step named twice is a mis-stated order: INTEREST
+    ///     named again pays the coupons again.
+    /// </summary>
+    private static void ValidateStepCounts(IDeal deal, List<string> running, bool overPool)
+    {
+        // EXCESS is EXCESS_RELEASE under its other name.
+        static string Name(string step)
+        {
+            var name = step.ToUpperInvariant();
+            return name == "EXCESS" ? "EXCESS_RELEASE" : name;
+        }
+
+        var names = running.Select(Name).ToList();
+
+        var required = new List<string> { "INTEREST" };
+        required.AddRange(PrincipalBySource);
+        if (overPool)
+            required.Add("WRITEDOWN");
+
+        foreach (var name in required.Where(name => !names.Contains(name)))
+            throw new DealModelingException(deal.DealName,
+                $"The execution order has no {name} step. " + name switch
+                {
+                    "INTEREST" =>
+                        "The notes' coupons would never be paid, and the interest that owes them would " +
+                        "be counted as excess. Add INTEREST ahead of the steps that pay out of excess.",
+                    "WRITEDOWN" =>
+                        "The write-down is sized overPool and the order never runs it, so nothing would " +
+                        "ever be written down. Add WRITEDOWN after the steps that pay the notes.",
+                    _ =>
+                        "That principal would never reach the notes, so they would stand above the pool " +
+                        "by it and it would be paid out of excess or written down as a loss. Add " +
+                        $"{name} ahead of the steps that pay out of excess or write down."
+                });
+
+        var twice = names.FirstOrDefault(name =>
+            StepEffects[name] != StepEffect.NeverPaysNotesPrincipal && names.Count(n => n == name) > 1);
+        if (twice != null)
+            throw new DealModelingException(deal.DealName,
+                $"{twice} is named {names.Count(n => n == twice)} times in the execution order" +
+                (twice == "EXCESS_RELEASE" ? " (EXCESS is the same step)" : "") +
+                ". A deal that sizes its write-down overPool or states a turbo target of zero names " +
+                "each step that pays the notes, writes them down or pays out the interest left once. " +
+                "Name it once.");
+    }
+
+    /// <summary>Why <paramref name="step" /> cannot run after <paramref name="blocker" />.</summary>
+    private static string OutOfPlace(IDeal deal, string step, string blocker)
+    {
+        var late = step.ToUpperInvariant();
+        var ahead = blocker.ToUpperInvariant();
+        var why = StepEffects[blocker] switch
+        {
+            StepEffect.PaysNotesFromExcess =>
+                $"{ahead} pays the notes principal out of the interest the steps ahead of it left, so every " +
+                "step that pays the notes from the period's collections runs ahead of it: run after it, " +
+                $"{late} has its payment counted as excess, or finds the interest already spent. " +
+                $"Move {late} ahead of {ahead}.",
+            StepEffect.WritesNotesDown =>
+                "WRITEDOWN is sized overPool, which writes down what the notes stand above the pool by " +
+                $"after they have been paid, and {late} can still pay them. Move it ahead of WRITEDOWN, " +
+                "or size the write-down periodLoss.",
+            _ =>
+                $"{ahead} pays out all the interest left, so a step that pays the notes cannot follow it. " +
+                $"Move {late} ahead of {ahead}."
+        };
+        return $"{late} runs after {ahead} in the execution order. {why}" +
+               (deal.ExecutionOrder is { Count: > 0 }
+                   ? ""
+                   : " The deal states no executionOrder, so this is the default order: state one.");
+    }
+
+    private static bool StatesALossField(IDeal deal) =>
+        deal.WritedownSize == WritedownSize.OverPool || deal.ExcessTurboToPool;
+
+    private static string NotSupportedWithLossFields(IDeal deal) =>
+        (deal.WritedownSize == WritedownSize.OverPool && deal.ExcessTurboToPool
+            ? "A write-down sized overPool and a turbo target of zero are"
+            : deal.ExcessTurboToPool
+                ? "A turbo target of zero is"
+                : "A write-down sized overPool is") +
+        " not supported on a deal with ";
+
+    /// <summary>
+    ///     The collateral a deal that states either field may run on: one group, with no
+    ///     forbearance. Both steps measure the group's funded classes against its pool balance.
+    ///     Classes shared by two groups would be measured against one group's pool, and a
+    ///     forbearance balance is in the notes and not in that pool balance, so either would be
+    ///     written down as a loss.
+    /// </summary>
+    private static void ValidateLossStepCollateral(IDeal deal, IEnumerable<PeriodCashflows> periodCashflows)
+    {
+        if (!StatesALossField(deal))
+            return;
+
+        var periods = periodCashflows.ToList();
+        var groups = periods.Select(p => p.GroupNum).Distinct().OrderBy(g => g, StringComparer.Ordinal).ToList();
+        if (groups.Count > 1)
+            throw new DealModelingException(deal.DealName,
+                NotSupportedWithLossFields(deal) +
+                $"more than one collateral group (groups {string.Join(", ", groups)}). The notes are " +
+                "measured against one group's pool, so classes the groups share would be written down " +
+                "by the other group's balance.");
+
+        var forbearance = periods.FirstOrDefault(p =>
+            Math.Abs(p.AccumForbearance) > 0.005 || Math.Abs(p.ForbearanceLiquidated) > 0.005 ||
+            Math.Abs(p.ForbearanceRecovery) > 0.005 || Math.Abs(p.ForbearanceUnscheduled) > 0.005);
+        if (forbearance != null)
+            throw new DealModelingException(deal.DealName,
+                NotSupportedWithLossFields(deal) +
+                $"a forbearance balance (first on {forbearance.CashflowDate:MM/dd/yyyy}). The notes are " +
+                "measured against the pool's balance, which leaves forbearance out, so notes sized to " +
+                "include it would be written down by it.");
+    }
+
+    /// <summary>
+    ///     The deal a zero-target turbo or an overPool write-down may be stated on. Each line is a
+    ///     shape on which the notes stand above the pool for a reason other than a loss, or on
+    ///     which a payment is not what was asked for. A deal outside it is refused as not
+    ///     supported, and the list is widened when a deal needs it.
+    /// </summary>
+    private static void ValidateLossStepShape(IDeal deal, DynamicGroup dynGroup)
+    {
+        if (deal.WaterfallOrder != WfOrder.Standard)
+            throw new DealModelingException(deal.DealName,
+                NotSupportedWithLossFields(deal) +
+                "an interleaved waterfallOrder. Interleaved, INTEREST pays the principal through the " +
+                "principal structures' children, and what it cannot place is left unpaid. State the " +
+                "standard order.");
+
+        if (deal.DeferrableNotes is { Count: > 0 })
+            throw new DealModelingException(deal.DealName,
+                NotSupportedWithLossFields(deal) +
+                $"deferrable notes ({string.Join(", ", deal.DeferrableNotes.Select(n => n.Class))}). " +
+                "Interest a note defers is added to its balance, which puts the notes above the pool " +
+                "by it, and it would be written down the month it is capitalised.");
+
+        // The scheduled structure is required of every deal. With these fields the other two are
+        // too: their steps return without paying when no structure is set, and the principal they
+        // did not pay would be read as a loss.
+        var missing = new[]
+        {
+            (Source: "unscheduled", Payable: dynGroup.PrepayPayable),
+            (Source: "recovery", Payable: dynGroup.RecoveryPayable)
+        }.Where(p => p.Payable == null).Select(p => p.Source).ToList();
+        if (missing.Count > 0)
+            throw new DealModelingException(deal.DealName,
+                NotSupportedWithLossFields(deal) +
+                $"no structure for {string.Join(" or ", missing)} principal. That principal would reach " +
+                "no class, and the notes would stand above the pool by it. State a PRINCIPAL step for " +
+                "each source.");
+    }
+
+    /// <summary>
+    ///     A step is about to measure the notes against the pool, and the period's principal
+    ///     totals are given one by one. Principal the period collected and no step has paid, while
+    ///     a note still has a balance, would be read as a loss: the pool fell by it and the notes
+    ///     did not. Principal a step paid beyond what was collected (a forced paydown pays its class
+    ///     in full whatever it is given) puts the notes under the pool by cash the period never had,
+    ///     and that gap would absorb later losses. Either way the run stops here.
+    /// </summary>
+    private static void RefuseUnpaidPrincipal(IDeal deal, DynamicGroup dynGroup, string step, DateTime date,
+        params double[] principalTotals)
+    {
+        // Each total is held to a unit on its own: a pro-rata split drops up to a unit, and the
+        // three totals each have their own split, so their sum can pass a unit on a correct deal.
+        var overpaid = principalTotals.Where(p => p < -PaymentCheckUnit).Sum(p => -p);
+        if (overpaid > 0)
+            throw new DealModelingException(deal.DealName,
+                $"{step} measures the notes against the pool on {date:MM/dd/yyyy} after the principal " +
+                $"steps paid out {overpaid:#,##0.00} more principal than the period collected. The notes " +
+                "would stand under the pool by cash the period does not have. Check the principal " +
+                "structures for a form that pays more than it is given (a forced paydown).");
+
+        var unpaidPrincipal = principalTotals.Where(p => p > PaymentCheckUnit).Sum();
+        if (unpaidPrincipal <= 0 || dynGroup.Balance() <= 0.005)
+            return;
+
+        throw new DealModelingException(deal.DealName,
+            $"{step} measures the notes against the pool on {date:MM/dd/yyyy} with " +
+            $"{unpaidPrincipal:#,##0.00} of the period's principal collected and not paid, while the notes " +
+            "still have a balance. The pool fell by that principal and the notes did not, so it would be " +
+            "paid out of excess or written down as a loss. Check that each PRINCIPAL step runs ahead of " +
+            "this one and that its structure reaches a class with a balance.");
+    }
+
+    /// <summary>What a zero-target EXCESS_TURBO needs besides its position.</summary>
+    private static void ValidateTurboToPool(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
+    {
+        int IndexOf(string name) => executionOrder.FindIndex(s =>
+            string.Equals(s, name, StringComparison.OrdinalIgnoreCase));
+
+        var writedownIndex = IndexOf("WRITEDOWN");
+        var turboIndex = IndexOf("EXCESS_TURBO");
+
+        if (deal.OcTargetConfig != null)
+            throw new DealModelingException(deal.DealName,
+                "EXCESS_TURBO states both a target of zero and an OC target. A step pays the notes down " +
+                "to the pool or builds overcollateralization, not both.");
+
+        if (turboIndex < 0)
+            throw new DealModelingException(deal.DealName,
+                "EXCESS_TURBO states a target of zero but the execution order has no EXCESS_TURBO step, " +
+                "so excess would never pay the notes down. Add EXCESS_TURBO to executionOrder, ahead of " +
+                "WRITEDOWN.");
+
+        // The step pays through the recovery structure as the period's rules leave it, so a
+        // structure of its own would be ignored.
+        if (dynGroup.TurboPayable != null)
+            throw new DealModelingException(deal.DealName,
+                "EXCESS_TURBO states a target of zero and a structure of its own. With a target of zero " +
+                "the step pays through the recovery structure as each period's rules leave it, as the " +
+                "built-in excess-spread rule does. Remove the step's structure (or the SET_TURBO_STRUCT " +
+                "rule).");
+
+        // Ahead of a period-loss write-down the turbo pays the loss as principal and the
+        // write-down then takes the same loss off the notes again.
+        if (deal.WritedownSize == WritedownSize.PeriodLoss && writedownIndex >= 0 && turboIndex < writedownIndex)
+            throw new DealModelingException(deal.DealName,
+                "EXCESS_TURBO with a target of zero runs ahead of a WRITEDOWN sized periodLoss. The loss " +
+                "excess paid as principal would be written down as well. Size the write-down overPool.");
+    }
+
+    /// <summary>
+    ///     What the group's funded classes stand above the pool's end-of-period balance by, as
+    ///     the notes stand when it is called. Notional, exchanged and pseudo classes are not
+    ///     funded (<see cref="DynamicGroup.Balance" />). Zero when the notes are at or under the pool.
+    /// </summary>
+    private static double NotesOverPool(DynamicGroup dynGroup, PeriodCashflows periodCf)
+    {
+        var overPool = dynGroup.Balance() - periodCf.Balance;
+        return overPool > 0.005 ? overPool : 0;
     }
 
     /// <summary>
@@ -796,6 +1175,13 @@ public class ComposableStructure : BaseStructure
 
         foreach (var step in executionOrder)
         {
+            // The table decides which names run; the switch below has a case for each.
+            if (!StepEffects.ContainsKey(step))
+                throw new DealModelingException(deal.DealName,
+                    $"executionOrder names '{step}', which no step answers to. A PRINCIPAL step " +
+                    "runs as PRINCIPAL_SCHEDULED, PRINCIPAL_UNSCHEDULED or PRINCIPAL_RECOVERY, " +
+                    "by its source.");
+
             switch (step.ToUpperInvariant())
             {
                 case "EXPENSE":
@@ -878,7 +1264,19 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "WRITEDOWN":
-                    PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown, excessSpreadFirstLoss);
+                    if (deal.WritedownSize == WritedownSize.OverPool)
+                    {
+                        RefuseUnpaidPrincipal(deal, dynGroup, "WRITEDOWN sized overPool", adjPeriodCf.CashflowDate,
+                            availableSchedPrin, availablePrepayPrin, availableRecovPrin);
+                        // overPool replaces the period's loss: principal a step ahead of this one paid
+                        // out of excess has already brought the notes down by the loss it covered.
+                        PayOverPoolWritedown(deal, dynGroup, adjPeriodCf, excessSpreadFirstLoss);
+                    }
+                    else
+                    {
+                        PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown, excessSpreadFirstLoss);
+                    }
+
                     break;
 
                 case "MODIFICATION_LOSS":
@@ -891,6 +1289,9 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "EXCESS_TURBO":
+                    if (deal.ExcessTurboToPool)
+                        RefuseUnpaidPrincipal(deal, dynGroup, "EXCESS_TURBO with a target of zero",
+                            adjPeriodCf.CashflowDate, availableSchedPrin, availablePrepayPrin, availableRecovPrin);
                     availableInterest = PayExcessTurboStep(deal, dynGroup, adjPeriodCf, availableInterest);
                     break;
 
@@ -917,10 +1318,8 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 default:
-                    throw new DealModelingException(deal.DealName,
-                        $"executionOrder names '{step}', which no step answers to. A PRINCIPAL step " +
-                        "runs as PRINCIPAL_SCHEDULED, PRINCIPAL_UNSCHEDULED or PRINCIPAL_RECOVERY, " +
-                        "by its source.");
+                    throw new InvalidOperationException(
+                        $"The step table lists '{step}' and the step switch has no case for it.");
             }
 
             // The turbo is the step that pays the principal held back for the OC release.
@@ -939,8 +1338,8 @@ public class ComposableStructure : BaseStructure
         // than its balance and ended a no-loss run unretired.
         if (deal.WriteNotesDownToPool && dynGroup.WritedownPayable != null)
         {
-            var overPool = dynGroup.Balance() - adjPeriodCf.Balance;
-            if (overPool > 0.005)
+            var overPool = NotesOverPool(dynGroup, adjPeriodCf);
+            if (overPool > 0)
                 dynGroup.WritedownPayable.PayWritedown(null, adjPeriodCf.CashflowDate, overPool, () => { });
         }
 
@@ -2228,6 +2627,33 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
+    ///     WRITEDOWN sized overPool: writes down what the funded classes stand above the pool by.
+    ///     A write-down taken by a class that is not a note (an IO class heading the write-down
+    ///     order) leaves the notes above the pool, so the same loss would be measured again next
+    ///     period: the run stops instead.
+    /// </summary>
+    private void PayOverPoolWritedown(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf,
+        bool excessSpreadFirstLoss)
+    {
+        var notNotes = (dynGroup.WritedownPayable?.Leafs().OfType<DynamicClass>() ?? Enumerable.Empty<DynamicClass>())
+            .Where(dc => dynGroup.DealClasses?.Contains(dc) != true)
+            .Select(dc => (Class: dc, Before: dc.CumWritedown)).ToList();
+
+        PayWritedownStep(dynGroup, periodCf, NotesOverPool(dynGroup, periodCf), excessSpreadFirstLoss);
+
+        foreach (var (dc, before) in notNotes)
+        {
+            var applied = dc.CumWritedown - before;
+            if (applied > PaymentCheckUnit)
+                throw new DealModelingException(deal.DealName,
+                    $"WRITEDOWN sized overPool wrote {applied:#,##0.00} down on {dc.Tranche.TrancheName} on " +
+                    $"{periodCf.CashflowDate:MM/dd/yyyy}, which the engine does not count as a note. The notes " +
+                    "would still stand above the pool by it and the same loss would be written down again. " +
+                    "Name only note classes ahead of the notes in the write-down structure.");
+        }
+    }
+
+    /// <summary>
     /// Absorb the period loss out of the excess spread swept by any ExcessInterest
     /// (XS) class in the group — the excess-spread first-loss layer, identified by
     /// TYPE (not by writedown-structure placement). Reduces the XS class's recorded
@@ -2354,6 +2780,9 @@ public class ComposableStructure : BaseStructure
     private double PayExcessTurboStep(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf,
         double availableInterest)
     {
+        if (deal.ExcessTurboToPool)
+            return PayExcessTurboToPool(deal, dynGroup, periodCf, availableInterest);
+
         // Read OC config directly from deal
         var ocConfig = deal.OcTargetConfig;
         if (ocConfig == null)
@@ -2396,6 +2825,86 @@ public class ComposableStructure : BaseStructure
         }
 
         return availableInterest;
+    }
+
+    /// <summary>
+    ///     How far a measured payment may be from what was expected before the run stops. A
+    ///     pro-rata split drops up to a unit when its last class retires, and sub-cent payments are
+    ///     not recorded, so a cent stops correct deals.
+    /// </summary>
+    private const double PaymentCheckUnit = 1.0;
+
+    /// <summary>
+    ///     EXCESS_TURBO with a target of zero: the interest the steps ahead left pays the notes
+    ///     principal until the funded classes are down to the pool. That is excess spread covering
+    ///     the period's loss, and any earlier loss still standing between the notes and the pool.
+    ///     <para>
+    ///         It pays as recovery principal through the recovery structure as this period's rules
+    ///         leave it, which is what the built-in excess-spread rule pays through, so a deal moved
+    ///         from that rule to this step pays the same classes the same way, trigger switches
+    ///         included. It spends what the structure reports it paid: what the classes could not
+    ///         take stays with the interest and goes on to the next step.
+    ///     </para>
+    ///     <para>
+    ///         Three things stop the run, each measured to a unit: a payment to a class that is not
+    ///         a note (a structure may name one, a zero-balance residual say, as long as it is never
+    ///         paid); a negative payment to a note (a structure that nets between classes); and a
+    ///         structure that pays more than it was given (a forced paydown, or a tranche filed
+    ///         under another class, which records its share of the class's payment twice). Since
+    ///         a class takes at most its balance, the last is also the only way a payment can
+    ///         exceed what the classes' balances fell by.
+    ///     </para>
+    /// </summary>
+    private double PayExcessTurboToPool(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf,
+        double availableInterest)
+    {
+        var payable = dynGroup.RecoveryPayable;
+        var amount = Math.Min(availableInterest, NotesOverPool(dynGroup, periodCf));
+        if (amount <= 0.005 || payable == null)
+            return availableInterest;
+
+        var date = periodCf.CashflowDate;
+
+        static double PrincipalRecorded(DynamicClass dc, DateTime on) =>
+            dc.Cashflows.TryGetValue(dc.AdjustedCashflowDate(on), out var cf)
+                ? cf.ScheduledPrincipal + cf.UnscheduledPrincipal
+                : 0.0;
+
+        var before = dynGroup.DynamicClasses.Select(dc => (Class: dc, Paid: PrincipalRecorded(dc, date))).ToList();
+
+        var receipt = payable.PayRp(null, date, amount, () => { });
+
+        foreach (var (dc, paidBefore) in before)
+        {
+            var paid = PrincipalRecorded(dc, date) - paidBefore;
+            if (dynGroup.DealClasses?.Contains(dc) == true)
+            {
+                // A forced paydown with a bare class as its support "pays" the support a negative
+                // amount: the total is what it was given and only the class shows it.
+                if (paid < -PaymentCheckUnit)
+                    throw new DealModelingException(deal.DealName,
+                        $"EXCESS_TURBO with a target of zero recorded a payment of {paid:#,##0.00} to " +
+                        $"{dc.Tranche.TrancheName} on {date:MM/dd/yyyy}. A structure that nets a payment " +
+                        "between classes takes principal from a note to pay another.");
+                continue;
+            }
+
+            if (Math.Abs(paid) > PaymentCheckUnit)
+                throw new DealModelingException(deal.DealName,
+                    $"EXCESS_TURBO with a target of zero paid {paid:#,##0.00} to {dc.Tranche.TrancheName} on " +
+                    $"{date:MM/dd/yyyy}, which the engine does not count as a note. The step pays the notes " +
+                    "down to the pool through the recovery structure, and that structure paid a class that is " +
+                    "not a note.");
+        }
+
+        if (receipt.Paid > amount + PaymentCheckUnit)
+            throw new DealModelingException(deal.DealName,
+                $"EXCESS_TURBO with a target of zero gave the recovery structure {amount:#,##0.00} on " +
+                $"{date:MM/dd/yyyy} and it paid {receipt.Paid:#,##0.00}. A structure that pays more than it " +
+                "is given pays out cash the period does not have: a forced paydown, or a tranche filed " +
+                "under another class, which records its share of that class's payment a second time.");
+
+        return availableInterest - Spend(receipt);
     }
 
     /// <summary>

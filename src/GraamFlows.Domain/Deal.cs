@@ -100,6 +100,8 @@ public class Deal : IDeal
     public IReadOnlyList<string> ExpensesFromPrincipal { get; set; } = Array.Empty<string>();
     public bool WriteNotesDownToPool { get; set; }
     public bool ReportCashLedger { get; set; }
+    public WritedownSize WritedownSize { get; set; }
+    public bool ExcessTurboToPool { get; set; }
     public IReadOnlyList<string> InterestFromPrincipal { get; set; } = Array.Empty<string>();
     public PrincipalAfterNotesConfig? PrincipalAfterNotes { get; set; }
     public IReadOnlyList<DeferrableNoteConfig> DeferrableNotes { get; set; } = Array.Empty<DeferrableNoteConfig>();
