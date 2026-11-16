@@ -266,4 +266,64 @@ public class CertificateOpeningBalanceTests
         cert.Should().OnlyContain(r => Math.Abs(Principal(r)) < 0.01);
         cert.Last().Balance.Should().BeGreaterThan(cert[0].BeginBalance, "the turbo builds the OC");
     }
+
+    [Fact]
+    public void With_no_release_structure_the_first_periods_release_is_paid_to_the_certificate()
+    {
+        // The second review's first finding: an OC target and no release structure. The release
+        // held back in each period has no step to pay it, so it is paid to the certificate at the
+        // end of the period (#161), the first period included, and the ledger has every unit.
+        var cf = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithCertificateTranche()
+            .WithSequentialWaterfall("A")
+            .WithOcTarget(0.10, 0)
+            .WithCashLedger()
+            .BuildAndRun(Pool()).Cashflows;
+        var cert = Certificate(cf);
+        var paidToNotes = Notes(cf).Sum(Principal);
+
+        Principal(cert[0]).Should().BeApproximately(2_000_000, 0.01, "the first period's release");
+        cert.Sum(Principal).Should().BeApproximately(6 * 2_000_000 - paidToNotes, 0.01,
+            "every unit the notes did not get reaches the certificate");
+        cf.CashLedger!.Steps.Should().OnlyContain(st => st.Value.TakenNotPaid < 0.01 && st.Value.PaidNotTaken < 0.01);
+        cf.CashLedger.LeftPrincipal.Should().BeApproximately(0, 0.01);
+    }
+
+    [Fact]
+    public void Notes_written_down_to_the_pool_with_the_certificate_first_end_the_first_period_at_the_pool()
+    {
+        // The second review's second finding: writeNotesDownToPool, and the certificate heading
+        // the write-down order. The pool loses 1M in month 1. The certificate opens with the 20M
+        // of OC and takes the loss; the notes are not over the pool, so nothing writes them down.
+        var b = new TestCollateralBuilder().WithGroupNum("1");
+        var bal = 100_000_000.0;
+        var ends = new List<double>();
+        for (var i = 0; i < 3; i++)
+        {
+            var loss = i == 0 ? 1_000_000.0 : 0.0;
+            b.WithPeriod(date: FirstPay.AddMonths(i), beginBalance: bal, scheduledPrincipal: 2_000_000,
+                unscheduledPrincipal: 0, interest: 750_000, defaultedPrincipal: loss);
+            bal -= 2_000_000 + loss;
+            ends.Add(bal);
+        }
+
+        var cf = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithCertificateTranche()
+            .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A')))")
+            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('Certificates'), SINGLE('A')))")
+            .WithNotesWrittenDownToPool()
+            .WithExecutionOrder("INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
+                "WRITEDOWN")
+            .BuildAndRun(b.Build()).Cashflows;
+
+        for (var i = 0; i < 3; i++)
+            Notes(cf)[i].Balance.Should().BeLessThanOrEqualTo(ends[i] + 0.01, $"period {i + 1}: the notes are not over the pool");
+        Notes(cf)[0].Writedown.Should().BeApproximately(0, 0.01, "the certificate takes the loss");
+        Certificate(cf)[0].Balance.Should().BeApproximately(19_000_000, 0.01);
+    }
 }
