@@ -764,6 +764,10 @@ public class ComposableStructure : BaseStructure
     private static void ValidateLossSteps(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
     {
         var overPool = deal.WritedownSize == WritedownSize.OverPool;
+        if (!deal.WritesUp && executionOrder.Any(s => s.Equals("WRITEUP", StringComparison.OrdinalIgnoreCase)))
+            throw new DealModelingException(deal.DealName,
+                "The execution order names WRITEUP but the deal does not state it, so it was never checked. " +
+                "Build the deal through the loss-step mapper, which reads WRITEUP off the steps and the order.");
         if (deal.WritesUp)
             ValidateWriteUp(deal, dynGroup, executionOrder);
         if (!overPool && !deal.ExcessTurboToPool)
@@ -1037,10 +1041,16 @@ public class ComposableStructure : BaseStructure
                 "down would ever be written back up. Add WRITEUP to executionOrder, after WRITEDOWN.");
 
         var writedownIndex = IndexOf("WRITEDOWN");
-        if (writedownIndex < 0 || writedownIndex > writeUpIndex)
+        if (writedownIndex < 0)
+            throw new DealModelingException(deal.DealName,
+                "The execution order names WRITEUP and no WRITEDOWN. WRITEUP restores what an overPool " +
+                "WRITEDOWN took. Add WRITEDOWN ahead of WRITEUP.");
+        if (writedownIndex > writeUpIndex)
             throw new DealModelingException(deal.DealName,
                 "WRITEUP runs ahead of WRITEDOWN. It writes the notes back up to the pool once they have been " +
                 "paid and written down. Move WRITEUP after WRITEDOWN.");
+
+        RefuseProRataWritedown(deal, dynGroup, null);
 
         if (deal.OcTargetConfig != null)
             throw new DealModelingException(deal.DealName,
@@ -1055,6 +1065,32 @@ public class ComposableStructure : BaseStructure
                 NotSupportedWithLossFields(deal) + "WRITEUP and classes written down with the notes they are cut " +
                 $"from ({string.Join(", ", cut.DefaultIfEmpty("pseudo classes"))}). The write-up would restore " +
                 "the note and leave them written down.");
+    }
+
+    /// <summary>
+    ///     WRITEUP restores the written-down classes most senior first, one after another. Classes
+    ///     the write-down structure takes pro rata are written down together, at one seniority, and
+    ///     written up one after another they would be restored in an order the documents do not
+    ///     state. Refused until a deal needs it; checked when the deal is validated, and again when
+    ///     the step runs, since a pay rule can change the write-down structure in a later period.
+    /// </summary>
+    private static void RefuseProRataWritedown(IDeal deal, DynamicGroup dynGroup, DateTime? on)
+    {
+        static IEnumerable<IPayable> ProRata(IPayable? node) =>
+            node == null
+                ? Enumerable.Empty<IPayable>()
+                : (node is ProrataStructure && node.Leafs().Count > 1 ? new[] { node } : Enumerable.Empty<IPayable>())
+                .Concat(node is DynamicClass ? Enumerable.Empty<IPayable>() : node.GetChildren().SelectMany(ProRata));
+
+        var shared = ProRata(dynGroup.WritedownPayable).FirstOrDefault();
+        if (shared == null)
+            return;
+        var names = string.Join(", ", shared.Leafs().OfType<DynamicClass>().Select(dc => dc.Tranche.TrancheName));
+        throw new DealModelingException(deal.DealName,
+            NotSupportedWithLossFields(deal) + "WRITEUP and a write-down structure that takes classes pro rata (" +
+            names + (on.HasValue ? $", on {on:MM/dd/yyyy}" : "") + "). They are written down together, and the " +
+            "write-up, which restores the classes most senior first, would restore them one after another in " +
+            "an order the documents do not state. State the write-down sequentially.");
     }
 
     /// <summary>What a zero-target EXCESS_TURBO needs besides its position.</summary>
@@ -1366,6 +1402,7 @@ public class ComposableStructure : BaseStructure
                     break;
 
                 case "WRITEUP":
+                    RefuseProRataWritedown(deal, dynGroup, adjPeriodCf.CashflowDate);
                     WriteNotesUpToPool(dynGroup, adjPeriodCf);
                     break;
 

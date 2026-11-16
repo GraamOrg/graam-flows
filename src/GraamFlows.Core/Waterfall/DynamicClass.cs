@@ -789,8 +789,8 @@ public class DynamicClass : IPayable
     }
 
     /// <summary>
-    /// Allocates writedowns to child tranches proportionally based on balance.
-    /// This eliminates the need for TrancheAllocator.AllocatePrincipal for writedown distribution.
+    /// Allocates a write-up to child tranches in proportion to what each was written down, so the
+    /// write-up reverses the write-down's allocation (graam-harmony#6199 D7).
     /// </summary>
     private void AllocateWriteupToTranches(DateTime cfDate, double writeupAmt)
     {
@@ -798,25 +798,23 @@ public class DynamicClass : IPayable
             return; // DynamicTranche has null DynamicTranches, so no recursion
 
         var written = DynamicTranches.Sum(dt => Math.Max(dt.CumWritedown, 0));
+        if (written + .01 < writeupAmt)
+            throw new DealModelingException(Tranche.DealName,
+                $"Class {Tranche.TrancheName} is written up by {writeupAmt:#,##0.00} and its tranches were " +
+                $"written down by {written:#,##0.00}: the class and its tranches are out of sync.");
+
         foreach (var dynTran in DynamicTranches)
         {
-            double allocPct;
-            if (written < 0.01)
-            {
-                if (Math.Abs(Tranche.OriginalBalance) < double.Epsilon)
-                    continue;
-                allocPct = dynTran.Tranche.OriginalBalance / Tranche.OriginalBalance;
-            }
-            else
-            {
-                allocPct = Math.Max(dynTran.CumWritedown, 0) / written;
-            }
-
-            if (writeupAmt * allocPct > 0)
-                dynTran.Writeup(cfDate, Math.Min(writeupAmt * allocPct, dynTran.CumWritedown));
+            var share = Math.Max(dynTran.CumWritedown, 0) / written;
+            if (writeupAmt * share > 0)
+                dynTran.Writeup(cfDate, Math.Min(writeupAmt * share, dynTran.CumWritedown));
         }
     }
 
+    /// <summary>
+    /// Allocates writedowns to child tranches proportionally based on balance.
+    /// This eliminates the need for TrancheAllocator.AllocatePrincipal for writedown distribution.
+    /// </summary>
     private void AllocateWritedownToTranches(DateTime cfDate, double writedownAmt, double beginBal)
     {
         if (DynamicTranches == null || !DynamicTranches.Any())

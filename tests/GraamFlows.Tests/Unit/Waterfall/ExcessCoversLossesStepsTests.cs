@@ -1685,6 +1685,58 @@ public class ExcessCoversLossesStepsTests
         Refusal(request).Should().Contain("WRITEUP states a structure or a field");
     }
 
+    [Fact]
+    public void WRITEUP_with_no_WRITEDOWN_in_the_order_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5), new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "EXCESS_TURBO",
+            "WRITEUP", "EXCESS_RELEASE"
+        });
+        Refusal(request).Should().Contain("names WRITEUP and no WRITEDOWN");
+    }
+
+    [Fact]
+    public void WRITEUP_beside_an_OC_target_is_refused()
+    {
+        // The pool standing above the notes is the overcollateralization the target builds.
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        Turbo(request).Target = null;
+        Turbo(request).OcTarget = new OcTargetDto { TargetPct = 0.02 };
+        Refusal(request).Should().Contain("an OC target together with WRITEUP");
+    }
+
+    [Fact]
+    public void WRITEUP_on_a_deal_with_a_class_cut_from_a_note_is_refused()
+    {
+        // A class-cut IO is written down with the note it is cut from; the write-up would restore
+        // the note and leave it down.
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "A1X", OriginalBalance = A1Balance, TrancheType = "Offered", CashflowType = "IO",
+            CouponType = "Fixed", FixedCoupon = 1.0, NotionalReference = "A1", SubordinationOrder = 3,
+            FirstPayDate = FirstPayDate, PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        Refusal(request).Should().Contain("WRITEUP and classes written down with the notes they are cut from (A1X)");
+    }
+
+    [Fact]
+    public void WRITEUP_with_a_pro_rata_write_down_is_refused_and_the_same_deal_runs_without_it()
+    {
+        // Classes written down together are restored together in the documents; one after another
+        // is an order no document states.
+        var pool = Collateral(defaulted: _ => 0, recoveryRate: 0.5);
+        var proRata = new PayableStructureDto { Type = "PRORATA", Tranches = new List<string> { "B1", "A1" } };
+        var request = WriteUpSteps(pool);
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure = proRata;
+        Refusal(request).Should().Contain("a write-down structure that takes classes pro rata (B1, A1)");
+
+        var without = Steps(pool);
+        without.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure = proRata;
+        Try(without).Refused.Should().BeNull("the same deal without WRITEUP");
+    }
+
     // ---- What the turbo spends, and what stops it ----------------------------------------------
 
     [Fact]
