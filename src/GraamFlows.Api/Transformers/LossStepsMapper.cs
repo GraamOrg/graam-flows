@@ -65,7 +65,7 @@ public static class LossStepsMapper
 
     /// <summary>
     ///     Whether the deal names a WRITEUP step, in its steps or its execution order. The step takes
-    ///     no structure and no field: it writes the written-down notes back up, most senior first.
+    ///     no structure and no field: it writes the written-down notes back up, in the reverse of the write-down.
     /// </summary>
     public static bool MapWritesUp(UnifiedWaterfallDto? waterfall, string? dealName)
     {
@@ -76,7 +76,7 @@ public static class LossStepsMapper
                 step.Target != null || step.OcTarget != null)
                 throw new ArgumentException(
                     $"Deal {dealName}: WRITEUP states a structure or a field. It takes neither: it writes the " +
-                    "notes written down earlier back up, most senior first, by what the pool stands above them.");
+                    "notes written down earlier back up, in the reverse of the write-down, by what the pool stands above them.");
         return steps.Any(s => IsType(s, "WRITEUP")) ||
                (waterfall?.ExecutionOrder ?? new List<string>()).Any(s =>
                    s.Equals("WRITEUP", StringComparison.OrdinalIgnoreCase));

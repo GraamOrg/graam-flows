@@ -1709,18 +1709,37 @@ public class ExcessCoversLossesStepsTests
     }
 
     [Fact]
-    public void WRITEUP_on_a_deal_with_a_class_cut_from_a_note_is_refused()
+    public void A_class_cut_from_a_note_follows_it_through_the_write_down_and_the_write_up()
     {
-        // A class-cut IO is written down with the note it is cut from; the write-up would restore
-        // the note and leave it down.
-        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        // Round 3: a notional IO cut from B1 tracks B1's balance, written down and back up alike.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var request = WriteUpSteps(pool);
         request.Deal.Tranches.Add(new TrancheDto
         {
-            TrancheName = "A1X", OriginalBalance = A1Balance, TrancheType = "Offered", CashflowType = "IO",
-            CouponType = "Fixed", FixedCoupon = 1.0, NotionalReference = "A1", SubordinationOrder = 3,
+            TrancheName = "B1X", OriginalBalance = B1Balance, TrancheType = "Offered", CashflowType = "IO",
+            CouponType = "Fixed", FixedCoupon = 1.0, NotionalReference = "B1", SubordinationOrder = 3,
             FirstPayDate = FirstPayDate, PayFrequency = 12, PayDay = FirstPayDate.Day
         });
-        Refusal(request).Should().Contain("WRITEUP and classes cut from A1 (A1X)");
+        var r = Run(request);
+
+        CumWrittenDown(r, "B1", 0).Should().BeGreaterThan(100_000, "the fixture: B1 is written down");
+        (-r.TrancheCashflows["B1"][1].Writedown).Should().BeGreaterThan(100_000, "the fixture: B1 is written up");
+        for (var i = 0; i < 6; i++)
+            r.TrancheCashflows["B1X"][i].Balance.Should().BeApproximately(r.TrancheCashflows["B1"][i].Balance, 0.01,
+                $"period {i + 1}: the cut class follows the note");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_zero_target_turbo_with_the_strip_inside_INTEREST_is_refused(bool writesUp)
+    {
+        // Round 3: the strip inside INTEREST took the whole excess, the turbo had nothing to pay the
+        // notes with, and the bonds stayed written down while the strip was paid.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var request = writesUp ? WriteUpSteps(pool) : Steps(pool);
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "INTEREST").Structure = Seq("A1", "B1", "XS");
+        Refusal(request).Should().Contain("the INTEREST structure pays the excess-spread strip XS");
     }
 
     [Fact]

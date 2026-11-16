@@ -134,7 +134,7 @@ public interface IDeal : IPayRuleAssemblyStore
 
     /// <summary>
     /// The deal names a WRITEUP step (graam-harmony#6199 D7): after an overPool WRITEDOWN, the notes
-    /// written down earlier are written back up, most senior first, by what the pool stands above
+    /// written down earlier are written back up, in the reverse of the write-down, by what the pool stands above
     /// them, up to what each was written down. With it, a zero-target EXCESS_TURBO also pays back
     /// those write-downs out of excess: it pays the notes down to the pool less what is still
     /// written down, and the write-up restores the classes by the same amount. False unless stated.

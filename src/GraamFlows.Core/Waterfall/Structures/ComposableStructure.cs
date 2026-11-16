@@ -1065,7 +1065,8 @@ public class ComposableStructure : BaseStructure
     ///     <para>
     ///         Only a structure whose reverse is the documents' order is accepted: a sequence of single
     ///         classes (a pro-rata node with one child counts as that child), each note one tranche
-    ///         with nothing cut from it and nothing sharing it. Classes that are not notes are passed by:
+    ///         with nothing sharing its class. A class cut from a note (an exchange class, a notional
+    ///         IO) follows the note's balance through the write-down and the write-up alike. Classes that are not notes are passed by:
     ///         an overPool write-down never takes one. Anything else writes classes
     ///         down together or writes down something the write-up would not restore, and is refused,
     ///         not listed; it is widened when a deal needs it. Harmony's non-QM builder writes this
@@ -1120,16 +1121,6 @@ public class ComposableStructure : BaseStructure
                     NotSupportedWithLossFields(deal) + $"WRITEUP and {name}, a class of more than one tranche " +
                     $"({string.Join(", ", tranches)}){when}. The write-down reaches each tranche and the write-up " +
                     "is stated for one note.");
-            var cut = dynGroup.DynamicClasses.Where(other => other != dc && other.DealStructure != null &&
-                                                             other.IsExchangable() &&
-                                                             string.Equals(other.DealStructure.ExchangableTranche,
-                                                                 name, StringComparison.OrdinalIgnoreCase))
-                .Select(other => other.Tranche.TrancheName).ToList();
-            if (cut.Count > 0)
-                throw new DealModelingException(deal.DealName,
-                    NotSupportedWithLossFields(deal) + $"WRITEUP and classes cut from {name} " +
-                    $"({string.Join(", ", cut)}){when}. They are written down with it, and the write-up would " +
-                    "restore it and leave them written down.");
         }
 
         var stranded = dynGroup.DealClasses?.FirstOrDefault(dc => dc.CumWritedown > 0.005 && !named.Contains(dc));
@@ -1198,6 +1189,18 @@ public class ComposableStructure : BaseStructure
                 "EXCESS_TURBO states a target of zero but the execution order has no EXCESS_TURBO step, " +
                 "so excess would never pay the notes down. Add EXCESS_TURBO to executionOrder, ahead of " +
                 "WRITEDOWN.");
+
+        // The strip inside INTEREST takes all the interest left after the coupons, so the turbo,
+        // which pays out of what INTEREST left, would have nothing to pay the notes with: the loss
+        // (and, with WRITEUP, the earlier write-downs) would stay on the bonds while the strip is
+        // paid. The strip is paid by EXCESS_RELEASE, after the turbo (graam-harmony#6199 D3).
+        var strip = dynGroup.InterestPayable?.Leafs().OfType<DynamicClass>().FirstOrDefault(dc => dc.IsExcessInterest);
+        if (strip != null)
+            throw new DealModelingException(deal.DealName,
+                $"EXCESS_TURBO states a target of zero and the INTEREST structure pays the excess-spread " +
+                $"strip {strip.Tranche.TrancheName}, which takes all the interest left after the coupons. The " +
+                "turbo would have nothing to pay the notes with. Pay the strip from EXCESS_RELEASE, after " +
+                "the turbo, and take it out of INTEREST.");
 
         // The step pays through the recovery structure as the period's rules leave it, so a
         // structure of its own would be ignored.
