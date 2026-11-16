@@ -277,6 +277,7 @@ public class ComposableStructure : BaseStructure
                 }
                 else
                 {
+                    RefuseNotesOffThePoolAtTheStart(deal, dynGroup, periodOpening, adjPeriodCf.CashflowDate);
                     adjPeriodCf.FeeBasis = periodOpening;
                     if (notesSettle > DateTime.MinValue && notesSettle < adjPeriodCf.CashflowDate)
                         adjPeriodCf.PeriodYears30360 = thirty360.YearFraction(notesSettle, adjPeriodCf.CashflowDate);
@@ -1038,6 +1039,63 @@ public class ComposableStructure : BaseStructure
             throw new DealModelingException(deal.DealName,
                 "EXCESS_TURBO with a target of zero runs ahead of a WRITEDOWN sized periodLoss. The loss " +
                 "excess paid as principal would be written down as well. Size the write-down overPool.");
+    }
+
+    /// <summary>
+    ///     The share of the pool the notes and the pool may differ by when the run starts, on a deal
+    ///     that states either loss field. Inside it, a stored balance a dollar off the pool is a
+    ///     rounding, not a structure.
+    /// </summary>
+    internal const double StartTieShare = 0.001;
+
+    /// <summary>
+    ///     A zero-target turbo and an overPool write-down measure the notes against the pool, so
+    ///     what the notes and the pool stand apart by when the run starts has to be a structure,
+    ///     not a mismatch:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             Notes over the pool never are: the gap would be written down in the first period
+    ///             as a loss.
+    ///         </item>
+    ///         <item>
+    ///             Notes under the pool are overcollateralization when a certificate holds it (the
+    ///             engine opens the certificate at the pool less the notes, and losses take it
+    ///             first). With no certificate the gap belongs to no class: a deal whose notes were
+    ///             sized to one pool, run on a larger one, and the gap would absorb losses before
+    ///             the excess covers them.
+    ///         </item>
+    ///     </list>
+    ///     Which classes are the notes, and which pool this run is given, are known here and nowhere
+    ///     earlier, so this is where it is checked: once per group, as the first period opens.
+    ///     Refused, not resized: there is no third write-down size (graam-harmony#6199 Q6).
+    /// </summary>
+    private static void RefuseNotesOffThePoolAtTheStart(IDeal deal, DynamicGroup dynGroup, double poolOpening,
+        DateTime date)
+    {
+        if (!StatesALossField(deal) || poolOpening <= 0)
+            return;
+        var notes = dynGroup.Balance();
+        var gap = notes - poolOpening;
+        if (Math.Abs(gap) <= StartTieShare * poolOpening)
+            return;
+        var certificateHoldsTheGap = gap < 0 && dynGroup.DynamicClasses.Any(dc =>
+            dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate);
+        if (certificateHoldsTheGap)
+            return;
+        var fields = deal.WritedownSize == WritedownSize.OverPool && deal.ExcessTurboToPool
+            ? "A write-down sized overPool and a turbo target of zero measure"
+            : deal.ExcessTurboToPool
+                ? "A turbo target of zero measures"
+                : "A write-down sized overPool measures";
+        throw new DealModelingException(deal.DealName,
+            $"{fields} the notes against the pool, and they do not start level: on {date:MM/dd/yyyy} " +
+            $"the notes ({notes:N2}) stand {Math.Abs(gap):N2} {(gap > 0 ? "over" : "under")} the pool " +
+            $"({poolOpening:N2}), more than {StartTieShare:P1} of it. " +
+            (gap > 0
+                ? "The gap would be written down in the first period as a loss. "
+                : "The deal has no certificate to hold it as overcollateralization, so it would " +
+                  "absorb losses before the excess covers them. ") +
+            "Run the deal on the pool its notes were sized to, or send it without these fields.");
     }
 
     /// <summary>

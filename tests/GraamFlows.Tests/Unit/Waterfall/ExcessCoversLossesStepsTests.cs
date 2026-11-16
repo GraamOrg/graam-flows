@@ -865,20 +865,83 @@ public class ExcessCoversLossesStepsTests
     public void Principal_left_over_once_the_notes_have_retired_does_not_stop_the_run(string? size, double? target)
     {
         // Notes of 5,000,000 on a pool of 100,000,000 retire inside the run. The principal
-        // collected after that has no note to pay, and that is not a loss.
+        // collected after that has no note to pay, and that is not a loss. The 95,000,000 between
+        // them is overcollateralization a certificate holds: notes under the pool with no
+        // certificate are refused before the run starts.
         var request = Steps(MixedLosses(), size, target, OrderFor(size, target));
         request.Deal.Tranches.Single(t => t.TrancheName == "A1").OriginalBalance = 3_000_000;
         request.Deal.Tranches.Single(t => t.TrancheName == "B1").OriginalBalance = 2_000_000;
+        request.Deal.Tranches.Add(Certificate());
         request.ReportCashLedger = true;
         var r = Run(request);
 
         NotesAt(r, 5).Should().Be(0, "the fixture: the notes have retired");
-        r.CashLedger!.LeftPrincipal.Should().BeGreaterThan(1_000_000, "the fixture: principal is left over");
+        var toTheCertificate = r.TrancheCashflows["CE"].Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
+        (r.CashLedger!.LeftPrincipal + toTheCertificate).Should().BeGreaterThan(1_000_000,
+            "the fixture: principal is collected after the notes retire, left over or paid to the certificate");
         // Sized overPool, notes that stand under the pool are never written down. (Sized by the
         // period's loss they take each loss, with or without a target, as on main.)
         if (size == "overPool")
             foreach (var name in new[] { "A1", "B1" })
                 r.TrancheCashflows[name].Sum(c => c.Writedown).Should().BeApproximately(0, 0.01, name);
+    }
+
+    // ---- The notes and the pool start level (graam-harmony#6199, round 5 of #6229) -------------
+
+    /// <summary>The deal with its senior class moved by <paramref name="by" />: the pool is unchanged.</summary>
+    private static Func<string?, double?, WaterfallRequest> SeniorMovedBy(double by, bool certificate = false) =>
+        (sz, tg) =>
+        {
+            var request = Steps(MixedLosses(), sz, tg, OrderFor(sz, tg));
+            request.Deal.Tranches.Single(t => t.TrancheName == "A1").OriginalBalance = A1Balance + by;
+            if (certificate)
+                request.Deal.Tranches.Add(Certificate());
+            return request;
+        };
+
+    [Theory]
+    [MemberData(nameof(FieldsStated))]
+    public void Notes_that_start_over_the_pool_are_refused(string? size, double? target)
+    {
+        // 3,000,000 over a 100,000,000 pool: an overPool write-down would write it down in the
+        // first period as a loss.
+        RefusedWithTheFieldsAndRunsWithout(SeniorMovedBy(3_000_000), size, target,
+            "stand 3,000,000.00 over the pool (100,000,000.00), more than 0.1% of it");
+        Refusal(SeniorMovedBy(3_000_000, certificate: true)(size, target))
+            .Should().Contain("written down in the first period", "a certificate holds no gap over the pool");
+    }
+
+    [Theory]
+    [MemberData(nameof(FieldsStated))]
+    public void Notes_that_start_under_the_pool_with_no_certificate_are_refused(string? size, double? target)
+    {
+        // A deal whose notes were sized to a 97,000,000 pool, run on 100,000,000: the gap belongs
+        // to no class, and would absorb losses before the excess covers them.
+        RefusedWithTheFieldsAndRunsWithout(SeniorMovedBy(-3_000_000), size, target,
+            "stand 3,000,000.00 under the pool (100,000,000.00), more than 0.1% of it. The deal has no certificate");
+    }
+
+    [Theory]
+    [MemberData(nameof(FieldsStated))]
+    public void Notes_under_the_pool_held_by_a_certificate_run(string? size, double? target)
+    {
+        // The same gap, held by a certificate, is overcollateralization (CertificateOpeningBalanceTests).
+        Try(SeniorMovedBy(-3_000_000, certificate: true)(size, target)).Refused.Should().BeNull();
+    }
+
+    [Theory]
+    [MemberData(nameof(FieldsStated))]
+    public void A_gap_inside_a_tenth_of_a_percent_of_the_pool_runs(string? size, double? target)
+    {
+        foreach (var by in new[] { 99_000.0, -99_000.0, 1.0, -1.0 })
+            Try(SeniorMovedBy(by)(size, target)).Refused.Should().BeNull($"notes {by:N0} off the pool");
+    }
+
+    [Fact]
+    public void A_deal_that_states_neither_field_is_not_checked_for_the_tie()
+    {
+        Try(SeniorMovedBy(3_000_000)(null, null)).Refused.Should().BeNull();
+        Try(SeniorMovedBy(-3_000_000)(null, null)).Refused.Should().BeNull();
     }
 
     [Fact]
@@ -1461,6 +1524,21 @@ public class ExcessCoversLossesStepsTests
         CouponType = "Fixed",
         FixedCoupon = NoteCoupon,
         SubordinationOrder = subOrder,
+        FirstPayDate = FirstPayDate,
+        PayFrequency = 12,
+        PayDay = FirstPayDate.Day
+    };
+
+    /// <summary>A certificate sent with no balance: the engine opens it at the pool less the notes.</summary>
+    private static TrancheDto Certificate() => new()
+    {
+        TrancheName = "CE",
+        OriginalBalance = 0,
+        TrancheType = "Certificate",
+        CashflowType = "PI",
+        CouponType = "None",
+        FixedCoupon = 0.0,
+        SubordinationOrder = 9,
         FirstPayDate = FirstPayDate,
         PayFrequency = 12,
         PayDay = FirstPayDate.Day
