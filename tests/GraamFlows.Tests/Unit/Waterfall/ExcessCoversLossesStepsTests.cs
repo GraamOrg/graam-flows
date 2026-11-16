@@ -1307,6 +1307,11 @@ public class ExcessCoversLossesStepsTests
         deal.OcTargetConfig.Should().BeNull("a zero target is not an OC target: nothing is released");
         deal.WritesUp.Should().BeFalse("the deal names no WRITEUP");
         Build(reader, WriteUpSteps(MixedLosses()).Deal).WritesUp.Should().BeTrue("the deal names WRITEUP");
+
+        // Review round 4: the CLI reader's writtenDown line was held by no test (Q13).
+        var started = StartsWrittenDown(WriteUpSteps(MixedLosses())).Deal;
+        Build(reader, started).Tranches.Single(t => t.TrancheName == "B1").WrittenDown
+            .Should().Be(1_000_000, "every reader carries the write-downs a class starts the run with");
     }
 
     [Theory]
