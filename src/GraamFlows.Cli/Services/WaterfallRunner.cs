@@ -387,6 +387,7 @@ public class WaterfallRunner
             dto.UnifiedWaterfall?.InterestDiversion, deal.ReinvestmentConfig, dto.DealName);
         deal.WritedownSize = LossStepsMapper.MapWritedownSize(dto.UnifiedWaterfall, dto.DealName);
         deal.ExcessTurboToPool = LossStepsMapper.MapExcessTurboToPool(dto.UnifiedWaterfall, dto.DealName);
+        deal.WritesUp = LossStepsMapper.MapWritesUp(dto.UnifiedWaterfall, dto.DealName);
 
         // Build scheduled variables
         if (dto.ScheduledVariables != null && dto.ScheduledVariables.Any())

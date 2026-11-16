@@ -133,6 +133,15 @@ public interface IDeal : IPayRuleAssemblyStore
     bool ExcessTurboToPool { get; }
 
     /// <summary>
+    /// The deal names a WRITEUP step (graam-harmony#6199 D7): after an overPool WRITEDOWN, the notes
+    /// written down earlier are written back up, most senior first, by what the pool stands above
+    /// them, up to what each was written down. With it, a zero-target EXCESS_TURBO also pays back
+    /// those write-downs out of excess: it pays the notes down to the pool less what is still
+    /// written down, and the write-up restores the classes by the same amount. False unless stated.
+    /// </summary>
+    bool WritesUp { get; }
+
+    /// <summary>
     /// Classes whose unpaid interest is paid from principal proceeds after
     /// <see cref="ExpensesFromPrincipal" />, ahead of the notes' principal, senior first (optional;
     /// empty: unpaid interest is carried to the next Payment Date, as before). A Deferrable Note's

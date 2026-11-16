@@ -695,6 +695,11 @@ public class DynamicClass : IPayable
         cashflow.Balance = Balance;
         cashflow.CumWritedown = CumWritedown;
         Cashflows[adjDate] = cashflow;
+
+        // The write-down reached the class's tranches (AllocateWritedownToTranches), and the
+        // results report them, so the write-up has to reach them too: each is restored in
+        // proportion to what it was written down (graam-harmony#6199 D7).
+        AllocateWriteupToTranches(cashflowDate, writeupAmt);
         return cashflow;
     }
 
@@ -787,6 +792,31 @@ public class DynamicClass : IPayable
     /// Allocates writedowns to child tranches proportionally based on balance.
     /// This eliminates the need for TrancheAllocator.AllocatePrincipal for writedown distribution.
     /// </summary>
+    private void AllocateWriteupToTranches(DateTime cfDate, double writeupAmt)
+    {
+        if (DynamicTranches == null || !DynamicTranches.Any())
+            return; // DynamicTranche has null DynamicTranches, so no recursion
+
+        var written = DynamicTranches.Sum(dt => Math.Max(dt.CumWritedown, 0));
+        foreach (var dynTran in DynamicTranches)
+        {
+            double allocPct;
+            if (written < 0.01)
+            {
+                if (Math.Abs(Tranche.OriginalBalance) < double.Epsilon)
+                    continue;
+                allocPct = dynTran.Tranche.OriginalBalance / Tranche.OriginalBalance;
+            }
+            else
+            {
+                allocPct = Math.Max(dynTran.CumWritedown, 0) / written;
+            }
+
+            if (writeupAmt * allocPct > 0)
+                dynTran.Writeup(cfDate, Math.Min(writeupAmt * allocPct, dynTran.CumWritedown));
+        }
+    }
+
     private void AllocateWritedownToTranches(DateTime cfDate, double writedownAmt, double beginBal)
     {
         if (DynamicTranches == null || !DynamicTranches.Any())

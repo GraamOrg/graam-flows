@@ -517,6 +517,7 @@ public class WaterfallController : ControllerBase
         deal.WriteNotesDownToPool = dto.UnifiedWaterfall?.WriteNotesDownToPool ?? false;
         deal.WritedownSize = LossStepsMapper.MapWritedownSize(dto.UnifiedWaterfall, dto.DealName);
         deal.ExcessTurboToPool = LossStepsMapper.MapExcessTurboToPool(dto.UnifiedWaterfall, dto.DealName);
+        deal.WritesUp = LossStepsMapper.MapWritesUp(dto.UnifiedWaterfall, dto.DealName);
         deal.PrincipalAfterNotes = ExpensesAfterInterestMapper.MapPrincipalAfterNotes(
             dto.UnifiedWaterfall?.PrincipalAfterNotes, deal.ExpensesAfterInterest,
             deal.Tranches.Select(t => t.TrancheName), dto.DealName);
