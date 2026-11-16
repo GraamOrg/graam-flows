@@ -2,6 +2,7 @@ using FluentAssertions;
 using GraamFlows.Objects.DataObjects;
 using GraamFlows.Tests.Fixtures;
 using GraamFlows.Tests.Helpers;
+using GraamFlows.Util;
 using Xunit;
 
 namespace GraamFlows.Tests.Unit.Waterfall;
@@ -306,6 +307,44 @@ public class CertificateOpeningBalanceTests
         }
 
         return (b.Build(), ends);
+    }
+
+    // ---- WRITEUP built without the request mapper (graam-harmony#6199 D7) -------------------------
+
+    private static readonly string[] WriteUpOrder =
+    {
+        "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN", "WRITEUP"
+    };
+
+    [Fact]
+    public void A_certificate_heading_the_write_down_is_passed_by_WRITEUP()
+    {
+        var (pool, _) = PoolWithLosses(i => i == 0 ? 25_000_000 : 0);
+        var act = () => CertificateFirstInTheWritedownOrder(80_000_000)
+            .WithWritedownSize(WritedownSize.OverPool).WithWritesUp().WithExecutionOrder(WriteUpOrder)
+            .BuildAndRun(pool);
+        act.Should().NotThrow("the certificate is not a note: the write-up passes it by");
+    }
+
+    [Fact]
+    public void An_order_naming_WRITEUP_on_a_deal_that_does_not_state_it_is_refused()
+    {
+        var (pool, _) = PoolWithLosses(_ => 0);
+        var act = () => CertificateFirstInTheWritedownOrder(80_000_000)
+            .WithWritedownSize(WritedownSize.OverPool).WithExecutionOrder(WriteUpOrder)
+            .BuildAndRun(pool);
+        act.Should().Throw<DealModelingException>().WithMessage("*names WRITEUP but the deal does not state it*");
+    }
+
+    [Fact]
+    public void WRITEUP_on_a_deal_with_pseudo_classes_is_refused()
+    {
+        var (pool, _) = PoolWithLosses(_ => 0);
+        var act = () => CertificateFirstInTheWritedownOrder(80_000_000)
+            .WithWritedownSize(WritedownSize.OverPool).WithWritesUp().WithExecutionOrder(WriteUpOrder)
+            .WithPseudoClass("AP", "A")
+            .BuildAndRun(pool);
+        act.Should().Throw<DealModelingException>().WithMessage("*WRITEUP and pseudo classes*");
     }
 
     private static TestDealBuilder CertificateFirstInTheWritedownOrder(double notes) => new TestDealBuilder()

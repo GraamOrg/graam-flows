@@ -33,6 +33,7 @@ public class TestDealBuilder
     private IReadOnlyList<string>? _expensesFromPrincipal;
     private bool _writeNotesDownToPool;
     private WritedownSize _writedownSize = WritedownSize.PeriodLoss;
+    private bool _writesUp;
     private bool _excessTurboToPool;
     private PrincipalAfterNotesConfig? _principalAfterNotes;
     private IReadOnlyList<DeferrableNoteConfig>? _deferrableNotes;
@@ -594,6 +595,13 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>The deal states a WRITEUP step (graam-harmony#6199 D7).</summary>
+    public TestDealBuilder WithWritesUp()
+    {
+        _writesUp = true;
+        return this;
+    }
+
     public TestDealBuilder WithExpensesAfterInterest(params string[] names)
     {
         _expensesAfterInterest = names;
@@ -765,6 +773,7 @@ public class TestDealBuilder
         _deal.WriteNotesDownToPool = _writeNotesDownToPool;
         _deal.WritedownSize = _writedownSize;
         _deal.ExcessTurboToPool = _excessTurboToPool;
+        _deal.WritesUp = _writesUp;
         if (_principalAfterNotes != null)
             _deal.PrincipalAfterNotes = _principalAfterNotes;
         if (_deferrableNotes != null)

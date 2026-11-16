@@ -1305,6 +1305,8 @@ public class ExcessCoversLossesStepsTests
         deal.WritedownSize.Should().Be(WritedownSize.OverPool);
         deal.ExcessTurboToPool.Should().BeTrue();
         deal.OcTargetConfig.Should().BeNull("a zero target is not an OC target: nothing is released");
+        deal.WritesUp.Should().BeFalse("the deal names no WRITEUP");
+        Build(reader, WriteUpSteps(MixedLosses()).Deal).WritesUp.Should().BeTrue("the deal names WRITEUP");
     }
 
     [Theory]
@@ -1718,7 +1720,7 @@ public class ExcessCoversLossesStepsTests
             CouponType = "Fixed", FixedCoupon = 1.0, NotionalReference = "A1", SubordinationOrder = 3,
             FirstPayDate = FirstPayDate, PayFrequency = 12, PayDay = FirstPayDate.Day
         });
-        Refusal(request).Should().Contain("WRITEUP and classes written down with the notes they are cut from (A1X)");
+        Refusal(request).Should().Contain("WRITEUP and classes cut from A1 (A1X)");
     }
 
     [Fact]
@@ -1730,11 +1732,145 @@ public class ExcessCoversLossesStepsTests
         var proRata = new PayableStructureDto { Type = "PRORATA", Tranches = new List<string> { "B1", "A1" } };
         var request = WriteUpSteps(pool);
         request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure = proRata;
-        Refusal(request).Should().Contain("a write-down structure that takes classes pro rata (B1, A1)");
+        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
 
         var without = Steps(pool);
         without.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure = proRata;
         Try(without).Refused.Should().BeNull("the same deal without WRITEUP");
+    }
+
+    // ---- The write-up's order is the write-down structure, reversed (review round 2) ---------------
+
+    private static WaterfallStepDto Writedown(WaterfallRequest request) =>
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN");
+
+    [Fact]
+    public void A_shifting_interest_write_down_is_refused_with_WRITEUP()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        Writedown(request).Structure = new PayableStructureDto
+        {
+            Type = "SHIFTI", ShiftPercent = 0.5, Seniors = Single("A1"), Subordinates = Single("B1")
+        };
+        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
+    }
+
+    [Fact]
+    public void A_pro_rata_node_with_one_child_reads_as_that_child()
+    {
+        // Over-refusal in round 2: a PRORATA wrapping one SEQ writes down sequentially.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var wrapped = WriteUpSteps(pool);
+        Writedown(wrapped).Structure = new PayableStructureDto
+        {
+            Type = "PRORATA", Children = new List<PayableStructureDto> { Seq("B1", "A1") }
+        };
+        var r = Run(wrapped);
+        var plain = Run(WriteUpSteps(pool));
+        for (var i = 0; i < 6; i++)
+            r.TrancheCashflows["B1"][i].Writedown.Should().BeApproximately(plain.TrancheCashflows["B1"][i].Writedown, 0.01,
+                $"period {i + 1}");
+    }
+
+    [Fact]
+    public void Deal_structures_ranked_against_the_write_down_do_not_change_the_write_up_order()
+    {
+        // Round 2: the write-up read DealStructure.SubordinationOrder. Ranked B1 above A1 here, it
+        // restored B1 first; the write-down (B1, then A1) says A1 is restored first.
+        var pool = Collateral(defaulted: i => i == 0 ? 70_000_000 : 0, recoveryRate: 0.5);
+        var request = WriteUpSteps(pool);
+        request.Deal.DealStructures = new List<DealStructureDto>
+        {
+            new() { ClassGroupName = "A1", SubordinationOrder = 1, PayFrom = "Sequential", GroupNum = "1" },
+            new() { ClassGroupName = "B1", SubordinationOrder = 0, PayFrom = "Sequential", GroupNum = "1" },
+            new() { ClassGroupName = "XS", SubordinationOrder = 2, PayFrom = "Sequential", GroupNum = "1" }
+        };
+        var r = Run(request);
+
+        CumWrittenDown(r, "A1", 0).Should().BeGreaterThan(1_000_000, "the fixture: A1 is written down too");
+        var a1Owed = CumWrittenDown(r, "A1", 0);
+        for (var i = 1; i < pool.Count; i++)
+        {
+            if (-r.TrancheCashflows["B1"][i].Writedown > 0.01)
+                a1Owed.Should().BeApproximately(0, 0.01, $"period {i + 1}: B1 is written up only once A1 is whole");
+            a1Owed -= Math.Max(-r.TrancheCashflows["A1"][i].Writedown, 0);
+        }
+
+        (CumWrittenDown(r, "A1", 0) - a1Owed).Should().BeGreaterThan(0, "the fixture: A1 is written back up");
+    }
+
+    [Fact]
+    public void A_note_sharing_its_class_with_another_tranche_is_refused_with_WRITEUP()
+    {
+        // Round 2: an IO tranche in B1's class was written down with B1 and never written back up.
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "B1IO", OriginalBalance = B1Balance, TrancheType = "Offered", CashflowType = "IO",
+            CouponType = "Fixed", FixedCoupon = 1.0, ClassReference = "B1", SubordinationOrder = 4,
+            FirstPayDate = FirstPayDate, PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        Refusal(request).Should().Contain("WRITEUP and B1, a class of more than one tranche");
+    }
+
+    [Fact]
+    public void A_rule_that_switches_the_write_down_to_pro_rata_mid_run_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5));
+        request.Deal.PayRules = new List<PayRuleDto>
+        {
+            new()
+            {
+                RuleName = "SwitchWritedown", ClassGroupName = "GROUP_1", Priority = 1000,
+                Formula = "if (BALANCE('B1') < 29999000) SET_WRITEDOWN_STRUCT(PRORATA(SINGLE('B1'), SINGLE('A1')))"
+            }
+        };
+        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
+    }
+
+    [Fact]
+    public void A_written_down_note_the_structure_stops_naming_stops_the_run()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5));
+        request.Deal.PayRules = new List<PayRuleDto>
+        {
+            new()
+            {
+                RuleName = "DropB1", ClassGroupName = "GROUP_1", Priority = 1000,
+                Formula = "if (BALANCE('B1') < 29999000) SET_WRITEDOWN_STRUCT(SEQ(SINGLE('A1')))"
+            }
+        };
+        Refusal(request).Should().Contain("B1 stands written down by").And
+            .Contain("the write-down structure in force does not name it");
+    }
+
+    [Fact]
+    public void A_write_down_structure_naming_a_class_twice_is_refused_with_WRITEUP()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        Writedown(request).Structure = Seq("B1", "A1", "B1");
+        Refusal(request).Should().Contain("The write-down structure names B1 twice");
+    }
+
+    [Fact]
+    public void A_zero_balance_residual_heading_the_write_down_is_passed_by()
+    {
+        // How harmony's non-QM builder writes it: a zero-balance Class R first in the write-down
+        // order. It is not a note, an overPool write-down never takes it, and the write-up passes it.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var request = WriteUpSteps(pool);
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "R", OriginalBalance = 0, TrancheType = "Offered", CashflowType = "PI",
+            CouponType = "Residual", FixedCoupon = 0.0, SubordinationOrder = 9, FirstPayDate = FirstPayDate,
+            PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        Writedown(request).Structure = Seq("R", "B1", "A1");
+        var r = Run(request);
+        var plain = Run(WriteUpSteps(pool));
+        for (var i = 0; i < 6; i++)
+            r.TrancheCashflows["B1"][i].CumWritedown.Should().BeApproximately(plain.TrancheCashflows["B1"][i].CumWritedown,
+                0.01, $"period {i + 1}");
     }
 
     // ---- Write-downs taken before the run starts (graam-harmony#6199 Q13) -------------------------
