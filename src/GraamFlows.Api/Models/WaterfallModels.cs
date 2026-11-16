@@ -402,6 +402,13 @@ public class TrancheDto
     [System.Text.Json.Serialization.JsonConverter(typeof(NullableDoubleAsZeroConverter))]
     public double OriginalBalance { get; set; }
     public double Factor { get; set; } = 1.0;
+
+    /// <summary>
+    /// What the class had been written down by, and not yet written back up, at the projection
+    /// date: the class's unreimbursed Applied Realized Loss Amount on the trustee report. Only a
+    /// deal that names WRITEUP reads it (graam-harmony#6199 Q13).
+    /// </summary>
+    public double? WrittenDown { get; set; }
     public string CouponType { get; set; } = "Fixed"; // Fixed, Floating, TrancheWac, None, ResidualInterest
     public double? FixedCoupon { get; set; }
     public double? FloaterSpread { get; set; }

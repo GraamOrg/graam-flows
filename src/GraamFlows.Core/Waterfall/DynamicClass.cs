@@ -26,6 +26,9 @@ public class DynamicClass : IPayable
         Tranche = tranche;
         DealStructure = Tranche.GetDealStructure();
         SetBalance(tranche.OriginalBalance * tranche.Factor);
+        // Write-downs taken before the run starts (graam-harmony#6199 Q13). Checked against the
+        // deal's WRITEUP and the class's balance in ComposableStructure.ValidateStartWrittenDown.
+        CumWritedown = tranche.WrittenDown;
     }
 
     public DynamicGroup DynamicGroup { get; }
@@ -695,6 +698,11 @@ public class DynamicClass : IPayable
         cashflow.Balance = Balance;
         cashflow.CumWritedown = CumWritedown;
         Cashflows[adjDate] = cashflow;
+
+        // The write-down reached the class's tranches (AllocateWritedownToTranches), and the
+        // results report them, so the write-up has to reach them too: each is restored in
+        // proportion to what it was written down (graam-harmony#6199 D7).
+        AllocateWriteupToTranches(cashflowDate, writeupAmt);
         return cashflow;
     }
 
@@ -781,6 +789,29 @@ public class DynamicClass : IPayable
         AllocateWritedownToTranches(cashflowDate, totalWritedown, beginBal);
 
         return cashflow;
+    }
+
+    /// <summary>
+    /// Allocates a write-up to child tranches in proportion to what each was written down, so the
+    /// write-up reverses the write-down's allocation (graam-harmony#6199 D7).
+    /// </summary>
+    private void AllocateWriteupToTranches(DateTime cfDate, double writeupAmt)
+    {
+        if (DynamicTranches == null || !DynamicTranches.Any())
+            return; // DynamicTranche has null DynamicTranches, so no recursion
+
+        var written = DynamicTranches.Sum(dt => Math.Max(dt.CumWritedown, 0));
+        if (written + .01 < writeupAmt)
+            throw new DealModelingException(Tranche.DealName,
+                $"Class {Tranche.TrancheName} is written up by {writeupAmt:#,##0.00} and its tranches were " +
+                $"written down by {written:#,##0.00}: the class and its tranches are out of sync.");
+
+        foreach (var dynTran in DynamicTranches)
+        {
+            var share = Math.Max(dynTran.CumWritedown, 0) / written;
+            if (writeupAmt * share > 0)
+                dynTran.Writeup(cfDate, Math.Min(writeupAmt * share, dynTran.CumWritedown));
+        }
     }
 
     /// <summary>

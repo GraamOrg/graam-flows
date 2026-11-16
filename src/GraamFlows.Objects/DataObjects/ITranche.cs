@@ -32,6 +32,13 @@ public interface ITranche
     double Cap { get; }
     double Floor { get; }
     double Factor { get; set; }
+
+    /// <summary>
+    /// What the class had been written down by, and not yet written back up, when the run starts
+    /// (graam-harmony#6199 Q13): a run from a trustee date carries the write-downs taken before it,
+    /// so WRITEUP and the turbo's pay-back can restore them. Zero unless the request states it.
+    /// </summary>
+    double WrittenDown => 0;
     double FixedCoupon { get; }
     string TrancheType { get; }
     string ClassReference { get; }

@@ -1007,7 +1007,7 @@ public class ExcessCoversLossesStepsTests
         cases.Should().OnlyHaveUniqueItems();
         cases.Should().Equal(listed, "a step the switch runs states its effect in the table, and the table " +
                                      "lists no step the switch does not run");
-        listed.Should().HaveCount(13);
+        listed.Should().HaveCount(14, "WRITEUP is the fourteenth (graam-harmony#6199 D7)");
     }
 
     [Fact]
@@ -1305,6 +1305,13 @@ public class ExcessCoversLossesStepsTests
         deal.WritedownSize.Should().Be(WritedownSize.OverPool);
         deal.ExcessTurboToPool.Should().BeTrue();
         deal.OcTargetConfig.Should().BeNull("a zero target is not an OC target: nothing is released");
+        deal.WritesUp.Should().BeFalse("the deal names no WRITEUP");
+        Build(reader, WriteUpSteps(MixedLosses()).Deal).WritesUp.Should().BeTrue("the deal names WRITEUP");
+
+        // Review round 4: the CLI reader's writtenDown line was held by no test (Q13).
+        var started = StartsWrittenDown(WriteUpSteps(MixedLosses())).Deal;
+        Build(reader, started).Tranches.Single(t => t.TrancheName == "B1").WrittenDown
+            .Should().Be(1_000_000, "every reader carries the write-downs a class starts the run with");
     }
 
     [Theory]
@@ -1514,6 +1521,464 @@ public class ExcessCoversLossesStepsTests
     }
 
 
+
+    // ---- Paying back earlier write-downs (graam-harmony#6199 D7) ---------------------------------
+
+    /// <summary>The steps with WRITEUP after WRITEDOWN: the documents' cumulative item.</summary>
+    private static WaterfallRequest WriteUpSteps(List<PeriodCashflowDto> pool, List<string>? order = null)
+    {
+        var request = Steps(pool, order: order ?? new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "EXCESS_TURBO",
+            "WRITEDOWN", "WRITEUP", "EXCESS_RELEASE"
+        });
+        request.Deal.UnifiedWaterfall!.Steps.Add(new WaterfallStepDto { Type = "WRITEUP" });
+        return request;
+    }
+
+    private static double CumWrittenDown(WaterfallResponse r, string name, int i) =>
+        r.TrancheCashflows[name][i].CumWritedown;
+
+    [Fact]
+    public void A_write_down_is_paid_back_out_of_later_excess_before_the_strip_is_paid()
+    {
+        // One loss in period 1, more than that period's excess; no loss after it.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var r = Run(WriteUpSteps(pool));
+
+        var loss = pool[0].DefaultedPrincipal - pool[0].RecoveryPrincipal;
+        var excess0 = Excess(pool[0], r, 0);
+        excess0.Should().BeLessThan(loss, "the fixture: the loss is more than the period's excess");
+        CumWrittenDown(r, "B1", 0).Should().BeApproximately(loss - excess0, 0.01, "only the remainder is written down");
+        r.TrancheCashflows["XS"][0].Interest.Should().BeApproximately(0, 0.01);
+
+        var restoredAt = -1;
+        for (var i = 1; i < pool.Count; i++)
+        {
+            var owed = CumWrittenDown(r, "B1", i - 1);
+            var excess = Excess(pool[i], r, i);
+            var paidBack = Math.Min(owed, excess);
+            (owed - CumWrittenDown(r, "B1", i)).Should().BeApproximately(paidBack, 0.01,
+                $"period {i + 1}: the excess pays back what is still written down");
+            r.TrancheCashflows["XS"][i].Interest.Should().BeApproximately(excess - paidBack, 0.01,
+                $"period {i + 1}: the strip is paid only what is left once the write-down is paid back");
+            NotesAt(r, i).Should().BeApproximately(pool[i].Balance, 0.01, $"period {i + 1}: the notes end at the pool");
+            if (restoredAt < 0 && CumWrittenDown(r, "B1", i) < 0.01)
+                restoredAt = i;
+        }
+
+        restoredAt.Should().BeGreaterThan(1, "the fixture: paying it back takes more than one period");
+        r.TrancheCashflows["XS"][restoredAt + 1].Interest.Should().BeApproximately(
+            Excess(pool[restoredAt + 1], r, restoredAt + 1), 0.01, "once whole, the strip takes the whole excess");
+    }
+
+    [Fact]
+    public void Without_WRITEUP_the_strip_takes_the_excess_from_the_period_after_the_write_down()
+    {
+        // Today's steps (D1 to D3), for the contrast: nothing is paid back.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var r = Run(Steps(pool));
+
+        var written = CumWrittenDown(r, "B1", 0);
+        written.Should().BeGreaterThan(100_000, "the fixture: period 1 writes B1 down");
+        for (var i = 1; i < 6; i++)
+        {
+            CumWrittenDown(r, "B1", i).Should().BeApproximately(written, 0.01, $"period {i + 1}");
+            r.TrancheCashflows["XS"][i].Interest.Should().BeApproximately(Excess(pool[i], r, i), 0.01,
+                $"period {i + 1}");
+        }
+    }
+
+    [Fact]
+    public void The_write_up_restores_the_most_senior_class_first()
+    {
+        // A 35,000,000 loss in period 1 writes B1 (30,000,000) off and A1 down by the rest less the
+        // excess; the excess after that writes A1 back up before B1.
+        var pool = Collateral(defaulted: i => i == 0 ? 70_000_000 : 0, recoveryRate: 0.5);
+        var r = Run(WriteUpSteps(pool));
+
+        CumWrittenDown(r, "B1", 0).Should().BeApproximately(B1Balance, 0.01);
+        CumWrittenDown(r, "A1", 0).Should().BeGreaterThan(1_000_000, "the fixture: A1 is written down too");
+        var a1Owed = CumWrittenDown(r, "A1", 0);
+        for (var i = 1; i < pool.Count; i++)
+        {
+            // A write-up shows as a negative write-down in its period. (A class written off to zero
+            // reports a cumulative write-down of 0 on its later rows, so its own column is read.)
+            var a1Up = -r.TrancheCashflows["A1"][i].Writedown;
+            var b1Up = -r.TrancheCashflows["B1"][i].Writedown;
+            if (b1Up > 0.01)
+                a1Owed.Should().BeApproximately(0, 0.01, $"period {i + 1}: B1 is written up only once A1 is whole");
+            a1Owed -= Math.Max(a1Up, 0);
+            NotesAt(r, i).Should().BeApproximately(pool[i].Balance, 0.01, $"period {i + 1}");
+        }
+
+        (CumWrittenDown(r, "A1", 0) - CumWrittenDown(r, "A1", pool.Count - 1)).Should().BeGreaterThan(0,
+            "the fixture: A1 is written back up inside the run");
+    }
+
+    [Fact]
+    public void A_recovery_that_comes_after_its_loss_was_written_down_writes_the_class_back_up()
+    {
+        // Period 1 defaults 2,000,000 with nothing recovered; period 3 recovers 800,000 with no
+        // default. Paid as principal, the recovery takes the notes under the pool; the write-up
+        // restores the class the loss was written off, so the notes end at the pool.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0,
+            recovery: i => i == 2 ? 800_000 : 0);
+        var steps = Run(WriteUpSteps(pool));
+        var without = Run(Steps(pool));
+
+        (CumWrittenDown(steps, "B1", 1) - CumWrittenDown(steps, "B1", 2)).Should().BeGreaterThan(800_000 - 0.01,
+            "period 3: the recovery and the excess both go to writing B1 back up");
+        NotesAt(steps, 2).Should().BeApproximately(pool[2].Balance, 0.01);
+        (pool[2].Balance - NotesAt(without, 2)).Should().BeApproximately(800_000, 0.01,
+            "without WRITEUP the notes stand under the pool by the recovery");
+    }
+
+    [Fact]
+    public void WRITEUP_needs_an_overPool_write_down()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Size = null;
+        request.Deal.UnifiedWaterfall.Steps.Single(s => s.Type == "EXCESS_TURBO").Target = null;
+        Refusal(request).Should().Contain("which only a WRITEDOWN sized overPool measures");
+    }
+
+    [Fact]
+    public void WRITEUP_runs_after_WRITEDOWN()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5), new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "EXCESS_TURBO",
+            "WRITEUP", "WRITEDOWN", "EXCESS_RELEASE"
+        });
+        Refusal(request).Should().Contain("WRITEUP runs ahead of WRITEDOWN");
+    }
+
+    [Fact]
+    public void A_step_that_pays_the_notes_after_WRITEUP_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5), new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN",
+            "WRITEUP", "EXCESS_TURBO", "EXCESS_RELEASE"
+        });
+        Refusal(request).Should().Contain("EXCESS_TURBO");
+    }
+
+    [Fact]
+    public void WRITEUP_named_twice_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5), new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "EXCESS_TURBO",
+            "WRITEDOWN", "WRITEUP", "WRITEUP", "EXCESS_RELEASE"
+        });
+        Refusal(request).Should().Contain("WRITEUP is named 2 times");
+    }
+
+    [Fact]
+    public void A_WRITEUP_step_the_order_leaves_out_is_refused()
+    {
+        var request = Steps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        request.Deal.UnifiedWaterfall!.Steps.Add(new WaterfallStepDto { Type = "WRITEUP" });
+        Refusal(request).Should().Contain("the execution order has no WRITEUP");
+    }
+
+    [Fact]
+    public void A_WRITEUP_step_with_a_structure_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEUP").Structure = Seq("A1", "B1");
+        Refusal(request).Should().Contain("WRITEUP states a structure or a field");
+    }
+
+    [Fact]
+    public void WRITEUP_with_no_WRITEDOWN_in_the_order_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5), new List<string>
+        {
+            "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "EXCESS_TURBO",
+            "WRITEUP", "EXCESS_RELEASE"
+        });
+        Refusal(request).Should().Contain("names WRITEUP and no WRITEDOWN");
+    }
+
+    [Fact]
+    public void WRITEUP_beside_an_OC_target_is_refused()
+    {
+        // The pool standing above the notes is the overcollateralization the target builds.
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        Turbo(request).Target = null;
+        Turbo(request).OcTarget = new OcTargetDto { TargetPct = 0.02 };
+        Refusal(request).Should().Contain("an OC target together with WRITEUP");
+    }
+
+    [Fact]
+    public void A_class_cut_from_a_note_follows_it_through_the_write_down_and_the_write_up()
+    {
+        // Round 3: a notional IO cut from B1 tracks B1's balance, written down and back up alike.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var request = WriteUpSteps(pool);
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "B1X", OriginalBalance = B1Balance, TrancheType = "Offered", CashflowType = "IO",
+            CouponType = "Fixed", FixedCoupon = 1.0, NotionalReference = "B1", SubordinationOrder = 3,
+            FirstPayDate = FirstPayDate, PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        var r = Run(request);
+
+        CumWrittenDown(r, "B1", 0).Should().BeGreaterThan(100_000, "the fixture: B1 is written down");
+        (-r.TrancheCashflows["B1"][1].Writedown).Should().BeGreaterThan(100_000, "the fixture: B1 is written up");
+        for (var i = 0; i < 6; i++)
+            r.TrancheCashflows["B1X"][i].Balance.Should().BeApproximately(r.TrancheCashflows["B1"][i].Balance, 0.01,
+                $"period {i + 1}: the cut class follows the note");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_zero_target_turbo_with_the_strip_inside_INTEREST_is_refused(bool writesUp)
+    {
+        // Round 3: the strip inside INTEREST took the whole excess, the turbo had nothing to pay the
+        // notes with, and the bonds stayed written down while the strip was paid.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var request = writesUp ? WriteUpSteps(pool) : Steps(pool);
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "INTEREST").Structure = Seq("A1", "B1", "XS");
+        Refusal(request).Should().Contain("the INTEREST structure pays the excess-spread strip XS");
+    }
+
+    [Fact]
+    public void WRITEUP_with_a_pro_rata_write_down_is_refused_and_the_same_deal_runs_without_it()
+    {
+        // Classes written down together are restored together in the documents; one after another
+        // is an order no document states.
+        var pool = Collateral(defaulted: _ => 0, recoveryRate: 0.5);
+        var proRata = new PayableStructureDto { Type = "PRORATA", Tranches = new List<string> { "B1", "A1" } };
+        var request = WriteUpSteps(pool);
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure = proRata;
+        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
+
+        var without = Steps(pool);
+        without.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure = proRata;
+        Try(without).Refused.Should().BeNull("the same deal without WRITEUP");
+    }
+
+    // ---- The write-up's order is the write-down structure, reversed (review round 2) ---------------
+
+    private static WaterfallStepDto Writedown(WaterfallRequest request) =>
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN");
+
+    [Fact]
+    public void A_shifting_interest_write_down_is_refused_with_WRITEUP()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        Writedown(request).Structure = new PayableStructureDto
+        {
+            Type = "SHIFTI", ShiftPercent = 0.5, Seniors = Single("A1"), Subordinates = Single("B1")
+        };
+        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
+    }
+
+    [Fact]
+    public void A_pro_rata_node_with_one_child_reads_as_that_child()
+    {
+        // Over-refusal in round 2: a PRORATA wrapping one SEQ writes down sequentially.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var wrapped = WriteUpSteps(pool);
+        Writedown(wrapped).Structure = new PayableStructureDto
+        {
+            Type = "PRORATA", Children = new List<PayableStructureDto> { Seq("B1", "A1") }
+        };
+        var r = Run(wrapped);
+        var plain = Run(WriteUpSteps(pool));
+        for (var i = 0; i < 6; i++)
+            r.TrancheCashflows["B1"][i].Writedown.Should().BeApproximately(plain.TrancheCashflows["B1"][i].Writedown, 0.01,
+                $"period {i + 1}");
+    }
+
+    [Fact]
+    public void Deal_structures_ranked_against_the_write_down_do_not_change_the_write_up_order()
+    {
+        // Round 2: the write-up read DealStructure.SubordinationOrder. Ranked B1 above A1 here, it
+        // restored B1 first; the write-down (B1, then A1) says A1 is restored first.
+        var pool = Collateral(defaulted: i => i == 0 ? 70_000_000 : 0, recoveryRate: 0.5);
+        var request = WriteUpSteps(pool);
+        request.Deal.DealStructures = new List<DealStructureDto>
+        {
+            new() { ClassGroupName = "A1", SubordinationOrder = 1, PayFrom = "Sequential", GroupNum = "1" },
+            new() { ClassGroupName = "B1", SubordinationOrder = 0, PayFrom = "Sequential", GroupNum = "1" },
+            new() { ClassGroupName = "XS", SubordinationOrder = 2, PayFrom = "Sequential", GroupNum = "1" }
+        };
+        var r = Run(request);
+
+        CumWrittenDown(r, "A1", 0).Should().BeGreaterThan(1_000_000, "the fixture: A1 is written down too");
+        var a1Owed = CumWrittenDown(r, "A1", 0);
+        for (var i = 1; i < pool.Count; i++)
+        {
+            if (-r.TrancheCashflows["B1"][i].Writedown > 0.01)
+                a1Owed.Should().BeApproximately(0, 0.01, $"period {i + 1}: B1 is written up only once A1 is whole");
+            a1Owed -= Math.Max(-r.TrancheCashflows["A1"][i].Writedown, 0);
+        }
+
+        (CumWrittenDown(r, "A1", 0) - a1Owed).Should().BeGreaterThan(0, "the fixture: A1 is written back up");
+    }
+
+    [Fact]
+    public void A_note_sharing_its_class_with_another_tranche_is_refused_with_WRITEUP()
+    {
+        // Round 2: an IO tranche in B1's class was written down with B1 and never written back up.
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "B1IO", OriginalBalance = B1Balance, TrancheType = "Offered", CashflowType = "IO",
+            CouponType = "Fixed", FixedCoupon = 1.0, ClassReference = "B1", SubordinationOrder = 4,
+            FirstPayDate = FirstPayDate, PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        Refusal(request).Should().Contain("WRITEUP and B1, a class of more than one tranche");
+    }
+
+    [Fact]
+    public void A_rule_that_switches_the_write_down_to_pro_rata_mid_run_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5));
+        request.Deal.PayRules = new List<PayRuleDto>
+        {
+            new()
+            {
+                RuleName = "SwitchWritedown", ClassGroupName = "GROUP_1", Priority = 1000,
+                Formula = "if (BALANCE('B1') < 29999000) SET_WRITEDOWN_STRUCT(PRORATA(SINGLE('B1'), SINGLE('A1')))"
+            }
+        };
+        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
+    }
+
+    [Fact]
+    public void A_written_down_note_the_structure_stops_naming_stops_the_run()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5));
+        request.Deal.PayRules = new List<PayRuleDto>
+        {
+            new()
+            {
+                RuleName = "DropB1", ClassGroupName = "GROUP_1", Priority = 1000,
+                Formula = "if (BALANCE('B1') < 29999000) SET_WRITEDOWN_STRUCT(SEQ(SINGLE('A1')))"
+            }
+        };
+        Refusal(request).Should().Contain("B1 stands written down by").And
+            .Contain("the write-down structure in force does not name it");
+    }
+
+    [Fact]
+    public void A_write_down_structure_naming_a_class_twice_is_refused_with_WRITEUP()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        Writedown(request).Structure = Seq("B1", "A1", "B1");
+        Refusal(request).Should().Contain("The write-down structure names B1 twice");
+    }
+
+    [Fact]
+    public void A_zero_balance_residual_heading_the_write_down_is_passed_by()
+    {
+        // How harmony's non-QM builder writes it: a zero-balance Class R first in the write-down
+        // order. It is not a note, an overPool write-down never takes it, and the write-up passes it.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5);
+        var request = WriteUpSteps(pool);
+        request.Deal.Tranches.Add(new TrancheDto
+        {
+            TrancheName = "R", OriginalBalance = 0, TrancheType = "Offered", CashflowType = "PI",
+            CouponType = "Residual", FixedCoupon = 0.0, SubordinationOrder = 9, FirstPayDate = FirstPayDate,
+            PayFrequency = 12, PayDay = FirstPayDate.Day
+        });
+        Writedown(request).Structure = Seq("R", "B1", "A1");
+        var r = Run(request);
+        var plain = Run(WriteUpSteps(pool));
+        for (var i = 0; i < 6; i++)
+            r.TrancheCashflows["B1"][i].CumWritedown.Should().BeApproximately(plain.TrancheCashflows["B1"][i].CumWritedown,
+                0.01, $"period {i + 1}");
+    }
+
+    // ---- Write-downs taken before the run starts (graam-harmony#6199 Q13) -------------------------
+
+    /// <summary>
+    /// A run from a trustee date: B1 was issued at 31,000,000 and stands at 30,000,000 after a
+    /// 1,000,000 write-down not yet written back up. The notes tie to the 100,000,000 pool.
+    /// </summary>
+    private static WaterfallRequest StartsWrittenDown(WaterfallRequest request, double? writtenDown = 1_000_000)
+    {
+        var b1 = request.Deal.Tranches.Single(t => t.TrancheName == "B1");
+        b1.OriginalBalance = 31_000_000;
+        b1.Factor = 30_000_000.0 / 31_000_000;
+        b1.WrittenDown = writtenDown;
+        return request;
+    }
+
+    [Fact]
+    public void A_write_down_taken_before_the_run_starts_is_paid_back_out_of_excess()
+    {
+        var pool = Collateral(defaulted: _ => 0, recoveryRate: 0.5);
+        var r = Run(StartsWrittenDown(WriteUpSteps(pool)));
+
+        var owed = 1_000_000.0;
+        var whole = -1;
+        for (var i = 0; i < pool.Count; i++)
+        {
+            var excess = Excess(pool[i], r, i);
+            var paidBack = Math.Min(owed, excess);
+            (-r.TrancheCashflows["B1"][i].Writedown).Should().BeApproximately(paidBack, 0.01,
+                $"period {i + 1}: the excess pays back the write-down the class started with");
+            r.TrancheCashflows["XS"][i].Interest.Should().BeApproximately(excess - paidBack, 0.01, $"period {i + 1}");
+            NotesAt(r, i).Should().BeApproximately(pool[i].Balance, 0.01, $"period {i + 1}: the notes end at the pool");
+            owed -= paidBack;
+            if (whole < 0 && owed < 0.01)
+                whole = i;
+        }
+
+        whole.Should().BeGreaterThan(0, "the fixture: paying it back takes more than one period");
+        r.TrancheCashflows["B1"].Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal).Should().Be(0,
+            "the fixture: the junior class is paid no principal while A1 is outstanding");
+        r.TrancheCashflows["B1"][pool.Count - 1].Balance.Should().BeApproximately(31_000_000, 0.01,
+            "the class is restored to its issued balance");
+    }
+
+    [Fact]
+    public void Sent_without_writtenDown_the_same_run_pays_the_excess_to_the_strip()
+    {
+        var pool = Collateral(defaulted: _ => 0, recoveryRate: 0.5);
+        var r = Run(StartsWrittenDown(WriteUpSteps(pool), writtenDown: null));
+        for (var i = 0; i < 6; i++)
+            r.TrancheCashflows["XS"][i].Interest.Should().BeApproximately(Excess(pool[i], r, i), 0.01, $"period {i + 1}");
+    }
+
+    [Fact]
+    public void WrittenDown_on_a_deal_with_no_WRITEUP_is_refused()
+    {
+        var request = StartsWrittenDown(Steps(Collateral(defaulted: _ => 0, recoveryRate: 0.5)));
+        Refusal(request).Should().Contain("B1 states writtenDown 1,000,000.00 on a deal with no WRITEUP step");
+    }
+
+    [Fact]
+    public void WrittenDown_beyond_what_the_class_no_longer_has_is_refused()
+    {
+        var request = StartsWrittenDown(WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5)),
+            writtenDown: 1_500_000);
+        Refusal(request).Should().Contain("more than it no longer has: its original balance less its balance at " +
+                                          "the start is 1,000,000.00");
+    }
+
+    [Fact]
+    public void WrittenDown_on_a_class_that_is_not_a_note_is_refused()
+    {
+        var request = WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5));
+        request.Deal.Tranches.Single(t => t.TrancheName == "XS").WrittenDown = 1_000;
+        Refusal(request).Should().Contain("XS states writtenDown 1,000.00 and the engine does not count it as a note");
+    }
+
+    [Fact]
+    public void A_negative_writtenDown_is_refused()
+    {
+        var request = StartsWrittenDown(WriteUpSteps(Collateral(defaulted: _ => 0, recoveryRate: 0.5)), writtenDown: -5);
+        Refusal(request).Should().Contain("B1 states writtenDown -5");
+    }
 
     // ---- What the turbo spends, and what stops it ----------------------------------------------
 

@@ -63,6 +63,25 @@ public static class LossStepsMapper
         return true;
     }
 
+    /// <summary>
+    ///     Whether the deal names a WRITEUP step, in its steps or its execution order. The step takes
+    ///     no structure and no field: it writes the written-down notes back up, in the reverse of the write-down.
+    /// </summary>
+    public static bool MapWritesUp(UnifiedWaterfallDto? waterfall, string? dealName)
+    {
+        var steps = waterfall?.Steps ?? new List<WaterfallStepDto>();
+        foreach (var step in steps.Where(s => IsType(s, "WRITEUP")))
+            if (step.Structure != null || step.Default != null || step.Rules is { Count: > 0 } ||
+                step.UseStructure != null || step.OnTriggerFail != null || step.Size != null ||
+                step.Target != null || step.OcTarget != null)
+                throw new ArgumentException(
+                    $"Deal {dealName}: WRITEUP states a structure or a field. It takes neither: it writes the " +
+                    "notes written down earlier back up, in the reverse of the write-down, by what the pool stands above them.");
+        return steps.Any(s => IsType(s, "WRITEUP")) ||
+               (waterfall?.ExecutionOrder ?? new List<string>()).Any(s =>
+                   s.Equals("WRITEUP", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static WritedownSize Parse(string? size, string? dealName)
     {
         if (size == null || size.Equals(PeriodLoss, StringComparison.OrdinalIgnoreCase))

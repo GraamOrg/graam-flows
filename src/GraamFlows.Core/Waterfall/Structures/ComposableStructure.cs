@@ -277,6 +277,8 @@ public class ComposableStructure : BaseStructure
                 }
                 else
                 {
+                    // Once per group, before its first period moves a balance.
+                    ValidateStartWrittenDown(deal, dynGroup);
                     adjPeriodCf.FeeBasis = periodOpening;
                     if (notesSettle > DateTime.MinValue && notesSettle < adjPeriodCf.CashflowDate)
                         adjPeriodCf.PeriodYears30360 = thirty360.YearFraction(notesSettle, adjPeriodCf.CashflowDate);
@@ -696,6 +698,12 @@ public class ComposableStructure : BaseStructure
         /// <summary>Writes the notes down.</summary>
         WritesNotesDown,
 
+        /// <summary>
+        ///     Writes the notes written down earlier back up to the pool. It needs an overPool
+        ///     WRITEDOWN ahead of it, which already closes the order to steps that pay the notes.
+        /// </summary>
+        WritesNotesUp,
+
         /// <summary>Pays out all the interest left.</summary>
         PaysOutInterestLeft,
 
@@ -724,6 +732,7 @@ public class ComposableStructure : BaseStructure
             ["MODIFICATION_LOSS"] = StepEffect.PaysNotesFromCollections,
             ["EXCESS_TURBO"] = StepEffect.PaysNotesFromExcess,
             ["WRITEDOWN"] = StepEffect.WritesNotesDown,
+            ["WRITEUP"] = StepEffect.WritesNotesUp,
             ["EXCESS"] = StepEffect.PaysOutInterestLeft,
             ["EXCESS_RELEASE"] = StepEffect.PaysOutInterestLeft,
             ["EXPENSE"] = StepEffect.NeverPaysNotesPrincipal,
@@ -760,6 +769,12 @@ public class ComposableStructure : BaseStructure
     private static void ValidateLossSteps(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
     {
         var overPool = deal.WritedownSize == WritedownSize.OverPool;
+        if (!deal.WritesUp && executionOrder.Any(s => s.Equals("WRITEUP", StringComparison.OrdinalIgnoreCase)))
+            throw new DealModelingException(deal.DealName,
+                "The execution order names WRITEUP but the deal does not state it, so it was never checked. " +
+                "Build the deal through the loss-step mapper, which reads WRITEUP off the steps and the order.");
+        if (deal.WritesUp)
+            ValidateWriteUp(deal, dynGroup, executionOrder);
         if (!overPool && !deal.ExcessTurboToPool)
             return;
 
@@ -1003,6 +1018,158 @@ public class ComposableStructure : BaseStructure
             "this one and that its structure reaches a class with a balance.");
     }
 
+    /// <summary>
+    ///     What a WRITEUP step needs (graam-harmony#6199 D7). It measures the notes against the pool
+    ///     the way an overPool write-down does, and restores only notes that write-down took, so it
+    ///     needs that write-down, after it in the order. The structure it restores is checked by
+    ///     <see cref="WriteUpOrder" />.
+    /// </summary>
+    private static void ValidateWriteUp(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
+    {
+        int IndexOf(string name) => executionOrder.FindIndex(s =>
+            string.Equals(s, name, StringComparison.OrdinalIgnoreCase));
+
+        if (deal.WritedownSize != WritedownSize.OverPool)
+            throw new DealModelingException(deal.DealName,
+                "WRITEUP writes the notes back up by what the pool stands above them, which only a " +
+                "WRITEDOWN sized overPool measures. Size the write-down overPool.");
+
+        var writeUpIndex = IndexOf("WRITEUP");
+        if (writeUpIndex < 0)
+            throw new DealModelingException(deal.DealName,
+                "The deal states a WRITEUP step but the execution order has no WRITEUP, so nothing written " +
+                "down would ever be written back up. Add WRITEUP to executionOrder, after WRITEDOWN.");
+
+        var writedownIndex = IndexOf("WRITEDOWN");
+        if (writedownIndex < 0)
+            throw new DealModelingException(deal.DealName,
+                "The execution order names WRITEUP and no WRITEDOWN. WRITEUP restores what an overPool " +
+                "WRITEDOWN took. Add WRITEDOWN ahead of WRITEUP.");
+        if (writedownIndex > writeUpIndex)
+            throw new DealModelingException(deal.DealName,
+                "WRITEUP runs ahead of WRITEDOWN. It writes the notes back up to the pool once they have been " +
+                "paid and written down. Move WRITEUP after WRITEDOWN.");
+
+        if (deal.OcTargetConfig != null)
+            throw new DealModelingException(deal.DealName,
+                NotSupportedWithLossFields(deal) + "an OC target together with WRITEUP. The pool standing " +
+                "above the notes is the overcollateralization the target builds, not a write-down to restore.");
+
+        WriteUpOrder(deal, dynGroup, null);
+    }
+
+    /// <summary>
+    ///     The notes WRITEUP restores, in the order it restores them: the write-down structure in force,
+    ///     reversed (graam-harmony#6199 D7). It is the one source of the write-up's seniority, read each
+    ///     time the step runs, since a pay rule can change the write-down structure.
+    ///     <para>
+    ///         Only a structure whose reverse is the documents' order is accepted: a sequence of single
+    ///         classes (a pro-rata node with one child counts as that child), each note one tranche
+    ///         with nothing sharing its class. A class cut from a note (an exchange class, a notional
+    ///         IO) follows the note's balance through the write-down and the write-up alike. Classes that are not notes are passed by:
+    ///         an overPool write-down never takes one. Anything else writes classes
+    ///         down together or writes down something the write-up would not restore, and is refused,
+    ///         not listed; it is widened when a deal needs it. Harmony's non-QM builder writes this
+    ///         shape. A note still written down that the structure no longer names stops the run.
+    ///     </para>
+    /// </summary>
+    private static List<DynamicClass> WriteUpOrder(IDeal deal, DynamicGroup dynGroup, DateTime? on)
+    {
+        var when = on.HasValue ? $" on {on:MM/dd/yyyy}" : "";
+
+        static List<DynamicClass>? Sequence(IPayable node) => node switch
+        {
+            DynamicClass dc => new List<DynamicClass> { dc },
+            SequentialStructure => node.GetChildren().Select(Sequence)
+                .Aggregate((List<DynamicClass>?)new List<DynamicClass>(),
+                    (all, part) => all == null || part == null ? null : all.Concat(part).ToList()),
+            ProrataStructure when node.GetChildren().Count == 1 => Sequence(node.GetChildren()[0]),
+            _ => null
+        };
+
+        var structure = dynGroup.WritedownPayable;
+        var sequence = structure == null ? null : Sequence(structure);
+        if (sequence == null)
+            throw new DealModelingException(deal.DealName,
+                NotSupportedWithLossFields(deal) + "WRITEUP and a write-down structure that is not a sequence " +
+                $"of single classes{when} ({structure?.GetType().Name ?? "none"}). WRITEUP restores the " +
+                "classes in the reverse of the write-down, which only a sequence states. State the write-down " +
+                "as a SEQ of SINGLE classes.");
+
+        var duplicate = sequence.GroupBy(dc => dc).FirstOrDefault(g => g.Count() > 1)?.Key;
+        if (duplicate != null)
+            throw new DealModelingException(deal.DealName,
+                $"The write-down structure names {duplicate.Tranche.TrancheName} twice{when}. WRITEUP restores " +
+                "the classes in the reverse of the write-down; name each once.");
+
+        if (deal.DealStructurePseudo is { Count: > 0 })
+            throw new DealModelingException(deal.DealName,
+                NotSupportedWithLossFields(deal) + "WRITEUP and pseudo classes. A pseudo class is written down " +
+                "with its members and the write-up would leave it written down.");
+
+        // A class that is not a note may head the structure (a certificate, a zero-balance residual):
+        // an overPool write-down never takes it (PayOverPoolWritedown stops the run if it does), so
+        // there is nothing to restore and the write-up passes it by.
+        sequence = sequence.Where(dc => dynGroup.DealClasses?.Contains(dc) == true).ToList();
+        var named = sequence.ToHashSet();
+        foreach (var dc in sequence)
+        {
+            var name = dc.Tranche.TrancheName;
+            var tranches = dc.DynamicTranches?.Select(dt => dt.Tranche.TrancheName).ToList() ?? new List<string>();
+            if (tranches.Count > 1)
+                throw new DealModelingException(deal.DealName,
+                    NotSupportedWithLossFields(deal) + $"WRITEUP and {name}, a class of more than one tranche " +
+                    $"({string.Join(", ", tranches)}){when}. The write-down reaches each tranche and the write-up " +
+                    "is stated for one note.");
+        }
+
+        var stranded = dynGroup.DealClasses?.FirstOrDefault(dc => dc.CumWritedown > 0.005 && !named.Contains(dc));
+        if (stranded != null)
+            throw new DealModelingException(deal.DealName,
+                $"{stranded.Tranche.TrancheName} stands written down by {stranded.CumWritedown:#,##0.00}{when} and the " +
+                "write-down structure in force does not name it, so WRITEUP could never restore it. Name every " +
+                "written-down note in the write-down structure.");
+
+        sequence.Reverse();
+        return sequence;
+    }
+
+    /// <summary>
+    ///     A class sent with <c>writtenDown</c> (graam-harmony#6199 Q13): what it had been written down
+    ///     by, and not yet written back up, when the run starts. Only WRITEUP and the turbo's pay-back
+    ///     read it, and only for a note, so it is refused anywhere else rather than carried unread.
+    ///     A class cannot have lost more than it no longer has: the field is at most its original
+    ///     balance less its balance at the start. Checked once per group, as its first period opens,
+    ///     since every later period has moved the balances.
+    /// </summary>
+    private static void ValidateStartWrittenDown(IDeal deal, DynamicGroup dynGroup)
+    {
+        foreach (var dc in dynGroup.DynamicClasses)
+        {
+            var written = dc.Tranche.WrittenDown;
+            if (written == 0)
+                continue;
+            var name = dc.Tranche.TrancheName;
+            if (double.IsNaN(written) || double.IsInfinity(written) || written < 0)
+                throw new DealModelingException(deal.DealName,
+                    $"{name} states writtenDown {written}. It is what the class had been written down by and " +
+                    "not yet written back up when the run starts: zero or more.");
+            if (!deal.WritesUp)
+                throw new DealModelingException(deal.DealName,
+                    $"{name} states writtenDown {written:#,##0.00} on a deal with no WRITEUP step. Only WRITEUP " +
+                    "and the turbo's pay-back read it; add WRITEUP or leave the field out.");
+            if (dynGroup.DealClasses?.Contains(dc) != true)
+                throw new DealModelingException(deal.DealName,
+                    $"{name} states writtenDown {written:#,##0.00} and the engine does not count it as a note. " +
+                    "WRITEUP writes notes back up; a class that is not one is never written up.");
+            var lost = dc.Tranche.OriginalBalance - dc.Balance;
+            if (written > lost + PaymentCheckUnit)
+                throw new DealModelingException(deal.DealName,
+                    $"{name} states writtenDown {written:#,##0.00}, more than it no longer has: its original " +
+                    $"balance less its balance at the start is {lost:#,##0.00}.");
+        }
+    }
+
     /// <summary>What a zero-target EXCESS_TURBO needs besides its position.</summary>
     private static void ValidateTurboToPool(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
     {
@@ -1022,6 +1189,18 @@ public class ComposableStructure : BaseStructure
                 "EXCESS_TURBO states a target of zero but the execution order has no EXCESS_TURBO step, " +
                 "so excess would never pay the notes down. Add EXCESS_TURBO to executionOrder, ahead of " +
                 "WRITEDOWN.");
+
+        // The strip inside INTEREST takes all the interest left after the coupons, so the turbo,
+        // which pays out of what INTEREST left, would have nothing to pay the notes with: the loss
+        // (and, with WRITEUP, the earlier write-downs) would stay on the bonds while the strip is
+        // paid. The strip is paid by EXCESS_RELEASE, after the turbo (graam-harmony#6199 D3).
+        var strip = dynGroup.InterestPayable?.Leafs().OfType<DynamicClass>().FirstOrDefault(dc => dc.IsExcessInterest);
+        if (strip != null)
+            throw new DealModelingException(deal.DealName,
+                $"EXCESS_TURBO states a target of zero and the INTEREST structure pays the excess-spread " +
+                $"strip {strip.Tranche.TrancheName}, which takes all the interest left after the coupons. The " +
+                "turbo would have nothing to pay the notes with. Pay the strip from EXCESS_RELEASE, after " +
+                "the turbo, and take it out of INTEREST.");
 
         // The step pays through the recovery structure as the period's rules leave it, so a
         // structure of its own would be ignored.
@@ -1049,6 +1228,35 @@ public class ComposableStructure : BaseStructure
     {
         var overPool = dynGroup.Balance() - periodCf.Balance;
         return overPool > 0.005 ? overPool : 0;
+    }
+
+    /// <summary>What the notes have been written down by and not yet written back up.</summary>
+    private static double WrittenDown(DynamicGroup dynGroup) =>
+        dynGroup.DealClasses?.Sum(dc => Math.Max(dc.CumWritedown, 0)) ?? 0;
+
+    /// <summary>
+    ///     WRITEUP (graam-harmony#6199 D7): writes the notes written down earlier back up, in the reverse
+    ///     of the write-down structure in force (<see cref="WriteUpOrder" />), by what the pool stands
+    ///     above them, each up to what it was written down. Run after
+    ///     an overPool WRITEDOWN, it leaves the notes level with the pool whenever enough has come in
+    ///     to restore them: principal paid out of excess by the turbo, or a recovery paid as principal
+    ///     after the loss was written down.
+    /// </summary>
+    private static void WriteNotesUpToPool(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf)
+    {
+        var order = WriteUpOrder(deal, dynGroup, periodCf.CashflowDate);
+        var amount = Math.Min(WrittenDown(dynGroup), periodCf.Balance - dynGroup.Balance());
+        if (amount <= 0.005)
+            return;
+
+        foreach (var dc in order.Where(dc => dc.CumWritedown > 0.005))
+        {
+            var up = Math.Min(amount, dc.CumWritedown);
+            dc.Writeup(periodCf.CashflowDate, up);
+            amount -= up;
+            if (amount <= 0.005)
+                break;
+        }
     }
 
     /// <summary>
@@ -1281,6 +1489,10 @@ public class ComposableStructure : BaseStructure
                         PayWritedownStep(dynGroup, adjPeriodCf, cfAlloc.Writedown, excessSpreadFirstLoss);
                     }
 
+                    break;
+
+                case "WRITEUP":
+                    WriteNotesUpToPool(deal, dynGroup, adjPeriodCf);
                     break;
 
                 case "MODIFICATION_LOSS":
@@ -2883,7 +3095,11 @@ public class ComposableStructure : BaseStructure
         double availableInterest)
     {
         var payable = dynGroup.RecoveryPayable;
-        var amount = Math.Min(availableInterest, NotesOverPool(dynGroup, periodCf));
+        // With WRITEUP the turbo also pays back what is still written down: it pays the notes down to
+        // the pool less those write-downs, and WRITEUP restores the classes by the same amount, so
+        // the notes end level with the pool (graam-harmony#6199 D7).
+        var downTo = periodCf.Balance - (deal.WritesUp ? WrittenDown(dynGroup) : 0.0);
+        var amount = Math.Min(availableInterest, Math.Max(dynGroup.Balance() - downTo, 0));
         if (amount <= 0.005 || payable == null)
             return availableInterest;
 
