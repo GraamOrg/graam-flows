@@ -522,8 +522,8 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     ///     notes, and <see cref="UpdateCertificateBalance" /> sets it at the END of each period.
     ///     Nothing set it at the start of the first one. A certificate is usually sent with no
     ///     balance, and then it ran its first period at zero: a release structure had nothing to
-    ///     pay into, so on a deal already above its OC target that period's release reached no
-    ///     one; a write-down order that starts with the certificate found no balance there to take
+    ///     pay into, so that period's release was not paid by its step (since #161 it is paid to
+    ///     the certificate at the end of the period); a write-down order that starts with the certificate found no balance there to take
     ///     the period's loss; and a credit-enhancement trigger read the classes above it as having
     ///     none. A certificate that stands at zero when a period opens is now opened at the
     ///     pool's opening balance less the notes. One sent with a balance keeps it, as before.
@@ -532,7 +532,8 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     /// </summary>
     public void OpenCertificateBalance(double poolOpeningBalance)
     {
-        var openingOc = Math.Max(0, poolOpeningBalance - Balance());
+        // Under 0.01, SetBalance holds the class at zero: notes over the pool open it at zero.
+        var openingOc = poolOpeningBalance - Balance();
         foreach (var certClass in DynamicClasses.Where(dc =>
                      dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate))
         {
@@ -565,7 +566,7 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
             // was created with: a payment or a write-down creates it with the balance from before
             // it, and created here it takes the balance the period is closing from. Stamping it
             // here with the current balance, as this did, wrote the balance AFTER the period's
-            // payments, so a certificate's begin balance read as its end balance.
+            // payments to the certificate, not the balance the period opened on.
             var cf = certClass.GetCashflow(cashflowDate);
 
             // The balance is set, and nothing is booked as paid. A fall in it is not cash: it is

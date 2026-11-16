@@ -11,11 +11,12 @@ namespace GraamFlows.Tests.Unit.Waterfall;
 /// at the end of every period and never at the start of the first, so the certificate ran its first
 /// period on whatever balance its tranche was sent with.
 ///
-/// Sent with zero, as a certificate usually is, a release structure had no balance to pay into: on
-/// a deal already above its OC target, the first period's release reached no one and showed nowhere
-/// in the output. A certificate sent with no balance now opens at the pool less the notes; one sent
-/// with a balance keeps it for the first period, as before. And in every period the row's begin
-/// balance was written after the period's payments, so it read as the end balance.
+/// Sent with zero, as a certificate usually is, it ran its first period at zero: the release
+/// structure had no balance to pay into (the release is now paid to it at the end of the period,
+/// since #161, but not by its step), a write-down order headed by it found nothing there, and the
+/// first period's triggers read it as zero. A certificate sent with no balance now opens at the pool
+/// less the notes; one sent with any balance keeps it, as before. And in every period the row's
+/// begin balance was written after the period's payments to the certificate.
 /// </summary>
 public class CertificateOpeningBalanceTests
 {
@@ -290,40 +291,94 @@ public class CertificateOpeningBalanceTests
         cf.CashLedger.LeftPrincipal.Should().BeApproximately(0, 0.01);
     }
 
-    [Fact]
-    public void Notes_written_down_to_the_pool_with_the_certificate_first_end_the_first_period_at_the_pool()
+    /// <summary>A pool of 100M paying 2M a month, with the losses given by month.</summary>
+    private static (CollateralCashflows Pool, List<double> Ends) PoolWithLosses(Func<int, double> loss, int months = 4)
     {
-        // The second review's second finding: writeNotesDownToPool, and the certificate heading
-        // the write-down order. The pool loses 1M in month 1. The certificate opens with the 20M
-        // of OC and takes the loss; the notes are not over the pool, so nothing writes them down.
         var b = new TestCollateralBuilder().WithGroupNum("1");
         var bal = 100_000_000.0;
         var ends = new List<double>();
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < months; i++)
         {
-            var loss = i == 0 ? 1_000_000.0 : 0.0;
             b.WithPeriod(date: FirstPay.AddMonths(i), beginBalance: bal, scheduledPrincipal: 2_000_000,
-                unscheduledPrincipal: 0, interest: 750_000, defaultedPrincipal: loss);
-            bal -= 2_000_000 + loss;
+                unscheduledPrincipal: 0, interest: 750_000, defaultedPrincipal: loss(i));
+            bal -= 2_000_000 + loss(i);
             ends.Add(bal);
         }
 
-        var cf = new TestDealBuilder()
-            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
-            .WithCertificateTranche()
-            .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A')))")
-            .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A')))")
-            .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A')))")
-            .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A')))")
-            .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('Certificates'), SINGLE('A')))")
+        return (b.Build(), ends);
+    }
+
+    private static TestDealBuilder CertificateFirstInTheWritedownOrder(double notes) => new TestDealBuilder()
+        .WithTranche("A", notes, 5.0, subOrder: 0)
+        .WithCertificateTranche()
+        .WithPayRule("InterestStruct", "SET_INTEREST_STRUCT(SEQ(SINGLE('A')))")
+        .WithPayRule("SchedStruct", "SET_SCHED_STRUCT(SEQ(SINGLE('A')))")
+        .WithPayRule("PrepayStruct", "SET_PREPAY_STRUCT(SEQ(SINGLE('A')))")
+        .WithPayRule("RecovStruct", "SET_RECOV_STRUCT(SEQ(SINGLE('A')))")
+        .WithPayRule("WritedownStruct", "SET_WRITEDOWN_STRUCT(SEQ(SINGLE('Certificates'), SINGLE('A')))");
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void Notes_written_down_to_the_pool_end_every_period_at_the_pool_with_the_certificate_first(int lossMonth)
+    {
+        // The second review's second finding, with a loss larger than the overcollateralization:
+        // 99M of notes on a 100M pool lose 3M, which leaves them 2M over the pool. The
+        // certificate holds nothing then, so the write-down to the pool is the note's. Opened at
+        // 1M (in the first month) or carried at its last balance (later), the certificate took 1M
+        // of it and the note ended the month 1M over the pool, catching up a month late.
+        var (pool, ends) = PoolWithLosses(i => i == lossMonth ? 3_000_000 : 0);
+        var cf = CertificateFirstInTheWritedownOrder(99_000_000)
             .WithNotesWrittenDownToPool()
+            .WithExecutionOrder("INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY")
+            .BuildAndRun(pool).Cashflows;
+
+        for (var i = 0; i < ends.Count; i++)
+            Notes(cf)[i].Balance.Should().BeApproximately(Math.Min(ends[i], 99_000_000 - 2_000_000 * (i + 1)), 0.01,
+                $"period {i + 1}: the notes end at the pool");
+        Notes(cf)[lossMonth].Writedown.Should().BeApproximately(2_000_000, 0.01, "the 2M the notes stand over the pool");
+        Certificate(cf)[lossMonth].Balance.Should().BeApproximately(0, 0.01);
+    }
+
+    [Fact]
+    public void An_overPool_writedown_with_the_certificate_first_writes_the_note_down_from_the_first_month()
+    {
+        // The third review's F3: a 25M loss in the first month on 20M of overcollateralization.
+        // The certificate, opened at 20M, holds nothing once the notes stand 5M over the pool, so
+        // it takes nothing and the write-down is not refused for writing down a class that is not a note.
+        var (pool, ends) = PoolWithLosses(i => i == 0 ? 25_000_000 : 0);
+        var cf = CertificateFirstInTheWritedownOrder(80_000_000)
+            .WithWritedownSize(WritedownSize.OverPool)
             .WithExecutionOrder("INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
                 "WRITEDOWN")
-            .BuildAndRun(b.Build()).Cashflows;
+            .BuildAndRun(pool).Cashflows;
 
-        for (var i = 0; i < 3; i++)
-            Notes(cf)[i].Balance.Should().BeLessThanOrEqualTo(ends[i] + 0.01, $"period {i + 1}: the notes are not over the pool");
-        Notes(cf)[0].Writedown.Should().BeApproximately(0, 0.01, "the certificate takes the loss");
-        Certificate(cf)[0].Balance.Should().BeApproximately(19_000_000, 0.01);
+        Notes(cf)[0].Writedown.Should().BeApproximately(5_000_000, 0.01);
+        Notes(cf)[0].Balance.Should().BeApproximately(ends[0], 0.01, "the note ends at the pool");
+    }
+
+    [Fact]
+    public void A_certificate_sent_with_any_balance_keeps_it_however_small()
+    {
+        // Only a certificate at zero (under a cent) is opened from the pool. One sent with half a
+        // dollar keeps it, so its first release is paid at the end of the period, as on main.
+        var cert = Certificate(Run(certificateSentWith: 0.50));
+        cert[0].BeginBalance.Should().BeApproximately(0.50, 0.001);
+    }
+
+    [Fact]
+    public void Every_certificate_class_opens_at_the_overcollateralization()
+    {
+        // A stated limit: with two certificate classes each opens at the full OC, as each already
+        // closes at it at the end of every period. Pinned so a change to it is a decision.
+        var cf = new TestDealBuilder()
+            .WithTranche("A", 80_000_000, 5.0, subOrder: 0)
+            .WithCertificateTranche("C1", subOrder: 98)
+            .WithCertificateTranche("C2", subOrder: 99)
+            .WithSequentialWaterfall("A")
+            .BuildAndRun(Pool()).Cashflows;
+        foreach (var name in new[] { "C1", "C2" })
+            cf.ClassCashflows.First(c => c.Key.TrancheName == name).Value.Cashflows
+                .OrderBy(c => c.Key).First().Value.BeginBalance.Should().BeApproximately(20_000_000, 0.01, name);
     }
 }

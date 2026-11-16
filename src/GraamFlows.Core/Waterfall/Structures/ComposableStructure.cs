@@ -1344,7 +1344,10 @@ public class ComposableStructure : BaseStructure
         {
             var overPool = NotesOverPool(dynGroup, adjPeriodCf);
             if (overPool > 0)
+            {
+                ZeroCertificatesUnderNotesOverPool(dynGroup);
                 dynGroup.WritedownPayable.PayWritedown(null, adjPeriodCf.CashflowDate, overPool, () => { });
+            }
         }
 
         // Update Certificate tranche balance to reflect current OC (Pool - Notes)
@@ -2631,6 +2634,20 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
+    ///     Called before a write-down sized as what the notes stand over the pool by. A certificate
+    ///     is the overcollateralization, the pool less the notes, so with the notes over the pool
+    ///     it holds nothing, whatever balance it carried into the period. Left at that balance and
+    ///     named in the write-down structure, it took part of the write-down, and the notes ended
+    ///     the period over the pool by what it took.
+    /// </summary>
+    private static void ZeroCertificatesUnderNotesOverPool(DynamicGroup dynGroup)
+    {
+        foreach (var certificate in dynGroup.DynamicClasses.Where(dc =>
+                     dc.Tranche.TrancheTypeEnum == TrancheTypeEnum.Certificate))
+            certificate.SetBalance(0);
+    }
+
+    /// <summary>
     ///     WRITEDOWN sized overPool: writes down what the funded classes stand above the pool by.
     ///     A write-down taken by a class that is not a note (an IO class heading the write-down
     ///     order) leaves the notes above the pool, so the same loss would be measured again next
@@ -2643,7 +2660,10 @@ public class ComposableStructure : BaseStructure
             .Where(dc => dynGroup.DealClasses?.Contains(dc) != true)
             .Select(dc => (Class: dc, Before: dc.CumWritedown)).ToList();
 
-        PayWritedownStep(dynGroup, periodCf, NotesOverPool(dynGroup, periodCf), excessSpreadFirstLoss);
+        var overPool = NotesOverPool(dynGroup, periodCf);
+        if (overPool > 0)
+            ZeroCertificatesUnderNotesOverPool(dynGroup);
+        PayWritedownStep(dynGroup, periodCf, overPool, excessSpreadFirstLoss);
 
         foreach (var (dc, before) in notNotes)
         {
