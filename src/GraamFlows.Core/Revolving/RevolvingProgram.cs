@@ -312,6 +312,13 @@ public sealed record RevolvingClass
 
     /// <summary>A default waiting for the series' first waterfall, from the close of the last run.</summary>
     public double DefaultDue { get; init; }
+
+    /// <summary>
+    ///     Collateral, not a note: a series' excess collateral amount. It is never paid principal. Once
+    ///     every other class of its series is paid in full and its funding account is empty, what it
+    ///     holds goes back to the transferor, no cash moving, and the series is paid in full.
+    /// </summary>
+    public bool ReleasedAtPayoff { get; init; }
 }
 
 /// <param name="Name">what PAY_FEE calls it.</param>
@@ -355,6 +362,12 @@ public sealed record RevolvingSeries
     public DateTime? ClosingDate { get; init; }
 
     public double RequiredReserve { get; init; }
+
+    /// <summary>
+    ///     Dollars added to the series' finance per run month, as its statements print its accounts'
+    ///     earnings. A month past the end adds nothing.
+    /// </summary>
+    public IReadOnlyList<double> AccountEarnings { get; init; } = Array.Empty<double>();
 
     public SeriesPhase Phase { get; init; } = SeriesPhase.Revolving;
 

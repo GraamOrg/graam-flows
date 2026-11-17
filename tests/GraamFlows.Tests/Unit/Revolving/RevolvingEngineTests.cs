@@ -211,6 +211,97 @@ public class RevolvingEngineTests
     }
 
     [Fact]
+    public void StatedAccountEarningsAreTheSeriesOwnFinanceByRunMonth()
+    {
+        // Two series alike but for the earnings their statements print on their own accounts. Those
+        // join the series' finance month by month, past the allocation, and nothing after the
+        // vector ends.
+        RevolvingSeries Alike(string name, double[]? earnings)
+        {
+            return CardProgram.Series(name, 600.0, 100.0, 50.0) with
+            {
+                ExcessSharing = false,
+                PrincipalSharing = false,
+                AccountEarnings = earnings ?? Array.Empty<double>()
+            };
+        }
+
+        var run = CardProgram.Run(CardProgram.Program(), 10_000.0,
+            new[] { Alike("Earning", new[] { 3.0, 5.0 }), Alike("Plain", null) },
+            CardProgram.Drivers(), 3);
+        var result = CardProgram.Execute(run);
+        var earning = Only(result, "Earning").Periods;
+        var plain = Only(result, "Plain").Periods;
+
+        earning.Select(p => p.AccountEarnings).Should().Equal(3.0, 5.0, 0.0);
+        earning.Select(p => p.FundingEarnings).Should().Equal(0.0, 0.0, 0.0);
+        for (var i = 0; i < earning.Count; i++)
+        {
+            earning[i].FinanceAllocation.Should().BeApproximately(plain[i].FinanceAllocation, 1e-9);
+            earning[i].ExcessDollars.Should()
+                .BeApproximately(plain[i].ExcessDollars + earning[i].AccountEarnings, 1e-9);
+            earning[i].PortfolioYieldPct.Should().BeGreaterThanOrEqualTo(plain[i].PortfolioYieldPct);
+        }
+        earning[2].PortfolioYieldPct.Should().BeApproximately(plain[2].PortfolioYieldPct, 1e-9);
+    }
+
+    [Fact]
+    public void ACollateralClassIsReleasedOnceTheNotesArePaid()
+    {
+        // A series whose last class is collateral, not a note. Its notes are funded in two deposits
+        // and paid on the expected date; the collateral goes back to the transferor that month, so the series is paid
+        // in full and amortizes, not early amortizes. Held as a note, it keeps the series running.
+        SeriesResult Run(bool released)
+        {
+            var notes = CardProgram.Series("S", 400.0, 100.0, 0.0);
+            var series = notes with
+            {
+                Classes = notes.Classes.Append(
+                    new RevolvingClass { Key = "X", Balance = 150.0, Coupon = 0.0, ReleasedAtPayoff = released })
+                    .ToList(),
+                WritedownOrder = new[] { "X", "C", "B", "A" },
+                FundedClasses = new[] { "A", "B", "C" },
+                AccumulationStart = new DateTime(2026, 8, 1),
+                ExpectedDate = new DateTime(2026, 10, 15),
+                ControlledAmounts = new[] { 250.0 }
+            };
+            var run = CardProgram.Run(CardProgram.Program(), 10_000.0, new[] { series }, CardProgram.Drivers(), 4);
+            return Only(CardProgram.Execute(run), "S");
+        }
+
+        var released = Run(true);
+        var held = Run(false);
+
+        var a = released.Classes["A"];
+        var x = released.Classes["X"];
+        a.Sum(p => p.PrincipalPaid).Should().BeApproximately(400.0, 1e-6);
+        released.Classes["B"].Sum(p => p.PrincipalPaid).Should().BeApproximately(100.0, 1e-6);
+        x.Sum(p => p.PrincipalPaid).Should().Be(0.0);
+        // It gives back what it held, after the defaults it took first.
+        var release = x.Single(p => p.Released > 0);
+        release.Released.Should().BeApproximately(release.BeginBalance - release.Writedown, 1e-6);
+        release.EndBalance.Should().Be(0.0);
+        release.DistributionDate.Should().Be(new DateTime(2026, 10, 15));
+        released.Classes["B"].Last(p => p.PrincipalPaid > 0).DistributionDate.Should().Be(new DateTime(2026, 10, 15));
+        released.Periods.Select(p => p.Phase).Should().NotContain(SeriesPhase.EarlyAmortization);
+        released.Periods.Last().InvestedAmount.Should().Be(0.0);
+
+        held.Periods.Select(p => p.Phase).Should().Contain(SeriesPhase.EarlyAmortization);
+        held.Classes["X"].Should().OnlyContain(p => p.Released == 0.0);
+    }
+
+    [Fact]
+    public void AccountEarningsMayNotBeNegative()
+    {
+        var series = CardProgram.Series("S", 600.0, 100.0, 50.0) with { AccountEarnings = new[] { -1.0 } };
+        var run = CardProgram.Run(CardProgram.Program(), 10_000.0, new[] { series }, CardProgram.Drivers(), 1);
+
+        var act = () => CardProgram.Execute(run);
+
+        act.Should().Throw<RevolvingConfigException>().WithMessage("*accountEarnings*");
+    }
+
+    [Fact]
     public void MonthlyRatesOnAllocationHoldYieldUpThroughAccumulation()
     {
         // The same accumulating series, its rates read two ways. On the invested amount, yield

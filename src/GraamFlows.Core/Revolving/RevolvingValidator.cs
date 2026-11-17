@@ -492,6 +492,8 @@ internal static class RevolvingValidator
             RequireAmount($"{name} controlledAmount", amount);
 
         RequireAmount($"{name} requiredReserve", series.RequiredReserve);
+        foreach (var amount in series.AccountEarnings)
+            RequireAmount($"{name} accountEarnings", amount);
         RequireAmount($"{name} fundingAccount", series.FundingAccount);
         RequireAmount($"{name} fundingDeficit", series.FundingDeficit);
         RequireAmount($"{name} reserve", series.Reserve);

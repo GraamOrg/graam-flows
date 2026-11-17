@@ -18,6 +18,9 @@ public sealed record ClassPeriod
     public double? IndexValue { get; init; }
     public double Margin { get; init; }
     public int AccrualDays { get; init; }
+
+    /// <summary>What a class released at payoff gave back to the transferor this month: no cash.</summary>
+    public double Released { get; init; }
 }
 
 /// <summary>A series' month.</summary>
@@ -39,6 +42,10 @@ public sealed record SeriesPeriod
     public double AdjustedInvested { get; init; }
     public double FundingAccount { get; init; }
     public double FundingEarnings { get; init; }
+
+    /// <summary>The month's stated account earnings (<see cref="RevolvingSeries.AccountEarnings" />).</summary>
+    public double AccountEarnings { get; init; }
+
     public double FundingDeposit { get; init; }
     public double FundingDeficit { get; init; }
     public double FundingRelease { get; init; }
