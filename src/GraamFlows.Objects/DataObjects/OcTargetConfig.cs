@@ -54,15 +54,31 @@ public record OcTargetConfig
     public double? CutoffPoolBalance { get; init; }
 
     /// <summary>
+    /// The deal's yield supplement overcollateralization, or null. With it, the overcollateralization
+    /// the turbo builds and the release gives back is the Adjusted Pool Balance (the pool less the
+    /// period's YSOC) less the notes, and the target's share of the current pool is a share of the
+    /// Adjusted Pool Balance. <see cref="FloorAmt"/> is a dollar amount, so the caller states it on
+    /// whichever cutoff balance the document names.
+    /// </summary>
+    public YsocSchedule? Ysoc { get; init; }
+
+    /// <summary>
     /// Calculate target OC given a pool balance.
     /// </summary>
-    public double CalculateTargetOc(double poolBalance)
+    public double CalculateTargetOc(double poolBalance) => CalculateTargetOc(poolBalance, poolBalance);
+
+    /// <summary>
+    /// Calculate target OC given the pool balance and the balance the overcollateralization is
+    /// measured on (<paramref name="ocBase" />: the Adjusted Pool Balance on a YSOC deal, else the
+    /// pool). The full-turbo threshold reads the pool, as the documents state it.
+    /// </summary>
+    public double CalculateTargetOc(double poolBalance, double ocBase)
     {
         if (FullTurboPoolPct is > 0 && CutoffPoolBalance is > 0
             && poolBalance <= FullTurboPoolPct.Value * CutoffPoolBalance.Value)
-            return poolBalance;
+            return ocBase;
 
-        var targetPoolBalance = UseInitialBalance ? InitialPoolBalance!.Value : poolBalance;
+        var targetPoolBalance = UseInitialBalance ? InitialPoolBalance!.Value : ocBase;
 
         return FormulaType?.ToLowerInvariant() switch
         {

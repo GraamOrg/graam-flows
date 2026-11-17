@@ -1294,6 +1294,9 @@ public class ComposableStructure : BaseStructure
         // Set collateral balance variables for use in steps (e.g., OC turbo calculation)
         dynGroup.SetVariable("collat_balance", adjPeriodCf.Balance);
         dynGroup.SetVariable("collat_begin_balance", adjPeriodCf.BeginBalance);
+        // Read before any of the period's payments, so a class "paid in full" was paid on an
+        // earlier Payment Date, as the switch to a deal's second schedule is worded.
+        dynGroup.SetVariable("ysoc_amount", YsocAmount(deal, dynGroup, adjPeriodCf.CashflowDate));
 
         // Start reserve period tracking at beginning of waterfall (before any draws)
         dynGroup.FundsAccount?.StartPeriod();
@@ -3015,6 +3018,33 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
+    ///     The period's yield supplement overcollateralization (zero without a schedule). A class the
+    ///     switch names is paid in full when it opens the period with no balance.
+    /// </summary>
+    private static double YsocAmount(IDeal deal, DynamicGroup dynGroup, DateTime paymentDate)
+    {
+        var ysoc = deal.OcTargetConfig?.Ysoc;
+        if (ysoc == null)
+            return 0;
+        return ysoc.AmountOn(paymentDate, classes => classes.All(name =>
+        {
+            var dc = dynGroup.DynamicClasses.FirstOrDefault(c =>
+                string.Equals(c.Tranche.TrancheName, name, StringComparison.OrdinalIgnoreCase));
+            if (dc == null)
+                throw new DealModelingException(deal.DealName,
+                    $"The YSOC schedule switches once {name} is paid in full, and the deal has no class {name}.");
+            return dc.Balance <= 0.005;
+        }));
+    }
+
+    /// <summary>
+    ///     The balance the overcollateralization is measured on: the Adjusted Pool Balance, the pool
+    ///     less the period's YSOC, never below zero. Without a YSOC it is the pool.
+    /// </summary>
+    private static double OcBase(DynamicGroup dynGroup, double poolBalance) =>
+        Math.Max(poolBalance - dynGroup.GetVariable("ysoc_amount"), 0);
+
+    /// <summary>
     /// Calculate how much OC should be released to CERTIFICATE.
     /// This is called BEFORE principal allocation to reserve funds for OC release.
     /// </summary>
@@ -3025,14 +3055,15 @@ public class ComposableStructure : BaseStructure
             return 0;
 
         var poolBalance = periodCf.Balance; // End of period pool balance
+        var ocBase = OcBase(dynGroup, poolBalance); // the Adjusted Pool Balance on a YSOC deal
         var noteBalance = dynGroup.Balance(); // Current note balance
 
         // Calculate what OC would be if all principal went to notes
         var projectedNoteBalance = Math.Max(0, noteBalance - totalPrincipal);
-        var projectedOc = poolBalance - projectedNoteBalance;
+        var projectedOc = ocBase - projectedNoteBalance;
 
         // Calculate target OC using the configured formula
-        var targetOc = ocConfig.CalculateTargetOc(poolBalance);
+        var targetOc = ocConfig.CalculateTargetOc(poolBalance, ocBase);
 
         // If projected OC exceeds target, release the excess
         if (projectedOc > targetOc)
@@ -3099,11 +3130,12 @@ public class ComposableStructure : BaseStructure
 
         // Get pool and note balances
         var poolBalance = dynGroup.GetVariable("collat_balance");
+        var ocBase = OcBase(dynGroup, poolBalance); // the Adjusted Pool Balance on a YSOC deal
         var noteBalance = dynGroup.Balance();
-        var currentOc = poolBalance - noteBalance;
+        var currentOc = ocBase - noteBalance;
 
         // Calculate target OC using the configured formula
-        var targetOc = ocConfig.CalculateTargetOc(poolBalance);
+        var targetOc = ocConfig.CalculateTargetOc(poolBalance, ocBase);
 
         // Check if we have a pre-calculated OC release amount (from principal allocation)
         var ocReleaseAmount = dynGroup.GetVariable("oc_release_amount");
