@@ -151,6 +151,15 @@ public class RevolvingSeriesDto
 
     public double? RequiredReserve { get; set; }
 
+    /// <summary>
+    ///     Dollars a statement credits the series' finance in each run month on top of its floating
+    ///     share of collections: interest and investment earnings on its own accounts, where the trust
+    ///     prints them. Read by run month, the first value being the month after the statement date;
+    ///     months past the end earn nothing here. Funding account earnings at
+    ///     <see cref="RevolvingRequest.FundingEarningsRate" /> are added on top.
+    /// </summary>
+    public double[]? AccountEarnings { get; set; }
+
     /// <summary>On a tranche: percent of its adjusted amount it requires of each junior class.</summary>
     public Dictionary<string, double>? RequiredSubordination { get; set; }
 
@@ -290,6 +299,12 @@ public class RevolvingClassDto
 
     /// <summary>A default waiting for a series' first waterfall.</summary>
     public double? DefaultDue { get; set; }
+
+    /// <summary>
+    ///     Collateral, not a note (a series' excess collateral amount): released to the transferor once
+    ///     the series' other classes are paid in full, and never paid principal.
+    /// </summary>
+    public bool? ReleasedAtPayoff { get; set; }
 }
 
 public class RevolvingFeeDto
@@ -525,6 +540,10 @@ public class RevolvingSeriesPeriodDto
     public double AdjustedInvested { get; set; }
     public double FundingAccount { get; set; }
     public double FundingEarnings { get; set; }
+
+    /// <summary>The month's <see cref="RevolvingSeriesDto.AccountEarnings" />, in the series' finance.</summary>
+    public double AccountEarnings { get; set; }
+
     public double FundingDeposit { get; set; }
     public double FundingDeficit { get; set; }
     public double FundingRelease { get; set; }

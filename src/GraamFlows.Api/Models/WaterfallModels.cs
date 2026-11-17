@@ -1233,6 +1233,12 @@ public class TrancheCashflowDto
     public double FloaterMargin { get; set; }
     public int AccrualDays { get; set; }
     public bool IsLockedOut { get; set; }
+
+    /// <summary>
+    ///     Revolving: what a class that is collateral, not a note, went back to the transferor once its
+    ///     series' notes were paid. No cash moves. Absent where nothing was released.
+    /// </summary>
+    public double? Released { get; set; }
 }
 
 public class TriggerResultDto

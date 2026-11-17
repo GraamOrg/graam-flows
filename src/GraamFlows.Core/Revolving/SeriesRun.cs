@@ -32,6 +32,9 @@ internal sealed class ClassRun
     public double PrincipalPaid { get; set; }
     public double NetWritedown { get; set; }
 
+    /// <summary>What a class released at payoff gave back to the transferor this month.</summary>
+    public double Released { get; set; }
+
     public double Invested => Outstanding - WrittenDown;
 
     public void OpenMonth()
@@ -43,6 +46,17 @@ internal sealed class ClassRun
         InterestPaid = 0.0;
         PrincipalPaid = 0.0;
         NetWritedown = 0.0;
+        Released = 0.0;
+    }
+
+    /// <summary>Gives back what the class holds, written down or not: it was never owed.</summary>
+    public void Release()
+    {
+        Released = Invested;
+        Outstanding = 0.0;
+        WrittenDown = 0.0;
+        InterestDue = 0.0;
+        DefaultDue = 0.0;
     }
 
     public void WriteDown(double amount)

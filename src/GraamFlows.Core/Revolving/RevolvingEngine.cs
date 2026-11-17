@@ -288,7 +288,9 @@ public static class RevolvingEngine
             foreach (var fee in s.Config.Fees)
                 s.AccrueFee(fee, Delinked ? s.Numerator : Issued(s, dates) ? adjusted : 0.0);
 
-            var earnings = s.Funding.Earnings(EarningsRatePct(dates.Period));
+            var fundingEarnings = s.Funding.Earnings(EarningsRatePct(dates.Period));
+            var stated = dates.Period < s.Config.AccountEarnings.Count ? s.Config.AccountEarnings[dates.Period] : 0.0;
+            var earnings = fundingEarnings + stated;
             var finance = pool.FinanceCash * allocation.FloatingPct;
             var principal = pool.PrincipalCash * allocation.PrincipalPct;
             var investorDefault = pool.DefaultAmount * allocation.FloatingPct;
@@ -332,7 +334,7 @@ public static class RevolvingEngine
                 s.Principal = 0.0;
             }
 
-            return new MonthOpen(invested, finance, principal, investorDefault, earnings);
+            return new MonthOpen(invested, finance, principal, investorDefault, earnings, stated);
         }
 
         private bool Delinked => _program.Delinked != null;
@@ -630,6 +632,7 @@ public static class RevolvingEngine
                 s.Funding.CloseMonth(s.ControlledThisMonth, s.FundingRoom);
             else
                 s.Funding.CloseMonth(0.0, 0.0);
+            ReleaseAtPayoff(s);
 
             var netFinance = (s.ReallocatedFinance ?? open.Finance) + open.Earnings + s.ExcessIn - open.InvestorDefault;
             var interest = s.Classes.Sum(c => c.InterestAccrued);
@@ -687,7 +690,8 @@ public static class RevolvingEngine
                     CouponPct = c.RatePct,
                     IndexValue = c.IndexValue,
                     Margin = c.Config.Margin,
-                    AccrualDays = s.InterestDays
+                    AccrualDays = s.InterestDays,
+                    Released = c.Released
                 });
 
             _seriesRows[s].Add(new SeriesPeriod
@@ -704,7 +708,8 @@ public static class RevolvingEngine
                 InvestedAmount = s.TotalInvested,
                 AdjustedInvested = s.AdjustedInvested,
                 FundingAccount = s.Funding.Balance,
-                FundingEarnings = open.Earnings,
+                FundingEarnings = open.Earnings - open.StatedEarnings,
+                AccountEarnings = open.StatedEarnings,
                 FundingDeposit = s.Funding.Deposited,
                 FundingDeficit = s.Funding.Deficit,
                 FundingRelease = s.FundingRelease,
@@ -744,6 +749,26 @@ public static class RevolvingEngine
             if (s.Phase == SeriesPhase.Accumulating && s.Config.ExpectedDate is { } expected
                                                     && RevolvingWaterfall.OnOrAfterMonth(dates.DistributionDate, expected))
                 s.Machine.MoveTo(s.PaidInFull ? SeriesPhase.Amortizing : SeriesPhase.EarlyAmortization);
+        }
+
+        /// <summary>
+        ///     Once the notes are paid in full and the funding account is empty, a class that is
+        ///     collateral, not a note, goes back to the transferor. Nothing is paid: the series' invested
+        ///     amount falls and the transferor's interest rises by what it held.
+        /// </summary>
+        private static void ReleaseAtPayoff(SeriesRun s)
+        {
+            var released = s.Classes.Where(c => c.Config.ReleasedAtPayoff).ToList();
+            if (released.Count == 0 || released.All(c => c.Outstanding < SeriesRun.Cent))
+                return;
+
+            var notes = s.Classes.Where(c => !c.Config.ReleasedAtPayoff).ToList();
+            if (notes.Count == 0 || notes.Any(c => c.Outstanding >= SeriesRun.Cent)
+                                 || s.Funding.Balance >= SeriesRun.Cent)
+                return;
+
+            foreach (var c in released)
+                c.Release();
         }
 
         private static TranchePeriod TrancheRow(SeriesRun s)
@@ -882,6 +907,7 @@ public static class RevolvingEngine
             double Finance,
             double Principal,
             double InvestorDefault,
-            double Earnings);
+            double Earnings,
+            double StatedEarnings);
     }
 }

@@ -205,6 +205,7 @@ public static class RevolvingMapper
             FirstPayDate = dto.FirstPayDate,
             ClosingDate = dto.ClosingDate,
             RequiredReserve = dto.RequiredReserve ?? 0.0,
+            AccountEarnings = dto.AccountEarnings ?? Array.Empty<double>(),
             Phase = state?.Phase == null ? SeriesPhase.Revolving : PhaseNames.Parse(state.Phase),
             FrozenPrincipalPct = state?.FrozenPrincipalPct / 100.0,
             FrozenNumerator = state?.FrozenNumerator,
@@ -284,7 +285,8 @@ public static class RevolvingMapper
             Basis = AccrualBasisParser.Parse(dto.DayCount),
             WrittenDown = dto.WrittenDown ?? 0.0,
             InterestShortfall = dto.InterestShortfall ?? 0.0,
-            DefaultDue = dto.DefaultDue ?? 0.0
+            DefaultDue = dto.DefaultDue ?? 0.0,
+            ReleasedAtPayoff = dto.ReleasedAtPayoff ?? false
         };
     }
 
@@ -420,6 +422,7 @@ public static class RevolvingMapper
             AdjustedInvested = p.AdjustedInvested,
             FundingAccount = p.FundingAccount,
             FundingEarnings = p.FundingEarnings,
+            AccountEarnings = p.AccountEarnings,
             FundingDeposit = p.FundingDeposit,
             FundingDeficit = p.FundingDeficit,
             FundingRelease = p.FundingRelease,
@@ -485,7 +488,8 @@ public static class RevolvingMapper
             InterestShortfallPayback = Math.Max(0.0, c.InterestPaid - c.InterestAccrued),
             IndexValue = c.IndexValue,
             FloaterMargin = c.Margin,
-            AccrualDays = c.AccrualDays
+            AccrualDays = c.AccrualDays,
+            Released = c.Released >= 0.01 ? c.Released : null
         };
     }
 }
