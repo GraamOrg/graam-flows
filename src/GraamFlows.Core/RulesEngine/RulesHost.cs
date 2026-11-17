@@ -44,6 +44,10 @@ namespace GraamFlows.RulesEngine
         public double dp = 0;
         public double ib = 0;
         public double ccl = 0;
+        // Modification Loss Amounts the ladder's notional priorities have written off so far — a
+        // loss agency CRT's Cumulative Net Loss Percentage counts and `ccl` cannot see. See
+        // DynamicGroup.CumModificationWritedown.
+        public double cum_mod_writedown = 0;
         public double net_wac = 0;
         public double eff_wac = 0;
         public double wac = 0;
@@ -104,6 +108,7 @@ namespace GraamFlows.RulesEngine
             dp = periodCf.DefaultedPrincipal;
             ib = dynGroup.BalanceAtIssuance;
             ccl = periodCf.CumCollateralLoss;
+            cum_mod_writedown = dynGroup.CumModificationWritedown + dynGroup.PendingModificationWritedown;
             net_wac = periodCf.NetWac;
             wac = periodCf.WAC;
             begin_balance = periodCf.BeginBalance;
