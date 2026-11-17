@@ -354,6 +354,40 @@ public class OcTargetDto
     /// is the whole pool — the turbo pays the notes with all the excess.
     /// </summary>
     public double? FullTurboPoolPct { get; set; }
+
+    /// <summary>
+    /// Optional: the yield supplement overcollateralization schedule. With it the OC is measured on
+    /// the Adjusted Pool Balance (the pool less each Payment Date's YSOC), and <see cref="TargetPct"/>
+    /// is a share of the Adjusted Pool Balance.
+    /// </summary>
+    public YsocDto? Ysoc { get; set; }
+}
+
+/// <summary>
+/// A yield supplement overcollateralization schedule, as the prospectus prints it: the amount for
+/// each Payment Date, by month.
+/// </summary>
+public class YsocDto
+{
+    /// <summary>The YSOC for each Payment Date.</summary>
+    public List<YsocAmountDto> Schedule { get; set; } = new();
+
+    /// <summary>Optional: the schedule for Payment Dates after named classes are paid in full.</summary>
+    public YsocSwitchDto? AfterPaidInFull { get; set; }
+}
+
+/// <summary>One Payment Date's YSOC: <c>month</c> is "YYYY-MM".</summary>
+public class YsocAmountDto
+{
+    public string Month { get; set; } = "";
+    public double Amount { get; set; }
+}
+
+/// <summary>The schedule in force once every one of <c>classes</c> has been paid in full.</summary>
+public class YsocSwitchDto
+{
+    public List<string> Classes { get; set; } = new();
+    public List<YsocAmountDto> Schedule { get; set; } = new();
 }
 
 public class DealVariableDto

@@ -373,7 +373,9 @@ public class WaterfallRunner
                 FullTurboPoolPct = ocTarget.FullTurboPoolPct,
                 CutoffPoolBalance = ocTarget.FullTurboPoolPct.HasValue
                     ? ocTarget.CutoffBalance ?? dto.BalanceAtIssuance
-                    : null
+                    : null,
+                Ysoc = YsocMapper.Map(ocTarget.Ysoc,
+                    (dto.Tranches ?? new List<TrancheDto>()).Select(t => t.TrancheName), dto.DealName)
             };
         }
 

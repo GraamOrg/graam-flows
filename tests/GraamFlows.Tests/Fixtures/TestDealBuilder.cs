@@ -520,6 +520,12 @@ public class TestDealBuilder
         return this;
     }
 
+    public TestDealBuilder WithOcTarget(OcTargetConfig config)
+    {
+        _ocTargetConfig = config;
+        return this;
+    }
+
     public TestDealBuilder WithReinvestment(ReinvestmentConfig config)
     {
         _reinvestmentConfig = config;
