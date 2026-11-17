@@ -211,6 +211,53 @@ public class RevolvingEngineTests
     }
 
     [Fact]
+    public void MonthlyRatesOnAllocationHoldYieldUpThroughAccumulation()
+    {
+        // The same accumulating series, its rates read two ways. On the invested amount, yield
+        // falls with each deposit as the series' finance falls with its share; on the allocation
+        // amount it holds, and base rate is the notes' interest times 12 plus the stated fee.
+        var subject = CardProgram.Series("S", 900.0, 100.0, 50.0) with
+        {
+            AccumulationStart = new DateTime(2026, 8, 1),
+            ExpectedDate = new DateTime(2026, 12, 15),
+            ControlledAmounts = new[] { 250.0 }
+        };
+        var rest = CardProgram.Series("Rest", 4_000.0, 0.0, 0.0);
+
+        (IReadOnlyList<SeriesPeriod> Rows, double[] Pools) Run(bool monthly)
+        {
+            var program = CardProgram.Program(freeze: PrincipalFreeze.FrozenNumerator) with
+            {
+                FloatingFromPriorMonth = true,
+                MonthlyRatesOnAllocation = monthly
+            };
+            var result = CardProgram.Execute(CardProgram.Run(program, 10_000.0, new[] { subject, rest },
+                CardProgram.Drivers(newReceivables: null), 4));
+            return (Only(result, "S").Periods, result.Periods.Select(p => p.Pool.Beginning).ToArray());
+        }
+
+        var days = Run(false);
+        var monthly = Run(true);
+
+        for (var i = 0; i < monthly.Rows.Count; i++)
+        {
+            var p = monthly.Rows[i];
+            // Each month's yield is its net finance over the numerator its share was taken on.
+            var numerator = p.FloatingPct / 100.0 * monthly.Pools[i];
+            var net = p.FinanceAllocation + p.FundingEarnings + p.SharedExcessIn - p.InvestorDefault;
+            p.PortfolioYieldPct.Should().BeApproximately(net * 1200.0 / numerator, 1e-9);
+            // Base rate carries the fee at its stated rate, whatever the month's fee dollars were.
+            p.BaseRatePct.Should().BeGreaterThan(CardProgram.ServicingPct);
+        }
+        // Deposits lower the allocation amount while the invested amount stays put, so by the last
+        // accumulation month the monthly yield is above the days-based one.
+        monthly.Rows[^1].PortfolioYieldPct.Should().BeGreaterThan(days.Rows[^1].PortfolioYieldPct);
+        // The flag moves only the rates: the cash is the same.
+        monthly.Rows.Select(p => p.FundingDeposit).Should().Equal(days.Rows.Select(p => p.FundingDeposit));
+        monthly.Rows.Select(p => p.FinanceAllocation).Should().Equal(days.Rows.Select(p => p.FinanceAllocation));
+    }
+
+    [Fact]
     public void Series2023Dash3MakesItsSingleDepositWithSharedPrincipal()
     {
         // American Express Series 2023-3, August 2026 monthly period, paid on the September 2026

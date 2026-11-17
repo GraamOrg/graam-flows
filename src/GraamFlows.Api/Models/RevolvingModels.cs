@@ -75,6 +75,13 @@ public class RevolvingProgramDto
     /// </summary>
     public bool? FloatingFromPriorMonth { get; set; }
 
+    /// <summary>
+    ///     A series stack's tests read monthly rates times 12: yield on the series' allocation amount,
+    ///     base rate as class interest on the invested amount plus the stated fee rates. Absent is
+    ///     false.
+    /// </summary>
+    public bool? MonthlyRatesOnAllocation { get; set; }
+
     /// <summary>Set on a de-linked note series: each series is then one tranche of one class.</summary>
     public RevolvingDelinkedDto? Delinked { get; set; }
 }
