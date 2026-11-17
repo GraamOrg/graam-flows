@@ -661,6 +661,23 @@ public class TestDealBuilder
         return this;
     }
 
+    /// <summary>
+    ///     A formula trigger — <c>FORMULA_CONDITION</c> for a pass/fail test, <c>FORMULA_VALUE</c>
+    ///     to record what an expression read on each Payment Date.
+    /// </summary>
+    public TestDealBuilder WithFormulaTrigger(string name, string formula, string type = "FORMULA_CONDITION")
+    {
+        _deal.DealTriggers.Add(new DealTrigger
+        {
+            DealName = _deal.DealName,
+            TriggerName = name,
+            TriggerType = type,
+            TriggerFormula = formula,
+            GroupNum = "1",
+        });
+        return this;
+    }
+
     /// <summary>A minimum credit-enhancement test on <paramref name="classGroup" />.</summary>
     public TestDealBuilder WithCreditEnhancementTrigger(string name, double minimum, string classGroup)
     {

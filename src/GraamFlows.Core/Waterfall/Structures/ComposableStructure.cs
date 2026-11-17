@@ -290,6 +290,13 @@ public class ComposableStructure : BaseStructure
                 // the balance the Collection Period opened with.
                 dynGroup.OpenCertificateBalance(periodOpening);
 
+                // This Payment Date's modification write-down, before the tests read it: the
+                // step that applies it runs after them (see PlanModificationWritedown).
+                dynGroup.PendingModificationWritedown = PlanModificationWritedown(deal, dynGroup,
+                    rateProvider, adjPeriodCf,
+                    dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches).ToList(),
+                    ExcessSpreadFirstLoss(deal, executionOrder));
+
                 // Test triggers and record results. Termination is deferred — ComposableStructure
                 // runs the waterfall first (interest on begin balance) then terminates after.
                 var triggerValues = TestAndRecordTriggers(dynGroup, triggers, adjPeriodCf);
@@ -1373,12 +1380,7 @@ public class ComposableStructure : BaseStructure
         // or excess-turbo/release path. In those deals the excess spread is trapped to
         // build OC or turbo-pay the notes, and diverting the same excess spread to cover
         // writedowns here would absorb it twice. Defer to that path (skip auto-absorb).
-        var excessSpreadFirstLoss = deal.OcTargetConfig == null &&
-            !executionOrder.Any(s =>
-            {
-                var u = s.ToUpperInvariant();
-                return u == "EXCESS_TURBO" || u == "EXCESS" || u == "EXCESS_RELEASE";
-            });
+        var excessSpreadFirstLoss = ExcessSpreadFirstLoss(deal, executionOrder);
 
         // Execute steps in order
         var waterfallOrder = deal.WaterfallOrder;
@@ -2478,6 +2480,16 @@ public class ComposableStructure : BaseStructure
         return availableRecovPrin - paid;
     }
 
+    private static bool ExcessSpreadFirstLoss(IDeal deal, List<string> executionOrder)
+    {
+        return deal.OcTargetConfig == null &&
+            !executionOrder.Any(s =>
+            {
+                var u = s.ToUpperInvariant();
+                return u == "EXCESS_TURBO" || u == "EXCESS" || u == "EXCESS_RELEASE";
+            });
+    }
+
     /// <summary>
     ///     Allocate the period's Modification Loss Amount down the deal's Modification Loss
     ///     Priority.
@@ -2518,9 +2530,61 @@ public class ComposableStructure : BaseStructure
     private void PayModificationLossStep(IDeal deal, DynamicGroup dynGroup, IRateProvider rateProvider,
         PeriodCashflows periodCf, IEnumerable<DynamicTranche> allTranches, bool excessSpreadFirstLoss)
     {
+        var planned = dynGroup.PendingModificationWritedown;
+        var notionalTaken = AllocateModificationLoss(deal, dynGroup, rateProvider, periodCf, allTranches,
+            excessSpreadFirstLoss, apply: true);
+
+        // The tests already counted `planned`. If the walk landed somewhere else, they read a
+        // Principal Loss Amount the deal never had — refuse rather than leave the two
+        // disagreeing. Only when a plan was made: the first period has no ladder to plan from.
+        if (dynGroup.ModificationWritedownPlanned && Math.Abs(notionalTaken - planned) > 0.01)
+            throw new DealModelingException(deal.DealName,
+                $"The Modification Loss Priority wrote {notionalTaken:N2} off the notional priorities " +
+                $"on {periodCf.CashflowDate:yyyy-MM-dd}, but the loss tests were run on {planned:N2}. " +
+                "Something between the tests and the MODIFICATION_LOSS step changed the ladder or the " +
+                "balances it reads, so the tests saw a different Principal Loss Amount than the deal booked.");
+
+        // The loss tests count these (`cum_mod_writedown`); see DynamicGroup.CumModificationWritedown.
+        dynGroup.CumModificationWritedown += notionalTaken;
+        dynGroup.PendingModificationWritedown = 0;
+        dynGroup.ModificationWritedownPlanned = false;
+    }
+
+    /// <summary>
+    ///     What this period's MODIFICATION_LOSS step will write off the notional priorities,
+    ///     computed BEFORE the period's triggers are tested, so a loss test reads this Payment
+    ///     Date's Principal Loss Amount and not the last one's.
+    ///
+    ///     Triggers are tested before the pay rules run and before any step, so the step's own
+    ///     total arrives a period late. The allocation is decided entirely by state that is
+    ///     already fixed when the period opens — balances "immediately prior to such Payment
+    ///     Date", this period's accruals, the posted Modification Loss Amount and the credit-event
+    ///     write-down it reserves for — so a dry run of the same walk gives the same number the
+    ///     step applies. One walk with an `apply` flag rather than two copies, so they cannot
+    ///     drift apart.
+    ///
+    ///     Reads the ladder the pay rules declared in the PRIOR period. In the first period no
+    ///     rule has run yet, so there is no ladder to walk and this returns 0: the first Payment
+    ///     Date's test counts no modification loss.
+    /// </summary>
+    private double PlanModificationWritedown(IDeal deal, DynamicGroup dynGroup, IRateProvider rateProvider,
+        PeriodCashflows periodCf, IEnumerable<DynamicTranche> allTranches, bool excessSpreadFirstLoss)
+    {
+        var ladder = dynGroup.ModificationLossLadder;
+        dynGroup.ModificationWritedownPlanned = ladder != null && ladder.Rungs.Count > 0;
+        return AllocateModificationLoss(deal, dynGroup, rateProvider, periodCf, allTranches,
+            excessSpreadFirstLoss, apply: false);
+    }
+
+    /// <returns>The amount written off the ladder's NOTIONAL priorities (applied or, with
+    ///     <paramref name="apply" /> false, the amount that would be).</returns>
+    private double AllocateModificationLoss(IDeal deal, DynamicGroup dynGroup, IRateProvider rateProvider,
+        PeriodCashflows periodCf, IEnumerable<DynamicTranche> allTranches, bool excessSpreadFirstLoss,
+        bool apply)
+    {
         var ladder = dynGroup.ModificationLossLadder;
         if (ladder == null || ladder.Rungs.Count == 0)
-            return;
+            return 0;
 
         var amount = ModificationLossAmt(deal, dynGroup, periodCf);
         if (amount < -0.005)
@@ -2537,7 +2601,7 @@ public class ComposableStructure : BaseStructure
                 "loss.");
 
         if (amount <= 0.005)
-            return;
+            return 0;
 
         var cfDate = periodCf.CashflowDate;
         var allTranchesList = allTranches?.ToList();
@@ -2601,7 +2665,14 @@ public class ComposableStructure : BaseStructure
 
             if (rung.Effect == ModificationLossEffect.Interest)
             {
-                ApplyModificationInterest(rung, cfDate, take, rateProvider, allTranchesList);
+                if (apply)
+                    ApplyModificationInterest(rung, cfDate, take, rateProvider, allTranchesList);
+            }
+            else if (!apply)
+            {
+                // What the rung would absorb: `take`, by the same argument the applied branch
+                // makes below (the rung's capacity and the cascade's own cap are one quantity).
+                notionalTaken += take;
             }
             else
             {
@@ -2626,8 +2697,10 @@ public class ComposableStructure : BaseStructure
         // rather than per rung — the document adds "the sum of amounts included in the first,
         // third, fifth, eighth, ninth, eleventh and thirteenth priorities" to the senior
         // reference tranche's Class Notional Amount.
-        if (notionalTaken > 0.005 && ladder.WriteUpClass != null)
+        if (apply && notionalTaken > 0.005 && ladder.WriteUpClass != null)
             ladder.WriteUpClass.IncreaseNotional(cfDate, notionalTaken);
+
+        return notionalTaken;
     }
 
     /// <summary>

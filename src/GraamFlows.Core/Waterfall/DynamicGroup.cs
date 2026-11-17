@@ -169,6 +169,36 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     // that states no such priority, which is every deal but agency CRT.
     public ModificationLossLadder? ModificationLossLadder { get; set; }
 
+    /// <summary>
+    ///     Every Modification Loss Amount the ladder's NOTIONAL priorities have applied so far —
+    ///     the running sum of what the MODIFICATION_LOSS step wrote off the junior classes'
+    ///     Class Notional Amounts, through the last period that ran.
+    ///
+    ///     Agency CRT counts these in its loss tests: the Principal Loss Amount includes "the
+    ///     amounts included in the first, third, fifth, eighth, ninth, eleventh and thirteenth
+    ///     priorities" of the Modification Loss Priority, and the Cumulative Net Loss Percentage
+    ///     is built on the Principal Loss Amount. `ccl` is the pool's own loss and never sees
+    ///     them — the step runs inside the waterfall, after the pool's cashflows are fixed — so a
+    ///     loss test written `ccl / ib` passes on a deal whose document says it has failed.
+    ///     Exposed to formulas as `cum_mod_writedown` so the test can say `(ccl +
+    ///     cum_mod_writedown) / ib`. Zero on every deal with no Modification Loss Priority.
+    ///
+    ///     Through the last period the step RAN. The tests run before the step, so on their own
+    ///     these would arrive a Payment Date late; formulas read this plus
+    ///     <see cref="PendingModificationWritedown" />, which is this period's amount planned
+    ///     ahead of the tests.
+    /// </summary>
+    public double CumModificationWritedown { get; set; }
+
+    /// <summary>
+    ///     This period's notional modification write-down, computed before the triggers are
+    ///     tested and cleared once the step applies it. Zero outside that window.
+    /// </summary>
+    public double PendingModificationWritedown { get; set; }
+
+    /// <summary>Whether this period's pending amount came from a ladder (false in period one).</summary>
+    public bool ModificationWritedownPlanned { get; set; }
+
     // Supplemental reduction payables
     public IPayable? SupplementalPayable { get; set; }
     public string? SupplementalCapVariable { get; set; }
