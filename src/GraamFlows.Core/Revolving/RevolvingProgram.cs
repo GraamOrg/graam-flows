@@ -276,6 +276,15 @@ public sealed record RevolvingProgram
     ///     A de-linked note series always works this way. False takes the month's own opening.
     /// </summary>
     public bool FloatingFromPriorMonth { get; init; }
+
+    /// <summary>
+    ///     A series stack whose tests read monthly rates times 12, not annualized on days: portfolio
+    ///     yield is the month's net finance over the series' floating numerator (its allocation
+    ///     amount, which falls as accumulation deposits are made), and base rate is the month's class
+    ///     interest over the invested amount plus the series' stated fee rates. False keeps both on
+    ///     the invested amount, annualized on the period's days.
+    /// </summary>
+    public bool MonthlyRatesOnAllocation { get; init; }
 }
 
 public sealed record RevolvingClass

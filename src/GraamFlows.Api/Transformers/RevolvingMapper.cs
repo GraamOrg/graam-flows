@@ -144,6 +144,7 @@ public static class RevolvingMapper
             SeriesRequiredTransferorPct = dto.SeriesRequiredTransferorPct,
             RequiredTransferorPct = dto.RequiredTransferorPct,
             FloatingFromPriorMonth = dto.FloatingFromPriorMonth ?? false,
+            MonthlyRatesOnAllocation = dto.MonthlyRatesOnAllocation ?? false,
             Delinked = dto.Delinked == null
                 ? null
                 : new DelinkedNotes

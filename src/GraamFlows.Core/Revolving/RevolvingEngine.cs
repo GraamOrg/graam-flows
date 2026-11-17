@@ -631,15 +631,31 @@ public static class RevolvingEngine
             else
                 s.Funding.CloseMonth(0.0, 0.0);
 
-            var yieldPct = RevolvingMetrics.PortfolioYieldPct(
-                (s.ReallocatedFinance ?? open.Finance) + open.Earnings + s.ExcessIn - open.InvestorDefault,
-                open.Invested, dates.Days);
-
-            // Interest and fees annualize on their own days, which differ only in a series' first
-            // month. That reproduces all 11 first months from 2023 to 2026 on the American Express
-            // trust to the 4 decimals printed.
-            var baseRatePct = RevolvingMetrics.BaseRatePct(s.Classes.Sum(c => c.InterestAccrued), open.Invested, s.InterestDays)
+            var netFinance = (s.ReallocatedFinance ?? open.Finance) + open.Earnings + s.ExcessIn - open.InvestorDefault;
+            var interest = s.Classes.Sum(c => c.InterestAccrued);
+            double yieldPct, baseRatePct;
+            if (_program.MonthlyRatesOnAllocation)
+            {
+                // The month's figures times 12. Yield is on the amount the series is allocated on,
+                // so it holds up in accumulation while the notes' interest does not fall; the fee
+                // enters base rate at its stated rate.
+                yieldPct = s.Numerator >= SeriesRun.Cent
+                    ? RevolvingMetrics.MonthlyAnnualizedPct(netFinance, s.Numerator)
+                    : 0.0;
+                baseRatePct = open.Invested >= SeriesRun.Cent && s.InterestDays > 0
+                    ? RevolvingMetrics.MonthlyAnnualizedPct(interest, open.Invested)
+                      + s.Config.Fees.Sum(f => f.RatePct)
+                    : 0.0;
+            }
+            else
+            {
+                yieldPct = RevolvingMetrics.PortfolioYieldPct(netFinance, open.Invested, dates.Days);
+                // Interest and fees annualize on their own days, which differ only in a series' first
+                // month. That reproduces all 11 first months from 2023 to 2026 on the American Express
+                // trust to the 4 decimals printed.
+                baseRatePct = RevolvingMetrics.BaseRatePct(interest, open.Invested, s.InterestDays)
                               + RevolvingMetrics.BaseRatePct(s.FeesAccrued, open.Invested, dates.AccrualDays);
+            }
 
             // A tranche reports the series' rates, which are the ones its tests read.
             if (notes != null)
