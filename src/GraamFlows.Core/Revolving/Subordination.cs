@@ -7,6 +7,9 @@ namespace GraamFlows.Revolving;
 ///     A middle class's required amount of a class below it is the classes above's claim on that
 ///     class, plus its percentage of whatever part of the middle class they do not claim. So a
 ///     middle class's figure already holds the seniors' claim, and is the claim on the class below.
+///     A note series that states <see cref="DelinkedNotes.RequiredOnOwnAmount" /> measures a middle
+///     class as it does a senior tranche: its percentage of its own adjusted amount, which may exceed
+///     100, and nothing of the seniors' claim.
 ///     Usage is what a tranche has spent of its required amount: charge-offs moved down to juniors,
 ///     and principal moved to pay it. Unused is the difference, and it caps every further move.
 ///     Reimbursing a junior class gives usage back.
@@ -20,6 +23,7 @@ internal static class Subordination
     public static void Measure(NoteMonth month, Func<SeriesRun, double> adjusted)
     {
         var order = month.Notes.ClassOrder;
+        var onOwn = month.Notes.RequiredOnOwnAmount;
 
         // What the classes measured so far claim of each class below them, all told.
         var claims = new Dictionary<string, double>();
@@ -39,12 +43,13 @@ internal static class Subordination
             foreach (var t in tranches)
             {
                 var share = total > 0 ? adjusted(t) / total : 0.0;
-                var free = Math.Max(0.0, adjusted(t) - share * onThisClass);
+                var free = onOwn ? adjusted(t) : Math.Max(0.0, adjusted(t) - share * onThisClass);
                 foreach (var junior in order.Skip(rank + 1))
                 {
                     var own = t.Config.RequiredSubordination.GetValueOrDefault(junior) / 100.0 * free;
                     added[junior] = added.GetValueOrDefault(junior) + own;
-                    t.Required[junior] = adjusted(t) > 0 ? share * claims.GetValueOrDefault(junior) + own : 0.0;
+                    var held = onOwn ? 0.0 : share * claims.GetValueOrDefault(junior);
+                    t.Required[junior] = adjusted(t) > 0 ? held + own : 0.0;
                 }
             }
 

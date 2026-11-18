@@ -1167,6 +1167,43 @@ public class DelinkedNotesTests
     }
 
     [Fact]
+    public void AMiddleClassOnItsOwnAmountRequiresItsPercentOfItselfEvenOverAHundred()
+    {
+        // A note series whose Class B requires 133.33333% of its own amount in Class C, whatever
+        // Class A claims of B: B(280) requires 373.333324 of C. Class A is measured as before.
+        var program = NoteProgram.Program() with
+        {
+            Delinked = NoteProgram.Program().Delinked! with { RequiredOnOwnAmount = true }
+        };
+        var a = Bare("A", "A", 860.0) with
+        {
+            RequiredSubordination = new Dictionary<string, double> { ["B"] = 5.98291, ["C"] = 7.97721 }
+        };
+        var b = Bare("B", "B", 280.0) with
+        {
+            RequiredSubordination = new Dictionary<string, double> { ["C"] = 133.33333 }
+        };
+        var result = NoteProgram.Execute(program, Aug2026, new[] { ShortMonth(100.0, 0.0) },
+            new[] { a, b, Bare("C", "C", 380.0) });
+
+        Row(result, "B").RequiredSubordination["C"].Should().BeApproximately(373.333324, 1e-6);
+        Row(result, "A").RequiredSubordination["C"].Should().BeApproximately(860.0 * 0.0797721, 1e-6);
+        Row(result, "A").RequiredSubordination["B"].Should().BeApproximately(860.0 * 0.0598291, 1e-6);
+    }
+
+    [Fact]
+    public void ASeniorPercentOverAHundredIsRefusedEvenOnOwnAmounts()
+    {
+        var program = NoteProgram.Program() with
+        {
+            Delinked = NoteProgram.Program().Delinked! with { RequiredOnOwnAmount = true }
+        };
+        var a = Stack()[0] with { RequiredSubordination = new Dictionary<string, double> { ["B"] = 8.0, ["C"] = 150.0 } };
+
+        Refused(program, a).Should().Throw<RevolvingConfigException>().WithMessage("*requiredSubordination*");
+    }
+
+    [Fact]
     public void ARequiredPercentOverAHundredIsRefused()
     {
         var a = Stack()[0] with { RequiredSubordination = new Dictionary<string, double> { ["B"] = 8.0, ["C"] = 150.0 } };

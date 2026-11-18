@@ -234,6 +234,14 @@ public sealed record DelinkedNotes
     ///     held at the close of the month before, less what those accounts earned.
     /// </summary>
     public bool SegregatedFinance { get; init; }
+
+    /// <summary>
+    ///     A class below the senior requires each class below it as a percentage of its own adjusted
+    ///     amount, as a senior tranche does, rather than of the part of it the classes above do not
+    ///     claim. The percentage may then exceed 100: a Class B that requires 133.33333% of itself in
+    ///     Class C. Absent is false.
+    /// </summary>
+    public bool RequiredOnOwnAmount { get; init; }
 }
 
 /// <summary>One program's rules: everything the series of a trust have in common.</summary>

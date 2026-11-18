@@ -367,8 +367,12 @@ internal static class RevolvingValidator
                 throw new RevolvingConfigException(
                     $"Series '{series.Name}' requires subordination of class '{junior}', which is not junior to it.");
 
+        // On its own amount a middle class may require more than itself (133.33333% of Class B in C).
         foreach (var (junior, pct) in series.RequiredSubordination)
-            RequirePercent($"Series '{series.Name}' requiredSubordination of class '{junior}'", pct);
+            if (notes.RequiredOnOwnAmount && rank > 0)
+                RequireAmount($"Series '{series.Name}' requiredSubordination of class '{junior}'", pct);
+            else
+                RequirePercent($"Series '{series.Name}' requiredSubordination of class '{junior}'", pct);
 
         foreach (var (junior, amount) in series.Usage)
         {

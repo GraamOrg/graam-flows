@@ -92,6 +92,12 @@ public class RevolvingDelinkedDto
     public List<string>? ClassOrder { get; set; }
 
     public bool SegregatedFinance { get; set; }
+
+    /// <summary>
+    ///     A class below the senior requires each class below it as a percentage of its own amount,
+    ///     which may exceed 100, rather than of the part the classes above do not claim. Absent is false.
+    /// </summary>
+    public bool RequiredOnOwnAmount { get; set; }
 }
 
 public class RevolvingStepDto
