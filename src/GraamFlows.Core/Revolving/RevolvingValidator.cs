@@ -35,6 +35,17 @@ internal static class RevolvingValidator
 
         if (program.Delinked != null)
             RequireOneNoteHistory(run.Series);
+        if (program.Delinked is { TransferorClass: { } transferor })
+            RequireOneTransferorTranche(program.Name, transferor, run.Series);
+    }
+
+    /// <summary>A subordinated transferor amount is one amount, so the run has one tranche of it.</summary>
+    private static void RequireOneTransferorTranche(string program, string key, IReadOnlyList<RevolvingSeries> tranches)
+    {
+        var count = tranches.Count(t => t.Classes.Any(c => c.Key == key));
+        if (count != 1)
+            throw new RevolvingConfigException(
+                $"Program '{program}': delinked.transferorClass '{key}' must be one tranche of the run, and {count} are.");
     }
 
     /// <summary>The tests read the whole note series, so one history stands for every tranche.</summary>
@@ -304,6 +315,13 @@ internal static class RevolvingValidator
         if (program.PrincipalSteps.All(s => s.Verb != WaterfallVerb.DepositPfa))
             throw new RevolvingConfigException(
                 $"Program '{name}' has no DEPOSIT_PFA step, and a tranche is paid only through its funding account.");
+
+        // It follows what the classes above require of it, so it has some above it and none below.
+        if (notes.TransferorClass is { } transferor
+            && (notes.ClassOrder.Count < 2 || notes.ClassOrder[^1] != transferor))
+            throw new RevolvingConfigException(
+                $"Program '{name}': delinked.transferorClass '{transferor}' must be the last class of "
+                + "delinked.classOrder, below a class that requires it.");
 
         RequireLastStep(name, "finance", program.FinanceSteps, WaterfallVerb.ShareExcess);
         RequireLastStep(name, "principal", program.PrincipalSteps, WaterfallVerb.SharePrincipal);

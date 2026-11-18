@@ -393,6 +393,7 @@ public static class RevolvingEngine
             Subordination.AllocateCharges(notes, uncovered);
 
             NoteWaterfall.RunPrincipal(notes, _program.PrincipalSteps, dates.DistributionDate);
+            notes.TransferorClassReleased = Subordination.FollowSeniors(notes);
             return notes;
         }
 
@@ -414,6 +415,20 @@ public static class RevolvingEngine
             var netLoss = RevolvingMetrics.MonthlyAnnualizedPct(investorDefault, numerator);
             var coupon = RevolvingMetrics.WeightedCouponPct(notes.Tranches.SelectMany(s => s.Classes));
             var servicing = RevolvingMetrics.FeePct(notes.Tranches);
+            double? rateBasis = null;
+            if (notes.Notes.RatesOnNumeratorAndFunding)
+            {
+                // Every rate is the month's dollars times 12 over the numerator plus what the funding
+                // accounts held when it was taken, which is the invested amount at that date.
+                var basis = numerator + live.Sum(s => s.PriorFunding);
+                rateBasis = basis;
+                financeYield = RevolvingMetrics.MonthlyAnnualizedPct(finance + interestAccountEarnings, basis);
+                netLoss = RevolvingMetrics.MonthlyAnnualizedPct(investorDefault, basis);
+                coupon = RevolvingMetrics.MonthlyAnnualizedPct(
+                    notes.Tranches.Sum(s => s.Classes[0].InterestAccrued), basis);
+                servicing = RevolvingMetrics.MonthlyAnnualizedPct(notes.Tranches.Sum(s => s.FeesAccrued), basis);
+            }
+
             return new NotePeriod
             {
                 Numerator = numerator,
@@ -434,7 +449,9 @@ public static class RevolvingEngine
                 PortfolioYieldPct = financeYield - netLoss,
                 CouponPct = coupon,
                 BaseRatePct = coupon + servicing,
-                ExcessSpreadPct = financeYield - netLoss - coupon - servicing
+                ExcessSpreadPct = financeYield - netLoss - coupon - servicing,
+                RateBasis = rateBasis,
+                TransferorClassReleased = notes.Notes.TransferorClass == null ? null : notes.TransferorClassReleased
             };
         }
 

@@ -98,6 +98,19 @@ public class RevolvingDelinkedDto
     ///     which may exceed 100, rather than of the part the classes above do not claim. Absent is false.
     /// </summary>
     public bool RequiredOnOwnAmount { get; set; }
+
+    /// <summary>
+    ///     The last class, where it is a subordinated transferor amount: each month it is reset to what
+    ///     the classes above require of it, the difference going to or from the transferor with no
+    ///     cash moving, until its tranche leaves revolving. Absent is none.
+    /// </summary>
+    public string? TransferorClass { get; set; }
+
+    /// <summary>
+    ///     The note series' rates are the month's dollars times 12 over the floating numerator plus the
+    ///     funding account balances at its date. Absent is false.
+    /// </summary>
+    public bool RatesOnNumeratorAndFunding { get; set; }
 }
 
 public class RevolvingStepDto
@@ -482,6 +495,15 @@ public class RevolvingNotesDto
     public double CouponPct { get; set; }
     public double BaseRatePct { get; set; }
     public double ExcessSpreadPct { get; set; }
+
+    /// <summary>What every rate divides by, under ratesOnNumeratorAndFunding. Absent otherwise.</summary>
+    public double? RateBasis { get; set; }
+
+    /// <summary>
+    ///     What the transferor class gave back to the transferor, no cash moving; below zero is what it
+    ///     took. Absent without a transferorClass.
+    /// </summary>
+    public double? TransferorClassReleased { get; set; }
 }
 
 /// <summary>What a de-linked tranche did in the month.</summary>
