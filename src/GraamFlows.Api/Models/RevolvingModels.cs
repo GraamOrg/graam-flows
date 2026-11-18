@@ -42,6 +42,13 @@ public class RevolvingRequest
     ///     or forecast, which is the month after <see cref="StatementDate" />.
     /// </summary>
     public Dictionary<string, List<double[]>>? MarketRates { get; set; }
+
+    /// <summary>
+    ///     What the pool is made of. Absent is the card pool: <see cref="PoolBalance" />, the drivers
+    ///     and the actual periods above. An installment pool runs on <c>/api/revolving/pool</c> until
+    ///     series allocate on it.
+    /// </summary>
+    public RevolvingPoolDto? Pool { get; set; }
 }
 
 public class RevolvingProgramDto

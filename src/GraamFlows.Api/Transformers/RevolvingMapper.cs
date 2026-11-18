@@ -14,6 +14,7 @@ public static class RevolvingMapper
 {
     public static RevolvingRun ToRun(RevolvingRequest request)
     {
+        InstallmentPoolMapper.RequireCardPool(request.Pool);
         var actuals = (request.ActualPeriods ?? new List<ActualPeriodDto>()).Select(ToActual).ToList();
         var pool = request.PoolBalance
                    ?? throw new RevolvingConfigException("The request states no poolBalance.");
