@@ -52,6 +52,31 @@ public class RevolvingController : ControllerBase
     }
 
     /// <summary>
+    ///     An installment pool alone, with no series: its monthly roll and its present value at each
+    ///     discount rate. A revolving run needs at least one series and a whole program, and no series
+    ///     allocates on an installment pool yet, so the pool runs here until one does.
+    /// </summary>
+    [HttpPost("pool")]
+    public ActionResult<RevolvingPoolResponse> Pool([FromBody] RevolvingPoolRequest request)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("Revolving pool: {Model}, {Periods} periods", request.Pool?.Model, request.Periods);
+
+        try
+        {
+            var result = InstallmentPoolLedger.Run(InstallmentPoolMapper.ToRun(request));
+            var response = InstallmentPoolMapper.ToResponse(result);
+            response.ElapsedMs = stopwatch.ElapsedMilliseconds;
+            return Ok(response);
+        }
+        catch (ArgumentException refused)
+        {
+            _logger.LogWarning("Revolving pool refused: {Reason}", refused.Message);
+            return BadRequest(new { error = refused.Message });
+        }
+    }
+
+    /// <summary>
     ///     A floating class needs a curve the caller supplied. The engine assumes no rate. Offset 0 is
     ///     the run's first month, as on the other endpoints: the month after the statement date.
     /// </summary>
