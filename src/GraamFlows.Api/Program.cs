@@ -1,6 +1,5 @@
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using GraamFlows.Api.Json;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,15 +16,7 @@ builder.Services.AddRequestDecompression();
 
 // Add services to the container
 builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-        // Allow Infinity/NaN values (can occur with CDR=0 edge cases)
-        options.JsonSerializerOptions.NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals;
-    });
+    .AddJsonOptions(options => ApiJson.Configure(options.JsonSerializerOptions));
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -73,7 +64,7 @@ app.Use(async (context, next) =>
         if (body.Contains('_'))
         {
             var named = context.Request.Path.StartsWithSegments("/api/revolving") ? RevolvingNamedFields : null;
-            var normalized = NormalizeJsonKeys(body, named);
+            var normalized = ApiJson.NormalizeKeys(body, named);
             var bytes = Encoding.UTF8.GetBytes(normalized);
             context.Request.Body = new MemoryStream(bytes);
             context.Request.ContentLength = bytes.Length;
@@ -90,85 +81,6 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = Dat
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "5200";
 app.Run($"http://0.0.0.0:{port}");
-
-/// <summary>
-/// Recursively converts all JSON object keys from snake_case to camelCase.
-/// Values (strings, dates, enum values) are left untouched.
-/// </summary>
-/// <param name="json">the request body.</param>
-/// <param name="named">fields whose own keys are names the caller chose, such as a fee's, so they are data.</param>
-static string NormalizeJsonKeys(string json, IReadOnlySet<string>? named = null)
-{
-    try
-    {
-        using var doc = JsonDocument.Parse(json);
-        using var ms = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(ms))
-        {
-            NormalizeElement(doc.RootElement, writer, named);
-        }
-
-        return Encoding.UTF8.GetString(ms.ToArray());
-    }
-    catch
-    {
-        // If parsing fails, return original body unchanged
-        return json;
-    }
-}
-
-static void NormalizeElement(JsonElement element, Utf8JsonWriter writer, IReadOnlySet<string>? named, bool keepKeys = false)
-{
-    switch (element.ValueKind)
-    {
-        case JsonValueKind.Object:
-            writer.WriteStartObject();
-            foreach (var prop in element.EnumerateObject())
-            {
-                var name = keepKeys ? prop.Name : SnakeToCamel(prop.Name);
-                writer.WritePropertyName(name);
-                NormalizeElement(prop.Value, writer, named, !keepKeys && named?.Contains(name) == true);
-            }
-
-            writer.WriteEndObject();
-            break;
-
-        case JsonValueKind.Array:
-            writer.WriteStartArray();
-            foreach (var item in element.EnumerateArray())
-                NormalizeElement(item, writer, named);
-            writer.WriteEndArray();
-            break;
-
-        default:
-            element.WriteTo(writer);
-            break;
-    }
-}
-
-static string SnakeToCamel(string name)
-{
-    if (!name.Contains('_'))
-        return name; // Already camelCase or single word — no change
-
-    var sb = new StringBuilder(name.Length);
-    var capitalizeNext = false;
-    for (var i = 0; i < name.Length; i++)
-    {
-        var c = name[i];
-        if (c == '_')
-        {
-            capitalizeNext = true;
-        }
-        else
-        {
-            sb.Append(capitalizeNext ? char.ToUpperInvariant(c) : c);
-            capitalizeNext = false;
-        }
-    }
-
-    return sb.ToString();
-}
 
 public partial class Program
 {

@@ -12,6 +12,15 @@ public class RunOptions
     public FileInfo? FactorsFile { get; set; }
     public bool Verbose { get; set; }
 
+    /// <summary>A run file's scenario, by name or 1-based position (default: the first).</summary>
+    public string? Scenario { get; set; }
+
+    /// <summary>Which of Cpr/Cdr/Sev/Dq were given on the command line (a run file keeps its own otherwise).</summary>
+    public bool CprStated { get; set; }
+    public bool CdrStated { get; set; }
+    public bool SevStated { get; set; }
+    public bool DqStated { get; set; }
+
     // Collateral overrides
     public double? CollatBal { get; set; }
     public double? Wac { get; set; }
@@ -38,6 +47,9 @@ public class WalTestsOptions
     public required FileInfo DealModelFile { get; set; }
     public FileInfo? OutputFile { get; set; }
     public double Threshold { get; set; } = 0.10;
+
+    /// <summary>Whether --threshold was given; a run file states its own tolerance otherwise.</summary>
+    public bool ThresholdStated { get; set; }
     public double? AbsPct { get; set; }  // Single ABS% to run (null = run all)
     public bool Verbose { get; set; }
 
