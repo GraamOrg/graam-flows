@@ -65,8 +65,13 @@ public static class RunCommand
             name: "--term",
             description: "Override collateral term (months)");
 
-        var command = new Command("run", "Run waterfall execution on a deal model")
+        var scenarioOption = new Option<string?>(
+            name: "--scenario",
+            description: "Run file only: the scenario to run, by name or 1-based position (default: the first)");
+
+        var command = new Command("run", "Run waterfall execution on a deal model or a run file")
         {
+            scenarioOption,
             dealModelArg,
             outputOption,
             cprOption,
@@ -88,6 +93,11 @@ public static class RunCommand
                 DealModelFile = context.ParseResult.GetValueForArgument(dealModelArg),
                 OutputFile = context.ParseResult.GetValueForOption(outputOption),
                 Cpr = context.ParseResult.GetValueForOption(cprOption),
+                CprStated = context.ParseResult.FindResultFor(cprOption) is { IsImplicit: false },
+                CdrStated = context.ParseResult.FindResultFor(cdrOption) is { IsImplicit: false },
+                SevStated = context.ParseResult.FindResultFor(sevOption) is { IsImplicit: false },
+                DqStated = context.ParseResult.FindResultFor(dqOption) is { IsImplicit: false },
+                Scenario = context.ParseResult.GetValueForOption(scenarioOption),
                 Cdr = context.ParseResult.GetValueForOption(cdrOption),
                 Sev = context.ParseResult.GetValueForOption(sevOption),
                 Dq = context.ParseResult.GetValueForOption(dqOption),
@@ -117,6 +127,12 @@ public static class RunCommand
                 Console.Error.WriteLine($"Error: Deal model file not found: {options.DealModelFile.FullName}");
                 return 1;
             }
+
+            if (RunFile.IsRunFile(await File.ReadAllTextAsync(options.DealModelFile.FullName)))
+                return await RunFileCommands.RunAsync(options.DealModelFile, options.Scenario,
+                    options.CprStated ? options.Cpr : null, options.CdrStated ? options.Cdr : null,
+                    options.SevStated ? options.Sev : null, options.DqStated ? options.Dq : null,
+                    options.OutputFile, options.Verbose);
 
             if (options.Verbose)
             {

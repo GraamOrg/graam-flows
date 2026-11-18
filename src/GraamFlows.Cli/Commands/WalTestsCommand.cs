@@ -50,6 +50,7 @@ public static class WalTestsCommand
                 DealModelFile = context.ParseResult.GetValueForArgument(dealModelArg),
                 OutputFile = context.ParseResult.GetValueForOption(outputOption),
                 Threshold = context.ParseResult.GetValueForOption(thresholdOption),
+                ThresholdStated = context.ParseResult.FindResultFor(thresholdOption) is { IsImplicit: false },
                 AbsPct = context.ParseResult.GetValueForOption(absOption),
                 Verbose = context.ParseResult.GetValueForOption(verboseOption)
             };
@@ -72,6 +73,12 @@ public static class WalTestsCommand
                 Console.Error.WriteLine($"Error: Deal model file not found: {options.DealModelFile.FullName}");
                 return 1;
             }
+
+            // A run file is the requests a caller sent the API: run those, rather than rebuilding a
+            // deal model's collateral and structure here.
+            if (RunFile.IsRunFile(await File.ReadAllTextAsync(options.DealModelFile.FullName)))
+                return await RunFileCommands.WalTestsAsync(options.DealModelFile,
+                    options.ThresholdStated ? options.Threshold : null, options.OutputFile, options.Verbose);
 
             if (options.Verbose)
                 Console.WriteLine($"Loading deal model: {options.DealModelFile.FullName}");
@@ -97,6 +104,14 @@ public static class WalTestsCommand
             }
 
             var scenarioCount = dealModel.WalScenarios.ToScenarioEntries().Count;
+            if (scenarioCount == 0)
+            {
+                // The grid is read from walToCall. A table published to maturity only used to reach
+                // the report with no results and fail inside it on a 0/0 RMSE.
+                Console.Error.WriteLine("Error: walScenarios has no walToCall values to validate " +
+                                        "(a table published to maturity only is not read by this command).");
+                return 1;
+            }
             if (options.Verbose)
                 Console.WriteLine($"Found {scenarioCount} WAL scenarios to validate ({dealModel.WalScenarios.Tranches.Count} tranches x {dealModel.WalScenarios.AbsPercentages.Count} ABS%)");
 

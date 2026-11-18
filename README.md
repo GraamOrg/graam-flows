@@ -104,6 +104,45 @@ two runs of the same file on different days give the same answer. Three fields d
 | `walScenarios.assumptions.prepaymentType` | `CPR` (% of current balance — the default, and what RMBS decrement tables are struck in) or `ABS` (% of original balance, the auto-ABS convention). |
 | `walScenarios.assumptions.callTriggers` | Names of the triggers the "to redemption date" column is struck to; the run stops at whichever fires first. Omitted, a dated `DATE_TERMINATION` redemption is used when the deal declares one, else the `COLLATERAL_VALUE` clean-up. |
 
+#### Run files
+
+Both commands also take a **run file**: the exact requests a caller sent this engine's HTTP API
+for one deal, so a local run is the same run rather than a rebuild of it. The CLI binds each body
+the way the API does (snake_case keys rewritten, the API's JSON options) and passes it through the
+`CalcCollateral` and `Waterfall` controllers in-process, then fills the waterfall's
+`collateralCashflows` from the collateral response, as the caller did.
+
+```jsonc
+{
+  "graamflowsRun": 1,
+  "dealName": "…", "collateralDate": "2026-10-19",
+  "calcCollateral": { /* POST /api/CalcCollateral body shared by every scenario */ },
+  "waterfall":      { /* POST /api/Waterfall body, without collateralCashflows */ },
+  "walField": "balanceWal", "walTolerance": 0.15, "walDiffDecimals": 3,
+  "scenarios": [{
+    "name": "walToMaturity 25 CPY", "basis": "walToMaturity", "speed": 25, "prepaymentType": "CPY",
+    "calcCollateral": { /* top-level keys that differ, e.g. assumptions */ },
+    "waterfall":      { /* e.g. triggerForecasts */ },
+    "collateralAdjustments": [{ "row": 9, "add": { "interest": 1250.0 } }],  // optional
+    "expectedWal":  { "A1": 2.81 },   // published, scored at walTolerance
+    "referenceWal": { "A1": 2.8397 }  // what the caller's own run of this request reported
+  }]
+}
+```
+
+```sh
+# every scenario: published cells within the tolerance, and the caller's run reproduced (0.001y)
+dotnet run --project src/GraamFlows.Cli -- wal-tests path/to/run.json
+
+# one scenario's cashflows to Excel; --cpr/--cdr/--sev/--dq replace its deal-level speeds
+dotnet run --project src/GraamFlows.Cli -- run path/to/run.json --scenario "walToMaturity 25 CPY"
+```
+
+`collateralAdjustments` are amounts the caller added to the engine's collateral rows between the
+two calls; a scenario whose caller changed the rows in any other way carries the rows themselves
+as `collateralCashflows`, and they are distributed as given. `--cpr` is refused on a scenario that
+sets a speed per asset, since those vectors were derived from the scenario's own speed.
+
 ## API usage
 
 ### Collateral projection
