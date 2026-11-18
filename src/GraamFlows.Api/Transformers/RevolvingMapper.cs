@@ -150,7 +150,8 @@ public static class RevolvingMapper
                 : new DelinkedNotes
                 {
                     ClassOrder = dto.Delinked.ClassOrder ?? new List<string>(),
-                    SegregatedFinance = dto.Delinked.SegregatedFinance
+                    SegregatedFinance = dto.Delinked.SegregatedFinance,
+                    RequiredOnOwnAmount = dto.Delinked.RequiredOnOwnAmount
                 }
         };
     }
