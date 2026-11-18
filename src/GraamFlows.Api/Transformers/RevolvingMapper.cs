@@ -151,7 +151,9 @@ public static class RevolvingMapper
                 {
                     ClassOrder = dto.Delinked.ClassOrder ?? new List<string>(),
                     SegregatedFinance = dto.Delinked.SegregatedFinance,
-                    RequiredOnOwnAmount = dto.Delinked.RequiredOnOwnAmount
+                    RequiredOnOwnAmount = dto.Delinked.RequiredOnOwnAmount,
+                    TransferorClass = dto.Delinked.TransferorClass,
+                    RatesOnNumeratorAndFunding = dto.Delinked.RatesOnNumeratorAndFunding
                 }
         };
     }
@@ -400,7 +402,9 @@ public static class RevolvingMapper
                     PortfolioYieldPct = n.PortfolioYieldPct,
                     CouponPct = n.CouponPct,
                     BaseRatePct = n.BaseRatePct,
-                    ExcessSpreadPct = n.ExcessSpreadPct
+                    ExcessSpreadPct = n.ExcessSpreadPct,
+                    RateBasis = n.RateBasis,
+                    TransferorClassReleased = n.TransferorClassReleased
                 }
                 : null
         };

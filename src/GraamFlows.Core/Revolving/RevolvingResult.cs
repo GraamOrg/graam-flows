@@ -135,6 +135,19 @@ public sealed record NotePeriod
     public double CouponPct { get; init; }
     public double BaseRatePct { get; init; }
     public double ExcessSpreadPct { get; init; }
+
+    /// <summary>
+    ///     Under <see cref="DelinkedNotes.RatesOnNumeratorAndFunding" />, what every rate divides the
+    ///     month's dollars times 12 by: the numerator plus the funding accounts at its date. Null otherwise.
+    /// </summary>
+    public double? RateBasis { get; init; }
+
+    /// <summary>
+    ///     Under <see cref="DelinkedNotes.TransferorClass" />, what that class gave back to the
+    ///     transferor as the month closed, no cash moving. Less than zero is what it took from the
+    ///     transferor. Null otherwise.
+    /// </summary>
+    public double? TransferorClassReleased { get; init; }
 }
 
 /// <summary>Minimum pool or transferor test. It is reported every month and never trips.</summary>

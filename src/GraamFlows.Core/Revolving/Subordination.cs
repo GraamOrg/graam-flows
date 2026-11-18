@@ -20,7 +20,8 @@ internal static class Subordination
 
     /// <summary>Sets every tranche's required amounts from the adjusted amounts given.</summary>
     /// <param name="adjusted">a tranche's adjusted amount. Zero takes it out of the sums.</param>
-    public static void Measure(NoteMonth month, Func<SeriesRun, double> adjusted)
+    /// <returns>what the classes above claim of each class, all told.</returns>
+    public static IReadOnlyDictionary<string, double> Measure(NoteMonth month, Func<SeriesRun, double> adjusted)
     {
         var order = month.Notes.ClassOrder;
         var onOwn = month.Notes.RequiredOnOwnAmount;
@@ -56,6 +57,34 @@ internal static class Subordination
             foreach (var (junior, amount) in added)
                 claims[junior] = claims.GetValueOrDefault(junior) + amount;
         }
+
+        return claims;
+    }
+
+    /// <summary>
+    ///     A subordinated transferor amount follows its seniors: as the month closes, its stated amount
+    ///     becomes what the classes above require of it on their amounts at the close, so it falls as
+    ///     they deposit and pay, and rises as a tranche joins. The difference is the transferor's, and
+    ///     no cash moves. What it has written down stays written down, except past an amount it no
+    ///     longer has. Once its tranche has left revolving it holds.
+    /// </summary>
+    /// <returns>what went back to the transferor; less than zero is what came from it.</returns>
+    public static double FollowSeniors(NoteMonth month)
+    {
+        if (month.Notes.TransferorClass is not { } key)
+            return 0.0;
+
+        // The validator allows one tranche of the class in a run.
+        var tranche = month.OfClass(key).SingleOrDefault();
+        if (tranche is not { Phase: SeriesPhase.Revolving })
+            return 0.0;
+
+        var required = Measure(month, t => t.AdjustedInvested).GetValueOrDefault(key);
+        var amount = tranche.Classes[0];
+        var released = amount.Outstanding - required;
+        amount.Outstanding = required;
+        amount.WrittenDown = Math.Min(amount.WrittenDown, required);
+        return released;
     }
 
     public static double Unused(SeriesRun t, string junior)

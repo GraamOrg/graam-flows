@@ -242,6 +242,27 @@ public sealed record DelinkedNotes
     ///     Class C. Absent is false.
     /// </summary>
     public bool RequiredOnOwnAmount { get; init; }
+
+    /// <summary>
+    ///     The last class of <see cref="ClassOrder" />, where it is a subordinated transferor amount
+    ///     rather than notes: its amount is whatever the classes above require of it. As each month
+    ///     closes its stated amount is reset to their required amounts, measured on their amounts at
+    ///     the close, and the difference goes back to the transferor, or comes from it, with no cash
+    ///     moving. It still absorbs charges as a junior class does, and what it has written down stays
+    ///     written down. Once its tranche has left revolving, in early amortization, it is no longer
+    ///     reset. Null is none: every class keeps its stated amount.
+    /// </summary>
+    public string? TransferorClass { get; init; }
+
+    /// <summary>
+    ///     The note series' rates are the month's dollars times 12 over the floating numerator plus
+    ///     what the tranches' funding accounts held when that numerator was taken: finance yield and
+    ///     net loss on the finance and default allocated, coupon on the class interest accrued, and the
+    ///     fee on the fees accrued. The excess spread its tests read is the same rates' difference.
+    ///     False annualizes finance on the period's days over the numerator alone, and takes the
+    ///     weighted coupon and the stated fee rate.
+    /// </summary>
+    public bool RatesOnNumeratorAndFunding { get; init; }
 }
 
 /// <summary>One program's rules: everything the series of a trust have in common.</summary>

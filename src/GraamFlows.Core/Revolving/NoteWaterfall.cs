@@ -40,6 +40,12 @@ internal sealed class NoteMonth
     /// <summary>The ceiling on that: the principal allocable to the junior classes this month.</summary>
     public double JuniorPrincipalLeft { get; set; }
 
+    /// <summary>
+    ///     What a subordinated transferor amount gave back to the transferor as the month closed, no
+    ///     cash moving. Less than zero is what it took from the transferor.
+    /// </summary>
+    public double TransferorClassReleased { get; set; }
+
     public IEnumerable<SeriesRun> OfClass(string key)
     {
         return Tranches.Where(t => t.ClassKey == key);
