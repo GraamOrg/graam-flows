@@ -439,16 +439,17 @@ public class InstallmentPoolTests
     }
 
     [Fact]
-    public void ADuplicateOrNegativeDiscountRateIsRefused()
+    public void ARepeatedDiscountRateIsValuedOnceAndANegativeOneIsRefused()
     {
+        // Several series of one pool can share a rate.
         var run = new InstallmentPoolRun
         {
             StatementDate = Statement, Periods = 1, Cohorts = Opening, Drivers = Drivers(),
-            DiscountRates = new[] { 0.09, 0.09 }
+            DiscountRates = new[] { 0.09, 0.07, 0.09 }
         };
 
-        var twice = () => InstallmentPoolLedger.Run(run);
-        twice.Should().Throw<RevolvingConfigException>().WithMessage("*twice*");
+        var valuations = InstallmentPoolLedger.Run(run).Periods[0].Valuations;
+        valuations.Select(v => v.Rate).Should().Equal(0.09, 0.07);
         var negative = () => InstallmentPoolLedger.Run(run with { DiscountRates = new[] { -0.01 } });
         negative.Should().Throw<RevolvingConfigException>().WithMessage("*at least 0%*");
     }

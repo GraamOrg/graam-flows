@@ -20,13 +20,9 @@ internal static class InstallmentPoolValidator
         for (var i = 0; i < run.Cohorts.Count; i++)
             ValidateCohort($"pool.cohorts[{i}]", run.Cohorts[i]);
 
-        var rates = new HashSet<double>();
+        // Several series of one pool can share a rate: a repeated rate is valued once.
         foreach (var rate in run.DiscountRates)
-        {
             RequireRate("pool.discountRates", rate);
-            if (!rates.Add(rate))
-                throw new RevolvingConfigException($"pool.discountRates lists {rate * 100.0}% twice.");
-        }
 
         if (run.ActualPeriods.Count > run.Periods)
             throw new RevolvingConfigException(

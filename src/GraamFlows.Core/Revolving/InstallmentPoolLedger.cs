@@ -91,7 +91,8 @@ public static class InstallmentPoolLedger
         public Loop(InstallmentPoolRun run)
         {
             _run = run;
-            _rates = run.DiscountRates;
+            // One valuation per distinct rate, in the order first listed.
+            _rates = run.DiscountRates.Distinct().ToList();
             _pool = run.Cohorts.Select(c => new Cohort
             {
                 Name = c.Name,
