@@ -84,7 +84,7 @@ internal static class InstallmentPoolValidator
             ValidatePrice($"{name}.price", price);
     }
 
-    private static void ValidatePrice(string name, InstallmentPrice price)
+    internal static void ValidatePrice(string name, InstallmentPrice price)
     {
         if ((price.PerFace == null) == (price.PvRate == null))
             throw new RevolvingConfigException($"{name} must state percentOfFace or pvRate, not both.");
@@ -131,6 +131,8 @@ internal static class InstallmentPoolValidator
             {
                 if (term.Term < 1)
                     throw new RevolvingConfigException($"drivers.reinvest has a term of {term.Term} months.");
+                if (term.Age < 0)
+                    throw new RevolvingConfigException($"drivers.reinvest term {term.Term} has age {term.Age}.");
                 if (!double.IsFinite(term.Weight) || term.Weight <= 0.0)
                     throw new RevolvingConfigException(
                         $"drivers.reinvest term {term.Term} has weight {term.Weight * 100.0}%. It must be above 0%.");
@@ -186,13 +188,13 @@ internal static class InstallmentPoolValidator
                     $"{name} has {value * 100.0}%. A rate must be from 0% to 100%.");
     }
 
-    private static void RequireRate(string name, double rate)
+    internal static void RequireRate(string name, double rate)
     {
         if (!double.IsFinite(rate) || rate < 0.0)
             throw new RevolvingConfigException($"{name} is {rate * 100.0}%. A discount rate must be at least 0%.");
     }
 
-    private static void RequireAmount(string name, double amount)
+    internal static void RequireAmount(string name, double amount)
     {
         if (!double.IsFinite(amount) || amount < 0.0)
             throw new RevolvingConfigException($"{name} is {amount}. It must be a finite amount of at least 0.");

@@ -30,6 +30,104 @@ public static class InstallmentPoolLedger
         return new Loop(run).Execute();
     }
 
+    /// <summary>
+    ///     The same roll one month at a time, for a trust whose purchases depend on its waterfall: it
+    ///     rolls a month, reads the pool before the month's purchases, and then closes the month with
+    ///     them. <see cref="Run" /> is this, with each month's stated purchases and nothing else.
+    /// </summary>
+    internal static Stepper Step(InstallmentPoolRun run)
+    {
+        InstallmentPoolValidator.Validate(run);
+        return new Stepper(new Loop(run));
+    }
+
+    /// <summary>A month rolled and not yet closed: its purchases have not joined.</summary>
+    internal sealed class PoolMonth
+    {
+        internal PoolMonth(RevolvingPeriodDates dates, bool replayed, double beginningFace,
+            IReadOnlyList<Opening> opened, Removals removed, double scheduledCollections, double repurchaseCash,
+            IReadOnlyList<InstallmentPurchase> purchases, double? printedBeginning, double? printedEnding)
+        {
+            Dates = dates;
+            Replayed = replayed;
+            BeginningFace = beginningFace;
+            Opened = opened;
+            Removed = removed;
+            ScheduledCollections = scheduledCollections;
+            RepurchaseCash = repurchaseCash;
+            Purchases = purchases;
+            PrintedBeginning = printedBeginning;
+            PrintedEnding = printedEnding;
+        }
+
+        public RevolvingPeriodDates Dates { get; }
+        public bool Replayed { get; }
+        public double BeginningFace { get; }
+        internal IReadOnlyList<Opening> Opened { get; }
+        internal Removals Removed { get; }
+        public double ScheduledCollections { get; }
+        public double RepurchaseCash { get; }
+
+        /// <summary>The month's own purchases: a replayed month's printed additions, a forecast month's stated ones.</summary>
+        public IReadOnlyList<InstallmentPurchase> Purchases { get; }
+
+        public double? PrintedBeginning { get; }
+        public double? PrintedEnding { get; }
+
+        /// <summary>The one collections bucket: scheduled, prepaid and upgrades.</summary>
+        public double Collections => ScheduledCollections + Removed.Face[(int)Line.Prepaid]
+                                                          + Removed.Face[(int)Line.Upgrades];
+
+        public double WriteOffs => Removed.Face[(int)Line.WriteOffs];
+    }
+
+    /// <summary>The roll, a month at a time.</summary>
+    internal sealed class Stepper
+    {
+        private readonly Loop _loop;
+
+        internal Stepper(Loop loop)
+        {
+            _loop = loop;
+        }
+
+        /// <summary>Face of the pool as it stands: before a rolled month's purchases join.</summary>
+        public double Face => _loop.LiveFace();
+
+        /// <summary>Present value of the pool as it stands, at an annual rate as a fraction.</summary>
+        public double Value(double rate)
+        {
+            return _loop.LiveValue(rate);
+        }
+
+        public PoolMonth Roll(RevolvingPeriodDates dates)
+        {
+            return _loop.Roll(dates);
+        }
+
+        /// <summary>Closes a rolled month with its own purchases and <paramref name="more" />.</summary>
+        public InstallmentPoolPeriod Close(PoolMonth month, IEnumerable<InstallmentPurchase> more)
+        {
+            return _loop.CloseMonth(month, month.Purchases.Concat(more).ToList());
+        }
+
+        public IReadOnlyList<InstallmentCohort> Closing()
+        {
+            return _loop.ClosingCohorts();
+        }
+
+        public IReadOnlyList<string> Disclosures()
+        {
+            return _loop.RunDisclosures();
+        }
+
+        /// <summary>Removes the whole pool, as when the receivables leave the trust.</summary>
+        public void Transfer()
+        {
+            _loop.Clear();
+        }
+    }
+
     /// <summary>A cohort as the run holds it: the stated schedule, how far it has run, and what survives of it.</summary>
     private sealed class Cohort
     {
@@ -72,7 +170,7 @@ public static class InstallmentPoolLedger
     }
 
     /// <summary>What one cohort holds as the month opens, at each discount rate.</summary>
-    private sealed record Opening(double Face, double Due, double[] Values)
+    internal sealed record Opening(double Face, double Due, double[] Values)
     {
         /// <summary>The value at the month's close of the whole opening schedule: what falls due counts in full.</summary>
         public double AtClose(int rate, IReadOnlyList<double> rates)
@@ -81,7 +179,7 @@ public static class InstallmentPoolLedger
         }
     }
 
-    private sealed class Loop
+    internal sealed class Loop
     {
         private readonly InstallmentPoolRun _run;
         private readonly IReadOnlyList<double> _rates;
@@ -105,19 +203,58 @@ public static class InstallmentPoolLedger
         {
             foreach (var dates in RevolvingCalendar.Build(_run.StatementDate, 15, _run.Periods))
             {
-                var replayed = dates.Period < _run.ActualPeriods.Count;
-                _rows.Add(replayed
-                    ? Replay(dates, _run.ActualPeriods[dates.Period])
-                    : Forecast(dates, dates.Period - _run.ActualPeriods.Count));
-                _pool.RemoveAll(c => c.Done);
+                var month = Roll(dates);
+                _rows.Add(CloseMonth(month, month.Purchases));
             }
 
             return new InstallmentPoolResult
             {
                 Periods = _rows,
-                Closing = _pool.Select(c => c.ToCohort()).ToList(),
+                Closing = ClosingCohorts(),
                 Disclosures = Disclosures()
             };
+        }
+
+        public PoolMonth Roll(RevolvingPeriodDates dates)
+        {
+            return dates.Period < _run.ActualPeriods.Count
+                ? Replay(dates, _run.ActualPeriods[dates.Period])
+                : Forecast(dates, dates.Period - _run.ActualPeriods.Count);
+        }
+
+        public InstallmentPoolPeriod CloseMonth(PoolMonth month, IReadOnlyList<InstallmentPurchase> purchases)
+        {
+            var row = Close(month.Dates, month.Replayed, month.BeginningFace, month.Opened, month.Removed,
+                month.ScheduledCollections, month.RepurchaseCash, purchases, month.PrintedBeginning,
+                month.PrintedEnding);
+            _pool.RemoveAll(c => c.Done);
+            return row;
+        }
+
+        public IReadOnlyList<InstallmentCohort> ClosingCohorts()
+        {
+            return _pool.Select(c => c.ToCohort()).ToList();
+        }
+
+        public IReadOnlyList<string> RunDisclosures()
+        {
+            return Disclosures();
+        }
+
+        /// <summary>Face of the cohorts with a payment left.</summary>
+        public double LiveFace()
+        {
+            return _pool.Where(c => !c.Done).Sum(c => c.Face);
+        }
+
+        public double LiveValue(double rate)
+        {
+            return _pool.Where(c => !c.Done).Sum(c => c.PresentValue(rate));
+        }
+
+        public void Clear()
+        {
+            _pool.Clear();
         }
 
         private Opening Open(Cohort c)
@@ -125,7 +262,7 @@ public static class InstallmentPoolLedger
             return new Opening(c.Face, c.Due, _rates.Select(c.PresentValue).ToArray());
         }
 
-        private InstallmentPoolPeriod Forecast(RevolvingPeriodDates dates, int forecastMonth)
+        private PoolMonth Forecast(RevolvingPeriodDates dates, int forecastMonth)
         {
             var drivers = _run.Drivers!;
             var opened = _pool.Select(Open).ToList();
@@ -178,11 +315,11 @@ public static class InstallmentPoolLedger
                 purchases.AddRange(Reinvestment(reinvest, dates.Period,
                     removed.Due + removed.Face[(int)Line.Prepaid] + removed.Face[(int)Line.Upgrades]));
 
-            return Close(dates, false, beginningFace, opened, removed, removed.Due, repurchaseCash, purchases,
+            return new PoolMonth(dates, false, beginningFace, opened, removed, removed.Due, repurchaseCash, purchases,
                 null, null);
         }
 
-        private InstallmentPoolPeriod Replay(RevolvingPeriodDates dates, InstallmentActual actual)
+        private PoolMonth Replay(RevolvingPeriodDates dates, InstallmentActual actual)
         {
             var opened = _pool.Select(Open).ToList();
             var beginningFace = opened.Sum(o => o.Face);
@@ -248,9 +385,8 @@ public static class InstallmentPoolLedger
             removed.Face[(int)Line.Prepaid] = actual.PrepaidCollections;
             removed.Face[(int)Line.Upgrades] = actual.UpgradeCollections;
 
-            var period = Close(dates, true, beginningFace, opened, removed, actual.ScheduledCollections,
+            return new PoolMonth(dates, true, beginningFace, opened, removed, actual.ScheduledCollections,
                 repurchaseCash, actual.Additions.ToList(), actual.BeginningFace, actual.EndingFace);
-            return period;
         }
 
         private InstallmentPoolPeriod Close(RevolvingPeriodDates dates, bool replayed, double beginningFace,
@@ -325,24 +461,33 @@ public static class InstallmentPoolLedger
         private static IEnumerable<InstallmentPurchase> Reinvestment(InstallmentReinvest reinvest, int period,
             double collections)
         {
-            var cash = reinvest.Share * collections;
-            var perFace = reinvest.Terms.Sum(t =>
-                t.Weight * CashFor(reinvest.Price, 1.0,
+            return Buy(reinvest.Price, reinvest.Terms, $"reinvest-{period}", reinvest.Share * collections);
+        }
+
+        /// <summary>
+        ///     Fresh level contracts that cost <paramref name="cash" /> at a price: the face bought is the
+        ///     cash over the weighted price per dollar of face of the terms.
+        /// </summary>
+        internal static IEnumerable<InstallmentPurchase> Buy(InstallmentPrice price, IReadOnlyList<InstallmentTerm> terms,
+            string name, double cash)
+        {
+            var perFace = terms.Sum(t =>
+                t.Weight * CashFor(price, 1.0,
                     q => InstallmentValuationMath.PresentValue(InstallmentCohort.LevelSchedule(1.0, t.Term), q)));
             if (cash <= 0.0 || perFace <= 0.0)
                 yield break;
 
             var face = cash / perFace;
-            foreach (var term in reinvest.Terms)
+            foreach (var term in terms)
                 yield return new InstallmentPurchase
                 {
                     Cohort = new InstallmentCohort
                     {
-                        Name = $"reinvest-{period}-{term.Term}",
-                        Age = 0,
+                        Name = $"{name}-{term.Term}",
+                        Age = term.Age,
                         Schedule = InstallmentCohort.LevelSchedule(face * term.Weight, term.Term)
                     },
-                    Price = reinvest.Price
+                    Price = price
                 };
         }
 
@@ -368,7 +513,7 @@ public static class InstallmentPoolLedger
         }
     }
 
-    private enum Line
+    internal enum Line
     {
         WriteOffs,
         Repurchases,
@@ -378,7 +523,7 @@ public static class InstallmentPoolLedger
     }
 
     /// <summary>What the month took from the schedule, line by line: face, and value at each rate at the close.</summary>
-    private sealed class Removals
+    internal sealed class Removals
     {
         public Removals(int rates)
         {

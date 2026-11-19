@@ -101,7 +101,9 @@ public sealed record InstallmentCurve(IReadOnlyList<double> Values, bool Annual 
 }
 
 /// <summary>One term of the contracts a reinvestment buys, and its share of the face bought.</summary>
-public sealed record InstallmentTerm(int Term, double Weight);
+/// <param name="Term">remaining payments, months.</param>
+/// <param name="Age">months since origination as the contracts are bought, for the forecast curves. 0 is new.</param>
+public sealed record InstallmentTerm(int Term, double Weight, int Age = 0);
 
 /// <summary>
 ///     Spends a share of each forecast month's collections on fresh level contracts at a price, as a

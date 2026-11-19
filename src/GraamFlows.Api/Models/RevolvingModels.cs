@@ -91,6 +91,12 @@ public class RevolvingProgramDto
 
     /// <summary>Set on a de-linked note series: each series is then one tranche of one class.</summary>
     public RevolvingDelinkedDto? Delinked { get; set; }
+
+    /// <summary>
+    ///     An amortizing owner trust over an installment pool (pool.model INSTALLMENT), with one series
+    ///     whose classes are its notes. Absent is a card program, exactly as before.
+    /// </summary>
+    public OwnerTrustDto? OwnerTrust { get; set; }
 }
 
 public class RevolvingDelinkedDto
@@ -449,6 +455,10 @@ public class RevolvingResponse
     public List<string> Disclosures { get; set; } = new();
 
     public MarketRateResolutionDto? MarketRateResolution { get; set; }
+
+    /// <summary>An owner trust's months, phases and closing. Absent on a card program.</summary>
+    public OwnerTrustResultDto? OwnerTrust { get; set; }
+
     public long ElapsedMs { get; set; }
 }
 

@@ -37,12 +37,18 @@ public static class InstallmentPoolMapper
                 "/api/revolving/pool runs an installment pool: state pool.model INSTALLMENT. A card pool runs on "
                 + "/api/revolving.");
 
+        return ToPoolRun(pool, request.StatementDate, request.Periods);
+    }
+
+    /// <summary>An installment pool as a run: the pool route's, and an owner trust's on /api/revolving.</summary>
+    public static InstallmentPoolRun ToPoolRun(RevolvingPoolDto pool, DateTime statementDate, int? requestedPeriods)
+    {
         var actuals = (pool.ActualPeriods ?? new List<InstallmentActualDto>())
             .Select((a, i) => ToActual($"pool.actualPeriods[{i}]", a)).ToList();
-        var periods = request.Periods ?? actuals.Count;
+        var periods = requestedPeriods ?? actuals.Count;
         return new InstallmentPoolRun
         {
-            StatementDate = request.StatementDate,
+            StatementDate = statementDate,
             Periods = periods,
             Cohorts = (pool.Cohorts ?? new List<InstallmentCohortDto>())
                 .Select((c, i) => ToOpeningCohort($"pool.cohorts[{i}]", c)).ToList(),
@@ -59,14 +65,19 @@ public static class InstallmentPoolMapper
         return new RevolvingPoolResponse
         {
             Periods = result.Periods.Select(ToDto).ToList(),
-            Closing = result.Closing.Select(c => new InstallmentCohortDto
-            {
-                Name = c.Name,
-                Age = c.Age,
-                Schedule = c.Schedule.ToArray()
-            }).ToList(),
+            Closing = ToCohortDtos(result.Closing),
             Disclosures = result.Disclosures.ToList()
         };
+    }
+
+    public static List<InstallmentCohortDto> ToCohortDtos(IEnumerable<InstallmentCohort> cohorts)
+    {
+        return cohorts.Select(c => new InstallmentCohortDto
+        {
+            Name = c.Name,
+            Age = c.Age,
+            Schedule = c.Schedule.ToArray()
+        }).ToList();
     }
 
     /// <summary>An opening cohort states its schedule: the engine never derives one from a term.</summary>
@@ -110,7 +121,7 @@ public static class InstallmentPoolMapper
         };
     }
 
-    private static InstallmentPrice ToPrice(string name, InstallmentPriceDto dto)
+    internal static InstallmentPrice ToPrice(string name, InstallmentPriceDto dto)
     {
         if ((dto.PercentOfFace == null) == (dto.PvRate == null))
             throw new RevolvingConfigException($"{name} must state percentOfFace or pvRate, not both.");
@@ -166,7 +177,7 @@ public static class InstallmentPoolMapper
                 .Select((t, i) => new InstallmentTerm(
                     t.Term ?? throw new RevolvingConfigException($"drivers.reinvest.terms[{i}] states no term."),
                     (t.Weight ?? throw new RevolvingConfigException($"drivers.reinvest.terms[{i}] states no weight."))
-                    / 100.0))
+                    / 100.0, t.Age ?? 0))
                 .ToList()
         };
     }
@@ -180,7 +191,7 @@ public static class InstallmentPoolMapper
         return new InstallmentCurve(dto.Values.Select(v => v / 100.0).ToList(), dto.Annual);
     }
 
-    private static InstallmentPoolPeriodDto ToDto(InstallmentPoolPeriod p)
+    internal static InstallmentPoolPeriodDto ToDto(InstallmentPoolPeriod p)
     {
         return new InstallmentPoolPeriodDto
         {

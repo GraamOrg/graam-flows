@@ -256,7 +256,7 @@ public static class RevolvingMapper
         return history;
     }
 
-    private static RevolvingClass ToClass(string series, RevolvingClassDto dto)
+    internal static RevolvingClass ToClass(string series, RevolvingClassDto dto)
     {
         var key = dto.Key ?? throw new RevolvingConfigException($"A class of series '{series}' has no key.");
         MarketDataInstEnum? index = null;

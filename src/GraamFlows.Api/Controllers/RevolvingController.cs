@@ -36,6 +36,9 @@ public class RevolvingController : ControllerBase
             if (marketRates.Error != null)
                 throw new RevolvingConfigException(marketRates.Error);
 
+            if (OwnerTrustMapper.IsOwnerTrust(request))
+                return Ok(OwnerTrust(request, marketRates, stopwatch));
+
             var run = RevolvingMapper.ToRun(request);
             var result = RevolvingEngine.Run(run, RatesFor(run, marketRates));
 
@@ -74,6 +77,27 @@ public class RevolvingController : ControllerBase
             _logger.LogWarning("Revolving pool refused: {Reason}", refused.Message);
             return BadRequest(new { error = refused.Message });
         }
+    }
+
+    /// <summary>
+    ///     An amortizing owner trust over an installment pool: <c>program.ownerTrust</c>. A program
+    ///     without it never comes here, so every card program runs exactly as before.
+    /// </summary>
+    private static RevolvingResponse OwnerTrust(RevolvingRequest request, MarketRateResolution marketRates,
+        Stopwatch stopwatch)
+    {
+        var run = OwnerTrustMapper.ToRun(request);
+        foreach (var index in OwnerTrustMapper.FloatingIndices(run))
+            if (!marketRates.Curves.ContainsKey(index))
+                throw new RevolvingConfigException(
+                    $"A floating class pays on {index} and the request supplied no curve for it.");
+
+        var rates = new CurveRateProvider(run.Pool.StatementDate.AddDays(1), marketRates.Curves);
+        var result = OwnerTrustEngine.Run(run, rates);
+        var response = OwnerTrustMapper.ToResponse(run, result);
+        response.MarketRateResolution = marketRates.UsesAssumedRate ? null : marketRates.Describe();
+        response.ElapsedMs = stopwatch.ElapsedMilliseconds;
+        return response;
     }
 
     /// <summary>
