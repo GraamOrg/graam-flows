@@ -686,7 +686,12 @@ public abstract class BaseStructure : IWaterfall
         // Recovery the reinvestment loop spent bought collateral that kept the pool at par — it
         // is not a loss (graam-harmony#5596). Reading RecoveryPrincipal alone, which the loop has
         // already reduced by that spend, wrote reinvesting CLOs down by ~2.7x their real loss.
-        var writedownAmt = periodCf.DefaultedPrincipal
+        // A deal whose losses are realized on liquidation strikes the loss the period the loan is
+        // liquidated, its recovery's period (LiquidatedPrincipal). With a recovery lag,
+        // DefaultedPrincipal here wrote such a deal's notes down by the gross default and left the
+        // lagged recovery nothing to offset: it was paid out after the classes it belonged to.
+        var defaulted = deal.LossesRealizedOnLiquidation ? periodCf.LiquidatedPrincipal : periodCf.DefaultedPrincipal;
+        var writedownAmt = defaulted
                            - (periodCf.RecoveryPrincipal + periodCf.ReinvestedRecoveryPrincipal);
         var forbWritedown = periodCf.ForbearanceLiquidated - periodCf.ForbearanceRecovery -
                             periodCf.ForbearanceUnscheduled;

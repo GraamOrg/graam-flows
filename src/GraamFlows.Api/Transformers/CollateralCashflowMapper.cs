@@ -32,6 +32,7 @@ public static class CollateralCashflowMapper
                 DefaultedPrincipal = cf.DefaultedPrincipal,
                 RecoveryPrincipal = cf.RecoveryPrincipal,
                 ReinvestedRecoveryPrincipal = cf.ReinvestedRecoveryPrincipal,
+                LiquidatedPrincipal = cf.LiquidatedPrincipal,
                 CollateralLoss = cf.CollateralLoss,
                 DelinqBalance = cf.DelinqBalance,
                 ForbearanceRecovery = cf.ForbearanceRecovery,

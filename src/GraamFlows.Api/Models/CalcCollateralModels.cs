@@ -389,6 +389,17 @@ public class PeriodCashflowDto
     /// </summary>
     public double ReinvestedRecoveryPrincipal { get; set; }
 
+    /// <summary>
+    ///     Defaulted principal whose loan is liquidated this period, the principal a realized loss
+    ///     is struck on: <c>collateralLoss = liquidatedPrincipal − (recoveryPrincipal +
+    ///     reinvestedRecoveryPrincipal)</c>. With no recovery lag it equals
+    ///     <see cref="DefaultedPrincipal" />. With a lag, a period-t default is liquidated at
+    ///     t + lag, the period its recovery arrives; until then the loan is awaiting liquidation
+    ///     and no loss is realized on it. Posted back to the waterfall, null (a caller that states
+    ///     no liquidation) reads as liquidated in the period it defaulted.
+    /// </summary>
+    public double? LiquidatedPrincipal { get; set; }
+
     public double CollateralLoss { get; set; }
     public double DelinqBalance { get; set; }
     public double ForbearanceRecovery { get; set; }
