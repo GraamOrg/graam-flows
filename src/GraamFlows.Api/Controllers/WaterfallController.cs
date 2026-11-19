@@ -518,6 +518,7 @@ public class WaterfallController : ControllerBase
         deal.ExpensesFromPrincipal = ExpensesAfterInterestMapper.MapFromPrincipal(
             dto.UnifiedWaterfall?.ExpensesFromPrincipal, dto.Expenses, deal.ExpensesAfterInterest, dto.DealName);
         deal.WriteNotesDownToPool = dto.UnifiedWaterfall?.WriteNotesDownToPool ?? false;
+        deal.LossesRealizedOnLiquidation = dto.UnifiedWaterfall?.LossesRealizedOnLiquidation ?? false;
         deal.WritedownSize = LossStepsMapper.MapWritedownSize(dto.UnifiedWaterfall, dto.DealName);
         deal.ExcessTurboToPool = LossStepsMapper.MapExcessTurboToPool(dto.UnifiedWaterfall, dto.DealName);
         deal.WritesUp = LossStepsMapper.MapWritesUp(dto.UnifiedWaterfall, dto.DealName);
@@ -698,6 +699,9 @@ public class WaterfallController : ControllerBase
                 InterestWithheld = dto.InterestWithheld,
                 DefaultedPrincipal = dto.DefaultedPrincipal,
                 RecoveryPrincipal = dto.RecoveryPrincipal,
+                // What was liquidated, as the stream states it (/api/CalcCollateral returns it). A
+                // stream that does not state it is read as liquidated in the period it defaulted.
+                PendingLiquidationChange = dto.DefaultedPrincipal - (dto.LiquidatedPrincipal ?? dto.DefaultedPrincipal),
                 CollateralLoss = dto.CollateralLoss,
                 DelinqBalance = dto.DelinqBalance,
                 ForbearanceRecovery = dto.ForbearanceRecovery,

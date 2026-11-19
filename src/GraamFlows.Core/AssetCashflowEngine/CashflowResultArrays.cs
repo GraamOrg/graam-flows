@@ -29,6 +29,7 @@ public class CashflowResultArrays
         ForbearanceRecovery = new double[maxPeriods];
         ForbearanceLiquidated = new double[maxPeriods];
         ReinvestedRecoveryPrincipal = new double[maxPeriods];
+        PendingLiquidationChange = new double[maxPeriods];
         AdditionalPurchaseFace = new double[maxPeriods];
         PurchaseDiscount = new double[maxPeriods];
         AccumForbearance = new double[maxPeriods];
@@ -59,6 +60,9 @@ public class CashflowResultArrays
 
     /// <summary>Recovery spent on reinvestment purchases (graam-harmony#5596). Not a loss.</summary>
     public double[] ReinvestedRecoveryPrincipal { get; }
+
+    /// <summary>See <see cref="PeriodCashflows.PendingLiquidationChange" />. Zero with no recovery lag.</summary>
+    public double[] PendingLiquidationChange { get; }
     public double[] AdditionalPurchaseFace { get; }
     public double[] PurchaseDiscount { get; }
     public double[] AccumForbearance { get; }
@@ -95,6 +99,7 @@ public class CashflowResultArrays
                 ForbearanceRecovery = ForbearanceRecovery[period],
                 ForbearanceLiquidated = ForbearanceLiquidated[period],
                 ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal[period],
+                PendingLiquidationChange = PendingLiquidationChange[period],
                 AdditionalPurchaseFace = AdditionalPurchaseFace[period],
                 PurchaseDiscount = PurchaseDiscount[period],
                 AccumForbearance = AccumForbearance[period],

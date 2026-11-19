@@ -908,6 +908,7 @@ public class CfCore
                 cohortAccum.ServiceFee[gp] += cohortResult.ServiceFee[p];
                 cohortAccum.DefaultedPrincipal[gp] += cohortResult.DefaultedPrincipal[p];
                 cohortAccum.RecoveryPrincipal[gp] += cohortResult.RecoveryPrincipal[p];
+                cohortAccum.PendingLiquidationChange[gp] += cohortResult.PendingLiquidationChange[p];
                 cohortAccum.DelinqBalance[gp] += cohortResult.DelinqBalance[p];
                 cohortAccum.UnAdvancedPrincipal[gp] += cohortResult.UnAdvancedPrincipal[p];
                 cohortAccum.UnAdvancedInterest[gp] += cohortResult.UnAdvancedInterest[p];

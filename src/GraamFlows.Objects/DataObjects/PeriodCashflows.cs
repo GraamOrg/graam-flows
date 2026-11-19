@@ -117,6 +117,30 @@ public class PeriodCashflows
     public double ReinvestedRecoveryPrincipal { get; set; }
 
     /// <summary>
+    ///     The period's change in defaulted principal awaiting liquidation: plus what defaulted this
+    ///     period and is liquidated in a later one, minus what defaulted earlier and is liquidated in
+    ///     this one. Zero with no recovery lag. A defaulted loan leaves the performing
+    ///     <see cref="Balance" /> the month it defaults, but its loss is realized only when it is
+    ///     liquidated (the period its recovery arrives): until then it is still the trust's, and the
+    ///     notes do not stand above the pool by it. Additive like every other flow, so a merge or an
+    ///     aggregate that misses it reads as liquidated on default, the behaviour before it existed.
+    /// </summary>
+    public double PendingLiquidationChange { get; set; }
+
+    /// <summary>
+    ///     Defaulted principal whose loan is liquidated this period: the principal a realized loss
+    ///     is struck on. Equal to <see cref="DefaultedPrincipal" /> with no recovery lag.
+    /// </summary>
+    public double LiquidatedPrincipal => DefaultedPrincipal - PendingLiquidationChange;
+
+    /// <summary>
+    ///     Defaulted principal awaiting liquidation at the end of the period: the running sum of
+    ///     <see cref="PendingLiquidationChange" /> for the group, set by the waterfall as it walks
+    ///     the periods. Not a flow, so <see cref="Add" /> does not sum it.
+    /// </summary>
+    public double PendingLiquidationBalance { get; set; }
+
+    /// <summary>
     ///     Face of collateral bought on this date with cash diverted from interest (an interest
     ///     diversion cure), already included in <see cref="Balance" />. Carried so the diversion
     ///     test can measure the ratio BEFORE its own cure. Zero otherwise.
@@ -204,6 +228,8 @@ public class PeriodCashflows
         clone.PeriodYears30360 = PeriodYears30360;
         clone.InterestWithheld = InterestWithheld;
         clone.ReinvestedRecoveryPrincipal = ReinvestedRecoveryPrincipal;
+        clone.PendingLiquidationChange = PendingLiquidationChange;
+        clone.PendingLiquidationBalance = PendingLiquidationBalance;
         clone.AdditionalPurchaseFace = AdditionalPurchaseFace;
         clone.PurchaseDiscount = PurchaseDiscount;
         return clone;
@@ -224,6 +250,7 @@ public class PeriodCashflows
         Expenses += periodCf.Expenses;
         ModificationLoss += periodCf.ModificationLoss;
         ReinvestedRecoveryPrincipal += periodCf.ReinvestedRecoveryPrincipal;
+        PendingLiquidationChange += periodCf.PendingLiquidationChange;
         AdditionalPurchaseFace += periodCf.AdditionalPurchaseFace;
         PurchaseDiscount += periodCf.PurchaseDiscount;
     }
