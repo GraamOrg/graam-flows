@@ -131,6 +131,9 @@ public class InstallmentTermDto
 
     /// <summary>Percent of the face bought.</summary>
     public double? Weight { get; set; }
+
+    /// <summary>Months since origination as bought, for the forecast curves. Absent is 0: new contracts.</summary>
+    public int? Age { get; set; }
 }
 
 /// <summary>A printed month. Scheduled and prepaid collections and write-offs are required.</summary>

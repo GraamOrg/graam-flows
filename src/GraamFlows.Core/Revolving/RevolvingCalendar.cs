@@ -22,14 +22,22 @@ public static class RevolvingCalendar
 
     public static IReadOnlyList<RevolvingPeriodDates> Build(DateTime statementDate, int distributionDay, int periods)
     {
+        return Build(statementDate, distributionDay, periods, null);
+    }
+
+    /// <param name="holidays">the business days to roll on. Null is the settlement calendar every card program uses.</param>
+    public static IReadOnlyList<RevolvingPeriodDates> Build(DateTime statementDate, int distributionDay, int periods,
+        Calendar? holidays)
+    {
+        var calendar = holidays ?? Settlement;
         var rows = new List<RevolvingPeriodDates>(periods);
-        var priorDistribution = Distribution(statementDate, distributionDay);
+        var priorDistribution = Distribution(statementDate, distributionDay, calendar);
         for (var t = 0; t < periods; t++)
         {
             var month = statementDate.AddMonths(t + 1);
             var end = new DateTime(month.Year, month.Month, DateTime.DaysInMonth(month.Year, month.Month));
             var start = new DateTime(month.Year, month.Month, 1);
-            var distribution = Distribution(end, distributionDay);
+            var distribution = Distribution(end, distributionDay, calendar);
             rows.Add(new RevolvingPeriodDates(t, start, end, end.Day, distribution,
                 (distribution - priorDistribution).Days));
             priorDistribution = distribution;
@@ -38,9 +46,9 @@ public static class RevolvingCalendar
         return rows;
     }
 
-    private static DateTime Distribution(DateTime periodEnd, int distributionDay)
+    private static DateTime Distribution(DateTime periodEnd, int distributionDay, Calendar calendar)
     {
         var next = periodEnd.AddMonths(1);
-        return Settlement.Adjust(new DateTime(next.Year, next.Month, distributionDay));
+        return calendar.Adjust(new DateTime(next.Year, next.Month, distributionDay));
     }
 }
