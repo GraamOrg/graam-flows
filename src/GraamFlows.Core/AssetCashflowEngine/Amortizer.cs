@@ -862,7 +862,20 @@ public static class Amortizer
                 // lagged period falls beyond the projection horizon are truncated.
                 var recoveryPeriod = period + assetRecoveryLag;
                 if (recoveryPeriod < maxPeriods)
+                {
                     resultRecoveryPrincipal[recoveryPeriod] += recoveryPrincipal;
+                    // The loan is liquidated when its recovery arrives, and the loss is realized
+                    // then: (defaulted − recovered) on the defaulted principal, in one period.
+                    // Realized at default instead, the notes were written down by the gross
+                    // default and the later recovery was paid out with nothing to offset it.
+                    // A recovery past the horizon is truncated, and so is the wait: that default
+                    // is liquidated in its own period with no recovery, as before.
+                    if (recoveryPeriod != period && defaultedPrincipal != 0)
+                    {
+                        results.PendingLiquidationChange[period] += defaultedPrincipal;
+                        results.PendingLiquidationChange[recoveryPeriod] -= defaultedPrincipal;
+                    }
+                }
                 resultDelinqBalance[period] += delinqBalance;
                 resultUnAdvancedPrincipal[period] += unadvPrincipal;
                 resultUnAdvancedInterest[period] += unadvInterest;

@@ -91,6 +91,8 @@ public class ComposableStructure : BaseStructure
         // Per group: the previous distribution's Collection Period opening balance and net loss —
         // the next one's Fee Basis Amount.
         var previousPeriod = new Dictionary<string, (double Opening, double Loss)>();
+        // Per group: defaulted principal awaiting liquidation (see PeriodCashflows.PendingLiquidationChange).
+        var pendingLiquidation = new Dictionary<string, double>();
         var notesSettle = deal.Tranches
             .Where(t => t.CashflowTypeEnum != CashflowType.Expense && t.FirstSettleDate > DateTime.MinValue)
             .Select(t => t.FirstSettleDate)
@@ -285,6 +287,12 @@ public class ComposableStructure : BaseStructure
                 }
 
                 previousPeriod[periodCf.GroupNum] = (periodOpening, adjPeriodCf.CollateralLoss);
+
+                // After the held and pre-boundary months are folded in, so every month's change is
+                // counted once.
+                pendingLiquidation[periodCf.GroupNum] =
+                    pendingLiquidation.GetValueOrDefault(periodCf.GroupNum) + adjPeriodCf.PendingLiquidationChange;
+                adjPeriodCf.PendingLiquidationBalance = pendingLiquidation[periodCf.GroupNum];
 
                 // The certificate opens the period before its triggers and pay rules read it, on
                 // the balance the Collection Period opened with.
@@ -1327,7 +1335,11 @@ public class ComposableStructure : BaseStructure
     /// </summary>
     private static double NotesOverPool(DynamicGroup dynGroup, PeriodCashflows periodCf)
     {
-        var overPool = dynGroup.Balance() - periodCf.Balance;
+        // A loan awaiting liquidation on a deal whose losses are realized on liquidation is still
+        // the trust's: the notes do not stand above the pool by it until its loss is struck.
+        var pool = periodCf.Balance
+                   + (dynGroup.Deal.LossesRealizedOnLiquidation ? periodCf.PendingLiquidationBalance : 0);
+        var overPool = dynGroup.Balance() - pool;
         return overPool > 0.005 ? overPool : 0;
     }
 
