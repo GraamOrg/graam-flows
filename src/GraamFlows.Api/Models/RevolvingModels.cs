@@ -97,6 +97,13 @@ public class RevolvingProgramDto
     ///     whose classes are its notes. Absent is a card program, exactly as before.
     /// </summary>
     public OwnerTrustDto? OwnerTrust { get; set; }
+
+    /// <summary>
+    ///     A master trust of note series over one installment pool (pool.model INSTALLMENT), each series
+    ///     valuing the pool at its own discount rate. Absent is a card program or an owner trust, exactly
+    ///     as before.
+    /// </summary>
+    public MasterTrustDto? MasterTrust { get; set; }
 }
 
 public class RevolvingDelinkedDto
@@ -458,6 +465,9 @@ public class RevolvingResponse
 
     /// <summary>An owner trust's months, phases and closing. Absent on a card program.</summary>
     public OwnerTrustResultDto? OwnerTrust { get; set; }
+
+    /// <summary>A master trust's months, series, phases and closing. Absent on any other program.</summary>
+    public MasterTrustResultDto? MasterTrust { get; set; }
 
     public long ElapsedMs { get; set; }
 }
