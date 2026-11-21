@@ -1748,19 +1748,41 @@ public class ExcessCoversLossesStepsTests
     }
 
     [Fact]
-    public void WRITEUP_with_a_pro_rata_write_down_is_refused_and_the_same_deal_runs_without_it()
+    public void A_pro_rata_write_down_is_written_back_up_pro_rata_by_what_each_class_still_has_written_down()
     {
-        // Classes written down together are restored together in the documents; one after another
-        // is an order no document states.
-        var pool = Collateral(defaulted: _ => 0, recoveryRate: 0.5);
-        var proRata = new PayableStructureDto { Type = "PRORATA", Tranches = new List<string> { "B1", "A1" } };
+        // Classes written down together are restored together (graam-harmony#6333): by what each still has
+        // written down and not written back up, not by its balance. Before, this shape was refused.
+        var pool = Collateral(defaulted: i => i == 0 ? 20_000_000 : 0, recoveryRate: 0,
+            recovery: i => i == 2 ? 10_000_000 : 0);
         var request = WriteUpSteps(pool);
-        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure = proRata;
-        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
+        request.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure =
+            new PayableStructureDto { Type = "PRORATA", Tranches = new List<string> { "B1", "A1" } };
+        var r = Run(request);
 
-        var without = Steps(pool);
-        without.Deal.UnifiedWaterfall!.Steps.Single(s => s.Type == "WRITEDOWN").Structure = proRata;
-        Try(without).Refused.Should().BeNull("the same deal without WRITEUP");
+        var a1Owed = r.TrancheCashflows["A1"][0].Writedown;
+        var b1Owed = r.TrancheCashflows["B1"][0].Writedown;
+        a1Owed.Should().BeGreaterThan(1_000_000, "the fixture: the loss is written down on both classes");
+        b1Owed.Should().BeGreaterThan(1_000_000, "the fixture: the loss is written down on both classes");
+        for (var i = 1; i < pool.Count; i++)
+        {
+            var a1Up = -r.TrancheCashflows["A1"][i].Writedown;
+            var b1Up = -r.TrancheCashflows["B1"][i].Writedown;
+            if (a1Up + b1Up > 0.01)
+                (a1Up / (a1Up + b1Up)).Should().BeApproximately(a1Owed / (a1Owed + b1Owed), 1e-9,
+                    $"period {i + 1}: the write-up is shared by what each class still has written down");
+            a1Owed -= a1Up;
+            b1Owed -= b1Up;
+            NotesAt(r, i).Should().BeApproximately(pool[i].Balance, 0.01, $"period {i + 1}");
+        }
+
+        // Anti-vacuity: in period 3 the recovery is paid to A1 before the write-up, so the classes' balances
+        // then stand in another ratio than their write-downs, and a split by balance would differ.
+        var a1Up3 = -r.TrancheCashflows["A1"][2].Writedown;
+        var b1Up3 = -r.TrancheCashflows["B1"][2].Writedown;
+        var a1Bal = r.TrancheCashflows["A1"][2].Balance - a1Up3;
+        var b1Bal = r.TrancheCashflows["B1"][2].Balance - b1Up3;
+        (a1Up3 / (a1Up3 + b1Up3) - a1Bal / (a1Bal + b1Bal)).Should().BeGreaterThan(0.03);
+        a1Up3.Should().BeGreaterThan(1_000_000, "the fixture: period 3 writes A1 up");
     }
 
     // ---- The write-up's order is the write-down structure, reversed (review round 2) ---------------
@@ -1776,7 +1798,8 @@ public class ExcessCoversLossesStepsTests
         {
             Type = "SHIFTI", ShiftPercent = 0.5, Seniors = Single("A1"), Subordinates = Single("B1")
         };
-        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
+        Refusal(request).Should().Contain("a write-down structure that is not built of sequences and pro-rata groups")
+            .And.Contain("ShiftingInterestStructure");
     }
 
     [Fact]
@@ -1838,7 +1861,7 @@ public class ExcessCoversLossesStepsTests
     }
 
     [Fact]
-    public void A_rule_that_switches_the_write_down_to_pro_rata_mid_run_is_refused()
+    public void A_rule_that_switches_the_write_down_to_shifting_interest_mid_run_is_refused()
     {
         var request = WriteUpSteps(Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5));
         request.Deal.PayRules = new List<PayRuleDto>
@@ -1846,10 +1869,11 @@ public class ExcessCoversLossesStepsTests
             new()
             {
                 RuleName = "SwitchWritedown", ClassGroupName = "GROUP_1", Priority = 1000,
-                Formula = "if (BALANCE('B1') < 29999000) SET_WRITEDOWN_STRUCT(PRORATA(SINGLE('B1'), SINGLE('A1')))"
+                Formula = "if (BALANCE('B1') < 29999000) SET_WRITEDOWN_STRUCT(SHIFTI(0.5, SINGLE('A1'), SINGLE('B1')))"
             }
         };
-        Refusal(request).Should().Contain("a write-down structure that is not a sequence of single classes");
+        Refusal(request).Should().Contain("a write-down structure that is not built of sequences and pro-rata groups")
+            .And.Contain("ShiftingInterestStructure");
     }
 
     [Fact]
