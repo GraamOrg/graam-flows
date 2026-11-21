@@ -1164,7 +1164,7 @@ public class ComposableStructure : BaseStructure
         {
             if (refused != null)
                 return null;
-            List<WriteUpNode>? Children() => node.GetChildren().Select(Read).OfType<WriteUpNode>().ToList();
+            List<WriteUpNode> Children() => node.GetChildren().Select(Read).OfType<WriteUpNode>().ToList();
             switch (node)
             {
                 case DynamicClass dc:
@@ -1175,13 +1175,13 @@ public class ComposableStructure : BaseStructure
                 case SequentialStructure:
                 {
                     var children = Children();
-                    return refused != null || children!.Count == 0 ? null
+                    return refused != null || children.Count == 0 ? null
                         : children.Count == 1 ? children[0] : new WriteUpSequence(children);
                 }
                 case ProrataStructure:
                 {
                     var children = Children();
-                    return refused != null || children!.Count == 0 ? null
+                    return refused != null || children.Count == 0 ? null
                         : children.Count == 1 ? children[0] : new WriteUpProRata(children);
                 }
                 default:
