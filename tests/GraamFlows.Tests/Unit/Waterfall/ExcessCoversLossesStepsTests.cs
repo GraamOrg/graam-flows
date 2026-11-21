@@ -1877,6 +1877,35 @@ public class ExcessCoversLossesStepsTests
     }
 
     [Fact]
+    public void A_rule_that_switches_the_write_down_to_pro_rata_mid_run_is_written_back_up_pro_rata()
+    {
+        // The switch is met once B1 is written down; from then on the write-up reads the pro-rata
+        // structure in force and restores the two classes by what each still has written down.
+        var pool = Collateral(defaulted: i => i == 0 ? 2_000_000 : i == 1 ? 40_000_000 : 0, recoveryRate: 0,
+            recovery: i => i == 3 ? 10_000_000 : 0);
+        var request = WriteUpSteps(pool);
+        request.Deal.PayRules = new List<PayRuleDto>
+        {
+            new()
+            {
+                RuleName = "SwitchWritedown", ClassGroupName = "GROUP_1", Priority = 1000,
+                Formula = "if (BALANCE('B1') < 29999000) SET_WRITEDOWN_STRUCT(PRORATA(SINGLE('B1'), SINGLE('A1')))"
+            }
+        };
+        var r = Run(request);
+
+        var a1Owed = r.TrancheCashflows["A1"].Take(3).Sum(c => c.Writedown);
+        var b1Owed = r.TrancheCashflows["B1"].Take(3).Sum(c => c.Writedown);
+        a1Owed.Should().BeGreaterThan(1_000_000, "the fixture: after the switch A1 is written down with B1");
+        var a1Up = -r.TrancheCashflows["A1"][3].Writedown;
+        var b1Up = -r.TrancheCashflows["B1"][3].Writedown;
+        (a1Up + b1Up).Should().BeGreaterThan(1_000_000, "the fixture: period 4's recovery is written back up");
+        (a1Up / (a1Up + b1Up)).Should().BeApproximately(a1Owed / (a1Owed + b1Owed), 1e-9);
+        for (var i = 0; i < pool.Count; i++)
+            NotesAt(r, i).Should().BeApproximately(pool[i].Balance, 0.01, $"period {i + 1}");
+    }
+
+    [Fact]
     public void A_written_down_note_the_structure_stops_naming_stops_the_run()
     {
         var request = WriteUpSteps(Collateral(defaulted: i => i == 0 ? 2_000_000 : 0, recoveryRate: 0.5));

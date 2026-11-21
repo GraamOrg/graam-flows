@@ -1109,7 +1109,7 @@ public class ComposableStructure : BaseStructure
 
         public override void Restore(DateTime cfDate, double amount)
         {
-            for (var i = Children.Count - 1; i >= 0 && amount > 0.005; i--)
+            for (var i = Children.Count - 1; i >= 0 && amount > 0; i--)
             {
                 var up = Math.Min(amount, Children[i].Unreimbursed());
                 if (up <= 0)
