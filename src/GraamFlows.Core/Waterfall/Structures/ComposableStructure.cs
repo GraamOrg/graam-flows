@@ -1066,60 +1066,155 @@ public class ComposableStructure : BaseStructure
     }
 
     /// <summary>
-    ///     The notes WRITEUP restores, in the order it restores them: the write-down structure in force,
-    ///     reversed (graam-harmony#6199 D7). It is the one source of the write-up's seniority, read each
-    ///     time the step runs, since a pay rule can change the write-down structure.
+    ///     What WRITEUP restores: the write-down structure in force, read as a tree of notes (graam-harmony#6199
+    ///     D7, #6333). A sequence is restored in the reverse of its order; the children of a pro-rata group are
+    ///     restored together, pro rata by what each still has written down and not written back up (its
+    ///     unreimbursed amount), not by its balance. That is how documents that write classes down pro rata
+    ///     between groups reimburse them out of later excess: the groups concurrently, pro rata by each
+    ///     group's unreimbursed applied loss amounts, and inside a group in the reverse of its own order.
+    /// </summary>
+    private abstract class WriteUpNode
+    {
+        /// <summary>The node's notes, each once.</summary>
+        public abstract IEnumerable<DynamicClass> Notes();
+
+        /// <summary>What the node's notes stand written down by and not yet written back up.</summary>
+        public double Unreimbursed() => Notes().Sum(Owed);
+
+        /// <summary>Writes the node's notes up by <paramref name="amount" />, at most its unreimbursed amount.</summary>
+        public abstract void Restore(DateTime cfDate, double amount);
+
+        /// <summary>A note's unreimbursed write-down; a fraction of a cent reads as nothing.</summary>
+        public static double Owed(DynamicClass dc) => dc.CumWritedown > 0.005 ? dc.CumWritedown : 0;
+    }
+
+    private sealed class WriteUpNote(DynamicClass note) : WriteUpNode
+    {
+        public DynamicClass Note { get; } = note;
+        public override IEnumerable<DynamicClass> Notes() => new[] { Note };
+
+        public override void Restore(DateTime cfDate, double amount)
+        {
+            var up = Math.Min(amount, Owed(Note));
+            if (up > 0)
+                Note.Writeup(cfDate, up);
+        }
+    }
+
+    /// <summary>A sequence: its last child is restored first, then the one before it.</summary>
+    private sealed class WriteUpSequence(List<WriteUpNode> children) : WriteUpNode
+    {
+        public List<WriteUpNode> Children { get; } = children;
+        public override IEnumerable<DynamicClass> Notes() => Children.SelectMany(c => c.Notes());
+
+        public override void Restore(DateTime cfDate, double amount)
+        {
+            for (var i = Children.Count - 1; i >= 0 && amount > 0; i--)
+            {
+                var up = Math.Min(amount, Children[i].Unreimbursed());
+                if (up <= 0)
+                    continue;
+                Children[i].Restore(cfDate, up);
+                amount -= up;
+            }
+        }
+    }
+
+    /// <summary>A pro-rata group: its children are restored together, by each one's unreimbursed amount.</summary>
+    private sealed class WriteUpProRata(List<WriteUpNode> children) : WriteUpNode
+    {
+        public List<WriteUpNode> Children { get; } = children;
+        public override IEnumerable<DynamicClass> Notes() => Children.SelectMany(c => c.Notes());
+
+        public override void Restore(DateTime cfDate, double amount)
+        {
+            // Read every share before writing any child up: each child's write-up lowers its own.
+            var owed = Children.Select(c => c.Unreimbursed()).ToList();
+            var total = owed.Sum();
+            if (total <= 0)
+                return;
+            amount = Math.Min(amount, total);
+            for (var i = 0; i < Children.Count; i++)
+                if (owed[i] > 0)
+                    Children[i].Restore(cfDate, amount * owed[i] / total);
+        }
+    }
+
+    /// <summary>
+    ///     The notes WRITEUP restores and how (<see cref="WriteUpNode" />): the write-down structure in force,
+    ///     read each time the step runs, since a pay rule can change the write-down structure. It is the one
+    ///     source of the write-up's seniority.
     ///     <para>
-    ///         Only a structure whose reverse is the documents' order is accepted: a sequence of single
-    ///         classes (a pro-rata node with one child counts as that child), each note one tranche
-    ///         with nothing sharing its class. A class cut from a note (an exchange class, a notional
-    ///         IO) follows the note's balance through the write-down and the write-up alike. Classes that are not notes are passed by:
-    ///         an overPool write-down never takes one. Anything else writes classes
-    ///         down together or writes down something the write-up would not restore, and is refused,
-    ///         not listed; it is widened when a deal needs it. Harmony's non-QM builder writes this
-    ///         shape. A note still written down that the structure no longer names stops the run.
+    ///         Only sequences and pro-rata groups of single classes are accepted (a node with one child counts
+    ///         as that child), each note one tranche with nothing sharing its class, each named once. A class
+    ///         cut from a note (an exchange class, a notional IO) follows the note's balance through the
+    ///         write-down and the write-up alike. Classes that are not notes are passed by: an overPool
+    ///         write-down never takes one. Any other structure (shifting interest, a fixed or target amount)
+    ///         writes down by a rule the write-up has no reverse for, and is refused; it is widened when a deal
+    ///         needs it. A note still written down that the structure no longer names stops the run.
     ///     </para>
     /// </summary>
-    private static List<DynamicClass> WriteUpOrder(IDeal deal, DynamicGroup dynGroup, DateTime? on)
+    private static WriteUpNode WriteUpOrder(IDeal deal, DynamicGroup dynGroup, DateTime? on)
     {
         var when = on.HasValue ? $" on {on:MM/dd/yyyy}" : "";
+        var refused = (IPayable?)null;
 
-        static List<DynamicClass>? Sequence(IPayable node) => node switch
+        // Null for a shape the write-up has no reverse for (kept in `refused`), or for a node holding no note.
+        WriteUpNode? Read(IPayable node)
         {
-            DynamicClass dc => new List<DynamicClass> { dc },
-            SequentialStructure => node.GetChildren().Select(Sequence)
-                .Aggregate((List<DynamicClass>?)new List<DynamicClass>(),
-                    (all, part) => all == null || part == null ? null : all.Concat(part).ToList()),
-            ProrataStructure when node.GetChildren().Count == 1 => Sequence(node.GetChildren()[0]),
-            _ => null
-        };
+            if (refused != null)
+                return null;
+            List<WriteUpNode> Children() => node.GetChildren().Select(Read).OfType<WriteUpNode>().ToList();
+            switch (node)
+            {
+                case DynamicClass dc:
+                    // A class that is not a note may sit in the structure (a certificate, a zero-balance
+                    // residual): an overPool write-down never takes it (PayOverPoolWritedown stops the run if
+                    // it does), so there is nothing to restore and the write-up passes it by.
+                    return dynGroup.DealClasses?.Contains(dc) == true ? new WriteUpNote(dc) : null;
+                case SequentialStructure:
+                {
+                    var children = Children();
+                    return refused != null || children.Count == 0 ? null
+                        : children.Count == 1 ? children[0] : new WriteUpSequence(children);
+                }
+                case ProrataStructure:
+                {
+                    var children = Children();
+                    return refused != null || children.Count == 0 ? null
+                        : children.Count == 1 ? children[0] : new WriteUpProRata(children);
+                }
+                default:
+                    refused = node;
+                    return null;
+            }
+        }
 
         var structure = dynGroup.WritedownPayable;
-        var sequence = structure == null ? null : Sequence(structure);
-        if (sequence == null)
+        var tree = structure == null ? null : Read(structure);
+        if (structure == null || refused != null)
             throw new DealModelingException(deal.DealName,
-                NotSupportedWithLossFields(deal) + "WRITEUP and a write-down structure that is not a sequence " +
-                $"of single classes{when} ({structure?.GetType().Name ?? "none"}). WRITEUP restores the " +
-                "classes in the reverse of the write-down, which only a sequence states. State the write-down " +
-                "as a SEQ of SINGLE classes.");
+                NotSupportedWithLossFields(deal) + "WRITEUP and a write-down structure that is not built of " +
+                $"sequences and pro-rata groups of single classes{when} ({(refused ?? structure)?.GetType().Name ?? "none"}). " +
+                "WRITEUP restores a sequence in reverse and a pro-rata group by each member's unreimbursed " +
+                "write-down; it has no reverse for another rule. State the write-down as SEQ and PRORATA of " +
+                "SINGLE classes.");
+        tree ??= new WriteUpSequence(new List<WriteUpNode>());
 
-        var duplicate = sequence.GroupBy(dc => dc).FirstOrDefault(g => g.Count() > 1)?.Key;
+        var notes = tree.Notes().ToList();
+        var duplicate = notes.GroupBy(dc => dc).FirstOrDefault(g => g.Count() > 1)?.Key;
         if (duplicate != null)
             throw new DealModelingException(deal.DealName,
                 $"The write-down structure names {duplicate.Tranche.TrancheName} twice{when}. WRITEUP restores " +
-                "the classes in the reverse of the write-down; name each once.");
+                "each class once, from where the write-down names it; name each once.");
 
         if (deal.DealStructurePseudo is { Count: > 0 })
             throw new DealModelingException(deal.DealName,
                 NotSupportedWithLossFields(deal) + "WRITEUP and pseudo classes. A pseudo class is written down " +
                 "with its members and the write-up would leave it written down.");
 
-        // A class that is not a note may head the structure (a certificate, a zero-balance residual):
-        // an overPool write-down never takes it (PayOverPoolWritedown stops the run if it does), so
-        // there is nothing to restore and the write-up passes it by.
-        sequence = sequence.Where(dc => dynGroup.DealClasses?.Contains(dc) == true).ToList();
-        var named = sequence.ToHashSet();
-        foreach (var dc in sequence)
+        var named = notes.ToHashSet();
+        foreach (var dc in notes)
         {
             var name = dc.Tranche.TrancheName;
             var tranches = dc.DynamicTranches?.Select(dt => dt.Tranche.TrancheName).ToList() ?? new List<string>();
@@ -1137,8 +1232,7 @@ public class ComposableStructure : BaseStructure
                 "write-down structure in force does not name it, so WRITEUP could never restore it. Name every " +
                 "written-down note in the write-down structure.");
 
-        sequence.Reverse();
-        return sequence;
+        return tree;
     }
 
     /// <summary>
@@ -1243,27 +1337,20 @@ public class ComposableStructure : BaseStructure
 
     /// <summary>
     ///     WRITEUP (graam-harmony#6199 D7): writes the notes written down earlier back up, in the reverse
-    ///     of the write-down structure in force (<see cref="WriteUpOrder" />), by what the pool stands
-    ///     above them, each up to what it was written down. Run after
+    ///     of the write-down structure in force (<see cref="WriteUpOrder" />: a sequence reversed, a pro-rata
+    ///     group by each member's unreimbursed write-down), by what the pool stands above them, each up to
+    ///     what it was written down. Run after
     ///     an overPool WRITEDOWN, it leaves the notes level with the pool whenever enough has come in
     ///     to restore them: principal paid out of excess by the turbo, or a recovery paid as principal
     ///     after the loss was written down.
     /// </summary>
     private static void WriteNotesUpToPool(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf)
     {
-        var order = WriteUpOrder(deal, dynGroup, periodCf.CashflowDate);
+        var tree = WriteUpOrder(deal, dynGroup, periodCf.CashflowDate);
         var amount = Math.Min(WrittenDown(dynGroup), periodCf.Balance - dynGroup.Balance());
         if (amount <= 0.005)
             return;
-
-        foreach (var dc in order.Where(dc => dc.CumWritedown > 0.005))
-        {
-            var up = Math.Min(amount, dc.CumWritedown);
-            dc.Writeup(periodCf.CashflowDate, up);
-            amount -= up;
-            if (amount <= 0.005)
-                break;
-        }
+        tree.Restore(periodCf.CashflowDate, amount);
     }
 
     /// <summary>
