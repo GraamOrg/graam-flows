@@ -752,6 +752,18 @@ public class UnifiedWaterfallDto
     public bool? WriteNotesDownToPool { get; set; }
 
     /// <summary>
+    ///     A loss is realized when the defaulted loan is liquidated (the period its lagged recovery
+    ///     arrives), not when it defaults: a mortgage trust's Realized Loss ("the excess of the
+    ///     Stated Principal Balance of a Liquidated Loan over the Liquidation Proceeds"). Read off
+    ///     the collateral's <c>liquidatedPrincipal</c>. Until then the loan is awaiting liquidation
+    ///     and still counts in the pool the notes are measured against. Off unless stated: a
+    ///     period's loss is then what defaulted in it less what was recovered in it, the
+    ///     charge-off convention of a consumer trust, whose later recoveries are collections. With
+    ///     no recovery lag the two are the same.
+    /// </summary>
+    public bool? LossesRealizedOnLiquidation { get; set; }
+
+    /// <summary>
     ///     Classes whose interest the interest waterfall leaves unpaid is paid from principal proceeds
     ///     after <see cref="ExpensesFromPrincipal" />, ahead of the notes' principal — a CLO's
     ///     Principal Priority of Payments paying the senior notes' unpaid interest (and a junior

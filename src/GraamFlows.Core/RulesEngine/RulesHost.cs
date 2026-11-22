@@ -124,8 +124,10 @@ namespace GraamFlows.RulesEngine
             serv_fee_rate = 1200 * periodCf.ServiceFee / periodCf.BeginBalance;
             curr_month = periodCf.CashflowDate.Month;
             curr_year = periodCf.CashflowDate.Year;
-            oc_amt = periodCf.Balance - dynGroup.Balance(); // assets minus liabilities
-            oc_pct = dynGroup.Balance() / periodCf.Balance;
+            // Assets minus liabilities, the assets being the pool the notes stand against (a loan
+            // awaiting liquidation is still the trust's on a deal that realizes losses on it).
+            oc_amt = dynGroup.PoolTheNotesStandAgainst(periodCf) - dynGroup.Balance();
+            oc_pct = dynGroup.Balance() / dynGroup.PoolTheNotesStandAgainst(periodCf);
             group_wac = dynGroup.GroupWac;
             group_net_wac = dynGroup.GroupNetWac;
                 

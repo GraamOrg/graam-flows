@@ -112,6 +112,17 @@ public interface IDeal : IPayRuleAssemblyStore
     bool WriteNotesDownToPool { get; }
 
     /// <summary>
+    /// A loss is realized when the defaulted loan is liquidated, the period its recovery arrives,
+    /// not when it defaults: a mortgage trust's Realized Loss, struck on liquidation (optional;
+    /// false: a period's loss is what defaulted in it less what was recovered in it, a charge-off
+    /// convention, as before). With a recovery lag it decides what the notes lose: read as a
+    /// charge-off, the default month takes the gross default and the lagged recovery is paid out
+    /// as collections. Set, a loan awaiting liquidation also still counts in the pool the notes
+    /// are measured against. With no lag the two are the same.
+    /// </summary>
+    bool LossesRealizedOnLiquidation { get; }
+
+    /// <summary>
     /// Record a <see cref="CashLedger" /> for the run: what each step took off the running totals
     /// against the cash the classes were paid. A run option, not part of the deal; it changes no
     /// cashflow. False unless asked for.
