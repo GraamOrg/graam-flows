@@ -31,7 +31,7 @@ public class LaggedRecoveryLossTests
     private static readonly DateTime Proj = new(2026, 1, 1);
     private const int Lag = 12;
 
-    private static List<PeriodCashflowDto> Pool(int recoveryLag)
+    private static List<PeriodCashflowDto> Pool(int recoveryLag, double[]? mdr = null)
     {
         var request = new CalcCollateralRequest
         {
@@ -49,7 +49,7 @@ public class LaggedRecoveryLossTests
             Assumptions = new AssumptionsDto
             {
                 Cpr = 0, PrepaymentType = "CPR", DefaultType = "MDR",
-                CdrVector = new[] { 10.0, 0.0 }, Severity = 40.0, RecoveryLag = recoveryLag
+                CdrVector = mdr ?? new[] { 10.0, 0.0 }, Severity = 40.0, RecoveryLag = recoveryLag
             }
         };
         var action = new CalcCollateralController(NullLogger<CalcCollateralController>.Instance)
@@ -102,6 +102,74 @@ public class LaggedRecoveryLossTests
             .Should().BeOfType<WaterfallResponse>().Subject;
     }
 
+    /// <summary>
+    ///     The steps a deal states when its documents pay realized losses out of excess and reimburse
+    ///     earlier write-downs (graam-harmony#6199): a zero-target turbo ahead of an overPool
+    ///     write-down, WRITEUP after it, and the excess-spread strip paid last.
+    /// </summary>
+    private static WaterfallResponse ExcessCoversLosses(List<PeriodCashflowDto> pool, bool onLiquidation = true)
+    {
+        var begin = pool[0].BeginBalance;
+        var first = pool[0].CashflowDate;
+        TrancheDto Note(string name, double share, int order) => new()
+        {
+            TrancheName = name, OriginalBalance = begin * share, TrancheType = "Offered",
+            // 2% against the pool's 6%: interest on a loan awaiting liquidation is not advanced, and
+            // the excess has to outlast two of them.
+            CashflowType = "PI", CouponType = "Fixed", FixedCoupon = 2.0,
+            SubordinationOrder = order, FirstPayDate = first, PayFrequency = 12, PayDay = first.Day
+        };
+        var deal = new DealDto
+        {
+            DealName = "LAGGED_RECOVERY_EXCESS_TEST",
+            WaterfallType = "ComposableStructure",
+            ClosingDate = Proj,
+            Tranches = new List<TrancheDto>
+            {
+                Note("A", 0.70, 1), Note("B", 0.20, 2), Note("C", 0.10, 3),
+                new()
+                {
+                    TrancheName = "XS", OriginalBalance = begin, TrancheType = "Offered", CashflowType = "IO",
+                    CouponType = "ExcessInterest", FixedCoupon = 0.0, ClassReference = "XS",
+                    SubordinationOrder = 4, FirstPayDate = first, PayFrequency = 12, PayDay = first.Day
+                }
+            },
+            UnifiedWaterfall = new UnifiedWaterfallDto
+            {
+                ExecutionOrder = new List<string>
+                {
+                    "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
+                    "EXCESS_TURBO", "WRITEDOWN", "WRITEUP", "EXCESS_RELEASE"
+                },
+                Steps = new List<WaterfallStepDto>
+                {
+                    new() { Type = "INTEREST", Structure = Seq("A", "B", "C") },
+                    new() { Type = "PRINCIPAL", Source = "scheduled", Default = Seq("A", "B", "C") },
+                    new() { Type = "PRINCIPAL", Source = "unscheduled", Default = Seq("A", "B", "C") },
+                    new() { Type = "PRINCIPAL", Source = "recovery", Default = Seq("A", "B", "C") },
+                    new() { Type = "EXCESS_TURBO", Target = 0 },
+                    new() { Type = "WRITEDOWN", Structure = Seq("C", "B", "A"), Size = "overPool" },
+                    new() { Type = "WRITEUP" },
+                    new() { Type = "EXCESS_RELEASE", Structure = Seq("XS") }
+                },
+                LossesRealizedOnLiquidation = onLiquidation
+            }
+        };
+        var action = new WaterfallController(NullLogger<WaterfallController>.Instance).Execute(
+            new WaterfallRequest { Deal = deal, CollateralCashflows = pool, ProjectionDate = Proj });
+        if (action.Result is BadRequestObjectResult bad)
+            throw new Xunit.Sdk.XunitException($"Waterfall 400: {bad.Value}");
+        return action.Result.Should().BeOfType<OkObjectResult>().Subject.Value
+            .Should().BeOfType<WaterfallResponse>().Subject;
+    }
+
+    /// <summary>Defaulted principal awaiting liquidation at the end of each period.</summary>
+    private static double Pending(List<PeriodCashflowDto> pool, int i) =>
+        pool.Take(i + 1).Sum(c => c.DefaultedPrincipal - (c.LiquidatedPrincipal ?? c.DefaultedPrincipal));
+
+    private static double NotesAt(WaterfallResponse r, int i) =>
+        Notes.Sum(n => r.TrancheCashflows[n][i].Balance);
+
     private static double NetLoss(List<PeriodCashflowDto> pool) =>
         pool.Sum(c => c.DefaultedPrincipal) - pool.Sum(c => c.RecoveryPrincipal);
 
@@ -109,11 +177,19 @@ public class LaggedRecoveryLossTests
         r.TrancheCashflows.Where(kv => tranche == null || kv.Key == tranche)
             .SelectMany(kv => kv.Value).Sum(c => c.Writedown);
 
+    private static readonly string[] Notes = { "A", "B", "C" };
+
     private static double NotesPrincipal(WaterfallResponse r) =>
-        r.TrancheCashflows.Values.SelectMany(c => c).Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
+        Notes.SelectMany(n => r.TrancheCashflows[n]).Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal);
+
+    private static double NotesPrincipal(WaterfallResponse r, int i) =>
+        Notes.Sum(n => r.TrancheCashflows[n][i].ScheduledPrincipal + r.TrancheCashflows[n][i].UnscheduledPrincipal);
 
     private static double PoolPrincipal(List<PeriodCashflowDto> pool) =>
         pool.Sum(c => c.ScheduledPrincipal + c.UnscheduledPrincipal + c.RecoveryPrincipal);
+
+    private static double PoolPrincipal(List<PeriodCashflowDto> pool, int i) =>
+        pool[i].ScheduledPrincipal + pool[i].UnscheduledPrincipal + pool[i].RecoveryPrincipal;
 
     [Fact]
     public void The_classes_are_written_down_by_the_net_loss_not_the_gross_default()
@@ -197,6 +273,79 @@ public class LaggedRecoveryLossTests
         Writedown(wf).Should().BeApproximately(NetLoss(pool), 1.0);
         wf.TrancheCashflows["C"].Take(Lag).Sum(r => r.Writedown).Should().Be(0);
         NotesPrincipal(wf).Should().BeApproximately(PoolPrincipal(pool), 1.0);
+    }
+
+    [Fact]
+    public void Excess_does_not_pay_a_loss_before_it_is_realized()
+    {
+        // The zero-target turbo pays the notes down to the pool, and the pool still holds the loan
+        // awaiting liquidation: until it is liquidated there is no loss for excess to cover, and the
+        // strip keeps the excess. Measured against the performing balance alone, the turbo paid the
+        // gross default out of excess for a year, and the recovery then paid the notes again.
+        var pool = Pool(Lag);
+        var wf = ExcessCoversLosses(pool);
+        var xs = wf.TrancheCashflows["XS"];
+
+        Pending(pool, 0).Should().BeGreaterThan(900_000, "the fixture: the default awaits liquidation");
+        for (var i = 0; i < Lag; i++)
+        {
+            xs[i].Interest.Should().BeGreaterThan(1_000, $"period {i + 1}: the strip is paid the excess");
+            NotesPrincipal(wf, i).Should().BeApproximately(PoolPrincipal(pool, i), 0.01,
+                $"period {i + 1}: the notes are paid what the pool paid and nothing out of excess");
+        }
+        wf.TrancheCashflows["C"].Take(Lag).Sum(c => c.Writedown).Should().Be(0);
+    }
+
+    [Fact]
+    public void The_notes_stand_level_with_the_pool_and_the_loans_awaiting_liquidation()
+    {
+        // Every step that measures the notes against the pool (the turbo, the write-down, WRITEUP)
+        // reads the same pool, so the notes end each period level with it.
+        var pool = Pool(Lag);
+        var wf = ExcessCoversLosses(pool);
+
+        wf.TrancheCashflows["C"][Lag].Writedown.Should().BeGreaterThan(100_000,
+            "the fixture: the realized loss is more than a month's excess, so some is written down");
+        wf.TrancheCashflows["C"].Last().CumWritedown.Should().BeLessThan(
+            wf.TrancheCashflows["C"][Lag].CumWritedown - 1_000, "the fixture: later excess writes it back up");
+        for (var i = 0; i < pool.Count; i++)
+            NotesAt(wf, i).Should().BeApproximately(pool[i].Balance + Pending(pool, i), 0.01, $"period {i + 1}");
+    }
+
+    [Fact]
+    public void A_write_down_is_written_back_up_while_another_loan_awaits_liquidation()
+    {
+        // Two defaults, three months apart: the first is liquidated (and written down) while the
+        // second still awaits liquidation. WRITEUP restores the first out of excess against the same
+        // pool the turbo paid down to; read against the performing balance alone, it restored
+        // nothing until the second loan was liquidated, and the excess the turbo had paid stayed off
+        // the classes.
+        var pool = Pool(Lag, new[] { 10.0, 0.0, 0.0, 10.0, 0.0 });
+        var wf = ExcessCoversLosses(pool);
+        var c = wf.TrancheCashflows["C"];
+
+        c[Lag].Writedown.Should().BeGreaterThan(100_000, "the fixture: the first loss is written down");
+        Pending(pool, Lag + 1).Should().BeGreaterThan(500_000, "the fixture: the second default still awaits liquidation");
+        c[Lag + 1].CumWritedown.Should().BeLessThan(c[Lag].CumWritedown - 1_000,
+            "the month after, excess writes the first loss back up");
+        for (var i = 0; i < pool.Count; i++)
+            NotesAt(wf, i).Should().BeApproximately(pool[i].Balance + Pending(pool, i), 0.01, $"period {i + 1}");
+        var paidFromExcess = NotesPrincipal(wf) - PoolPrincipal(pool);
+        (paidFromExcess + Notes.Sum(n => wf.TrancheCashflows[n].Last().CumWritedown))
+            .Should().BeApproximately(NetLoss(pool), 1.0);
+    }
+
+    [Fact]
+    public void Excess_covers_the_net_loss_not_the_gross_default()
+    {
+        // What excess paid the notes (as principal, or by writing a class back up) and what is left
+        // written down add up to the net loss.
+        var pool = Pool(Lag);
+        var wf = ExcessCoversLosses(pool);
+        var paidFromExcess = NotesPrincipal(wf) - PoolPrincipal(pool);
+        var stillWrittenDown = Notes.Sum(n => wf.TrancheCashflows[n].Last().CumWritedown);
+
+        (paidFromExcess + stillWrittenDown).Should().BeApproximately(NetLoss(pool), 1.0);
     }
 
     [Fact]

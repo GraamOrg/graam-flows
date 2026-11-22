@@ -1335,13 +1335,20 @@ public class ComposableStructure : BaseStructure
     /// </summary>
     private static double NotesOverPool(DynamicGroup dynGroup, PeriodCashflows periodCf)
     {
-        // A loan awaiting liquidation on a deal whose losses are realized on liquidation is still
-        // the trust's: the notes do not stand above the pool by it until its loss is struck.
-        var pool = periodCf.Balance
-                   + (dynGroup.Deal.LossesRealizedOnLiquidation ? periodCf.PendingLiquidationBalance : 0);
-        var overPool = dynGroup.Balance() - pool;
+        var overPool = dynGroup.Balance() - PoolTheNotesStandAgainst(dynGroup.Deal, periodCf);
         return overPool > 0.005 ? overPool : 0;
     }
+
+    /// <summary>
+    ///     The pool the notes are measured against: the collateral's end-of-period balance and, on a
+    ///     deal whose losses are realized on liquidation, the defaulted loans still awaiting
+    ///     liquidation. Such a loan is still the trust's until its loss is struck, so the notes do not
+    ///     stand above the pool by it. One reading for every step that measures the notes against the
+    ///     pool (an overPool write-down, the zero-target turbo, WRITEUP): read apart, the turbo paid a
+    ///     loss out of excess before it was realized and WRITEUP left the notes under the pool by it.
+    /// </summary>
+    private static double PoolTheNotesStandAgainst(IDeal deal, PeriodCashflows periodCf) =>
+        periodCf.Balance + (deal.LossesRealizedOnLiquidation ? periodCf.PendingLiquidationBalance : 0);
 
     /// <summary>What the notes have been written down by and not yet written back up.</summary>
     private static double WrittenDown(DynamicGroup dynGroup) =>
@@ -1359,7 +1366,7 @@ public class ComposableStructure : BaseStructure
     private static void WriteNotesUpToPool(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf)
     {
         var tree = WriteUpOrder(deal, dynGroup, periodCf.CashflowDate);
-        var amount = Math.Min(WrittenDown(dynGroup), periodCf.Balance - dynGroup.Balance());
+        var amount = Math.Min(WrittenDown(dynGroup), PoolTheNotesStandAgainst(deal, periodCf) - dynGroup.Balance());
         if (amount <= 0.005)
             return;
         tree.Restore(periodCf.CashflowDate, amount);
@@ -3302,7 +3309,7 @@ public class ComposableStructure : BaseStructure
         // With WRITEUP the turbo also pays back what is still written down: it pays the notes down to
         // the pool less those write-downs, and WRITEUP restores the classes by the same amount, so
         // the notes end level with the pool (graam-harmony#6199 D7).
-        var downTo = periodCf.Balance - (deal.WritesUp ? WrittenDown(dynGroup) : 0.0);
+        var downTo = PoolTheNotesStandAgainst(deal, periodCf) - (deal.WritesUp ? WrittenDown(dynGroup) : 0.0);
         var amount = Math.Min(availableInterest, Math.Max(dynGroup.Balance() - downTo, 0));
         if (amount <= 0.005 || payable == null)
             return availableInterest;
