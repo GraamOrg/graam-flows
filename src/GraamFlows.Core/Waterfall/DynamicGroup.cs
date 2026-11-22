@@ -545,6 +545,20 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         return balance;
     }
 
+    /// <summary>
+    ///     The pool the notes are measured against at the end of the period: the collateral's
+    ///     end-of-period balance and, on a deal whose losses are realized on liquidation
+    ///     (<see cref="IDeal.LossesRealizedOnLiquidation" />), the defaulted loans still awaiting
+    ///     liquidation (<see cref="PeriodCashflows.PendingLiquidationBalance" />). Such a loan is
+    ///     still the trust's until its loss is struck. The one reading for everything that sets the
+    ///     notes against the pool: an overPool write-down, the zero-target turbo, WRITEUP, the OC
+    ///     target and its release, the reserve, the certificate and the rules' <c>collat_balance</c>,
+    ///     <c>oc_amt</c> and <c>oc_pct</c>. Read apart, the turbo paid a loss out of excess before it
+    ///     was realized and an OC test saw it a year early.
+    /// </summary>
+    public double PoolTheNotesStandAgainst(PeriodCashflows periodCf) =>
+        periodCf.Balance + (Deal.LossesRealizedOnLiquidation ? periodCf.PendingLiquidationBalance : 0);
+
     
     /// <summary>
     ///     Opens the period for the certificate(s), before the period's triggers and pay rules

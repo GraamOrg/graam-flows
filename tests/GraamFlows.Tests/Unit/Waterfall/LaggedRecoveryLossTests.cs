@@ -31,7 +31,7 @@ public class LaggedRecoveryLossTests
     private static readonly DateTime Proj = new(2026, 1, 1);
     private const int Lag = 12;
 
-    private static List<PeriodCashflowDto> Pool(int recoveryLag, double[]? mdr = null)
+    private static List<PeriodCashflowDto> Pool(int recoveryLag, double[]? mdr = null, double severity = 40.0)
     {
         var request = new CalcCollateralRequest
         {
@@ -49,7 +49,7 @@ public class LaggedRecoveryLossTests
             Assumptions = new AssumptionsDto
             {
                 Cpr = 0, PrepaymentType = "CPR", DefaultType = "MDR",
-                CdrVector = mdr ?? new[] { 10.0, 0.0 }, Severity = 40.0, RecoveryLag = recoveryLag
+                CdrVector = mdr ?? new[] { 10.0, 0.0 }, Severity = severity, RecoveryLag = recoveryLag
             }
         };
         var action = new CalcCollateralController(NullLogger<CalcCollateralController>.Instance)
@@ -62,7 +62,7 @@ public class LaggedRecoveryLossTests
     private static PayableStructureDto Seq(params string[] t) => new() { Type = "SEQ", Tranches = t.ToList() };
 
     private static WaterfallResponse Waterfall(List<PeriodCashflowDto> pool, string? writedownSize = null,
-        bool onLiquidation = true)
+        bool onLiquidation = true, Action<DealDto>? edit = null)
     {
         var begin = pool[0].BeginBalance;
         TrancheDto Note(string name, double share, int order) => new()
@@ -94,6 +94,7 @@ public class LaggedRecoveryLossTests
                 LossesRealizedOnLiquidation = onLiquidation
             }
         };
+        edit?.Invoke(deal);
         var action = new WaterfallController(NullLogger<WaterfallController>.Instance).Execute(
             new WaterfallRequest { Deal = deal, CollateralCashflows = pool, ProjectionDate = Proj });
         if (action.Result is BadRequestObjectResult bad)
@@ -107,7 +108,8 @@ public class LaggedRecoveryLossTests
     ///     earlier write-downs (graam-harmony#6199): a zero-target turbo ahead of an overPool
     ///     write-down, WRITEUP after it, and the excess-spread strip paid last.
     /// </summary>
-    private static WaterfallResponse ExcessCoversLosses(List<PeriodCashflowDto> pool, bool onLiquidation = true)
+    private static WaterfallResponse ExcessCoversLosses(List<PeriodCashflowDto> pool, bool onLiquidation = true,
+        double? ocTargetPct = null)
     {
         var begin = pool[0].BeginBalance;
         var first = pool[0].CashflowDate;
@@ -136,25 +138,52 @@ public class LaggedRecoveryLossTests
             },
             UnifiedWaterfall = new UnifiedWaterfallDto
             {
-                ExecutionOrder = new List<string>
-                {
-                    "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
-                    "EXCESS_TURBO", "WRITEDOWN", "WRITEUP", "EXCESS_RELEASE"
-                },
+                ExecutionOrder = ocTargetPct == null
+                    ? new List<string>
+                    {
+                        "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
+                        "EXCESS_TURBO", "WRITEDOWN", "WRITEUP", "EXCESS_RELEASE"
+                    }
+                    : new List<string>
+                    {
+                        "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
+                        "WRITEDOWN", "EXCESS_TURBO", "EXCESS_RELEASE"
+                    },
                 Steps = new List<WaterfallStepDto>
                 {
                     new() { Type = "INTEREST", Structure = Seq("A", "B", "C") },
                     new() { Type = "PRINCIPAL", Source = "scheduled", Default = Seq("A", "B", "C") },
                     new() { Type = "PRINCIPAL", Source = "unscheduled", Default = Seq("A", "B", "C") },
                     new() { Type = "PRINCIPAL", Source = "recovery", Default = Seq("A", "B", "C") },
-                    new() { Type = "EXCESS_TURBO", Target = 0 },
-                    new() { Type = "WRITEDOWN", Structure = Seq("C", "B", "A"), Size = "overPool" },
+                    ocTargetPct == null
+                        ? new WaterfallStepDto { Type = "EXCESS_TURBO", Target = 0 }
+                        : new WaterfallStepDto
+                        {
+                            Type = "EXCESS_TURBO", Structure = Seq("A", "B", "C"),
+                            OcTarget = new OcTargetDto { TargetPct = ocTargetPct.Value }
+                        },
+                    new()
+                    {
+                        Type = "WRITEDOWN", Structure = Seq("C", "B", "A"),
+                        Size = ocTargetPct == null ? "overPool" : null
+                    },
                     new() { Type = "WRITEUP" },
                     new() { Type = "EXCESS_RELEASE", Structure = Seq("XS") }
                 },
                 LossesRealizedOnLiquidation = onLiquidation
             }
         };
+        if (ocTargetPct != null)
+        {
+            deal.UnifiedWaterfall.Steps.RemoveAll(st => st.Type == "WRITEUP");
+            // The certificate: its balance is the overcollateralization, the pool less the notes.
+            deal.Tranches.Add(new TrancheDto
+            {
+                TrancheName = "CERT", OriginalBalance = 0, TrancheType = "Certificate", CashflowType = "PI",
+                CouponType = "None", FixedCoupon = 0.0, SubordinationOrder = 5, FirstPayDate = first,
+                PayFrequency = 12, PayDay = first.Day
+            });
+        }
         var action = new WaterfallController(NullLogger<WaterfallController>.Instance).Execute(
             new WaterfallRequest { Deal = deal, CollateralCashflows = pool, ProjectionDate = Proj });
         if (action.Result is BadRequestObjectResult bad)
@@ -330,22 +359,103 @@ public class LaggedRecoveryLossTests
             "the month after, excess writes the first loss back up");
         for (var i = 0; i < pool.Count; i++)
             NotesAt(wf, i).Should().BeApproximately(pool[i].Balance + Pending(pool, i), 0.01, $"period {i + 1}");
-        var paidFromExcess = NotesPrincipal(wf) - PoolPrincipal(pool);
-        (paidFromExcess + Notes.Sum(n => wf.TrancheCashflows[n].Last().CumWritedown))
-            .Should().BeApproximately(NetLoss(pool), 1.0);
     }
 
     [Fact]
-    public void Excess_covers_the_net_loss_not_the_gross_default()
+    public void An_OC_target_is_measured_against_the_pool_and_the_loans_awaiting_liquidation()
     {
-        // What excess paid the notes (as principal, or by writing a class back up) and what is left
-        // written down add up to the net loss.
+        // A small OC target, turbo paid out of excess. The loan awaiting liquidation is still the
+        // trust's, so it is no OC shortfall: the turbo builds the target and no more, and the strip
+        // keeps the rest. Measured against the performing balance alone, the waiting loan read as
+        // a shortfall and the turbo spent the excess on it a year before any loss was realized.
+        const double target = 0.002;
         var pool = Pool(Lag);
-        var wf = ExcessCoversLosses(pool);
-        var paidFromExcess = NotesPrincipal(wf) - PoolPrincipal(pool);
-        var stillWrittenDown = Notes.Sum(n => wf.TrancheCashflows[n].Last().CumWritedown);
+        var wf = ExcessCoversLosses(pool, ocTargetPct: target);
+        var cert = wf.TrancheCashflows["CERT"];
 
-        (paidFromExcess + stillWrittenDown).Should().BeApproximately(NetLoss(pool), 1.0);
+        for (var i = 0; i < Lag; i++)
+        {
+            var poolWithWaiting = pool[i].Balance + Pending(pool, i);
+            var oc = poolWithWaiting - NotesAt(wf, i);
+            oc.Should().BeApproximately(target * poolWithWaiting, 1.0, $"period {i + 1}: the turbo stops at the target");
+            cert[i].Balance.Should().BeApproximately(oc, 1.0, $"period {i + 1}: the certificate is the OC");
+        }
+        wf.TrancheCashflows["XS"].Take(Lag).Should().OnlyContain(c => c.Interest > 1_000,
+            "the strip is paid the excess the target does not need while the loan waits");
+        wf.TrancheCashflows["C"].Take(Lag).Sum(c => c.Writedown).Should().Be(0);
+    }
+
+    [Fact]
+    public void A_loan_liquidated_with_nothing_recovered_is_still_written_down()
+    {
+        // At 100% severity the liquidation month carries no recovery, no balance and no interest:
+        // only the loan leaving the loans awaiting liquidation. Cut off as an empty period, its
+        // loss was never realized and the notes stood over a pool that no longer existed.
+        var pool = Pool(Lag, new[] { 100.0, 0.0 }, severity: 100.0);
+        pool.Should().HaveCountGreaterThan(Lag, "the stream runs to the month the loan is liquidated");
+        pool[Lag].LiquidatedPrincipal.Should().BeApproximately(pool[0].BeginBalance, 0.01);
+
+        var wf = Waterfall(pool);
+        Writedown(wf).Should().BeApproximately(pool[0].BeginBalance, 1.0);
+        Notes.Sum(n => wf.TrancheCashflows[n].Last().Balance).Should().BeApproximately(0, 0.01);
+        wf.TrancheCashflows["C"].Take(Lag).Sum(c => c.Writedown).Should().Be(0);
+    }
+
+    [Fact]
+    public void A_late_default_with_nothing_recovered_is_realized_in_the_stream()
+    {
+        // Defaults late in the loan's life, liquidated a year later with nothing recovered, after
+        // the loan's own term has run out.
+        var mdr = Enumerable.Repeat(0.0, 100).Append(20.0).Append(0.0).ToArray();
+        var pool = Pool(Lag, mdr, severity: 100.0);
+        var defaulted = pool.Sum(c => c.DefaultedPrincipal);
+        defaulted.Should().BeGreaterThan(100_000, "the fixture: something defaults in month 101");
+
+        Writedown(Waterfall(pool)).Should().BeApproximately(defaulted, 1.0);
+        Writedown(Waterfall(pool)).Should().BeApproximately(Writedown(Waterfall(pool, onLiquidation: false)), 1.0,
+            "nothing is recovered, so the two readings lose the same, only later");
+    }
+
+    [Fact]
+    public void A_posted_stream_that_ends_before_the_liquidation_realizes_the_loss_on_its_last_row()
+    {
+        // A caller posts the first six months of a lagged stream: the loan is still awaiting
+        // liquidation when the collateral ends. It is liquidated there, with nothing recovered in
+        // the stream, as the asset engine liquidates a default whose recovery is past its horizon.
+        var pool = Pool(Lag).Take(6).ToList();
+        var defaulted = pool.Sum(c => c.DefaultedPrincipal);
+        Pending(pool, pool.Count - 1).Should().BeApproximately(defaulted, 0.01, "the fixture");
+
+        var wf = Waterfall(pool);
+        Writedown(wf).Should().BeApproximately(defaulted, 1.0);
+        wf.TrancheCashflows["C"].Take(pool.Count - 1).Sum(c => c.Writedown).Should().Be(0);
+    }
+
+    [Fact]
+    public void A_dropped_month_s_default_is_still_awaiting_liquidation()
+    {
+        // The notes first pay a month after the collateral starts, and that first month is
+        // dropped. A loan that defaulted in it is still the trust's until it is liquidated: the
+        // notes are not written down by it while it waits, and when it is liquidated they lose the
+        // net loss. Dropped with its month, the waiting loan was taken out of the pool twice.
+        var pool = Pool(Lag);
+        void DropFirstMonth(DealDto deal)
+        {
+            deal.FirstPeriodCollateralPolicy = "Drop";
+            deal.UnifiedWaterfall!.WriteNotesDownToPool = true;
+            foreach (var t in deal.Tranches)
+                t.FirstPayDate = pool[1].CashflowDate;
+        }
+
+        var wf = Waterfall(pool, edit: DropFirstMonth);
+        var c = wf.TrancheCashflows["C"];
+        var droppedPrincipal = pool[0].ScheduledPrincipal;
+
+        // What the notes lose over the run: the dropped month's principal, which they were never
+        // paid, and the net loss on the loan, realized when it is liquidated.
+        Writedown(wf).Should().BeApproximately(droppedPrincipal + NetLoss(pool), 1.0);
+        c[Lag - 1].Writedown.Should().BeApproximately(NetLoss(pool), 1.0,
+            "the loss is realized in the month the loan is liquidated (the rows start a month late)");
     }
 
     [Fact]

@@ -203,6 +203,15 @@ public class ComposableStructure : BaseStructure
                             cashflowsBeforeFirstPay[periodCf.GroupNum] = new List<PeriodCashflows>();
                         cashflowsBeforeFirstPay[periodCf.GroupNum].Add(periodCf);
                     }
+                    else
+                    {
+                        // A dropped month's flows are left out, but a loan that defaulted in it is
+                        // still awaiting liquidation: its liquidation, in a month that is kept,
+                        // takes it back out. Dropped with the month, the pending balance went
+                        // negative there and the notes were written down by it a second time.
+                        pendingLiquidation[periodCf.GroupNum] =
+                            pendingLiquidation.GetValueOrDefault(periodCf.GroupNum) + periodCf.PendingLiquidationChange;
+                    }
 
                     continue;
                 }
@@ -290,13 +299,26 @@ public class ComposableStructure : BaseStructure
 
                 // After the held and pre-boundary months are folded in, so every month's change is
                 // counted once.
-                pendingLiquidation[periodCf.GroupNum] =
-                    pendingLiquidation.GetValueOrDefault(periodCf.GroupNum) + adjPeriodCf.PendingLiquidationChange;
-                adjPeriodCf.PendingLiquidationBalance = pendingLiquidation[periodCf.GroupNum];
+                var pendingAtOpen = pendingLiquidation.GetValueOrDefault(periodCf.GroupNum);
+                var pendingAtClose = pendingAtOpen + adjPeriodCf.PendingLiquidationChange;
+                // The group's collateral ends here: a loan still awaiting liquidation is liquidated
+                // now with nothing recovered, as the asset engine liquidates a default whose
+                // recovery falls past its horizon. Left pending (a posted stream that stops before
+                // t + lag), its loss was never realized and the notes stood over it at the end.
+                if (deal.LossesRealizedOnLiquidation && periodCf.CashflowDate == lastDateByGroup[periodCf.GroupNum]
+                    && Math.Abs(pendingAtClose) > 0.005)
+                {
+                    adjPeriodCf.PendingLiquidationChange -= pendingAtClose;
+                    pendingAtClose = 0;
+                }
+                pendingLiquidation[periodCf.GroupNum] = pendingAtClose;
+                adjPeriodCf.PendingLiquidationBalance = pendingAtClose;
 
                 // The certificate opens the period before its triggers and pay rules read it, on
-                // the balance the Collection Period opened with.
-                dynGroup.OpenCertificateBalance(periodOpening);
+                // the balance the Collection Period opened with (and the loans then awaiting
+                // liquidation, on a deal that realizes losses on liquidation).
+                dynGroup.OpenCertificateBalance(periodOpening +
+                                                (deal.LossesRealizedOnLiquidation ? pendingAtOpen : 0));
 
                 // This Payment Date's modification write-down, before the tests read it: the
                 // step that applies it runs after them (see PlanModificationWritedown).
@@ -1335,20 +1357,9 @@ public class ComposableStructure : BaseStructure
     /// </summary>
     private static double NotesOverPool(DynamicGroup dynGroup, PeriodCashflows periodCf)
     {
-        var overPool = dynGroup.Balance() - PoolTheNotesStandAgainst(dynGroup.Deal, periodCf);
+        var overPool = dynGroup.Balance() - dynGroup.PoolTheNotesStandAgainst(periodCf);
         return overPool > 0.005 ? overPool : 0;
     }
-
-    /// <summary>
-    ///     The pool the notes are measured against: the collateral's end-of-period balance and, on a
-    ///     deal whose losses are realized on liquidation, the defaulted loans still awaiting
-    ///     liquidation. Such a loan is still the trust's until its loss is struck, so the notes do not
-    ///     stand above the pool by it. One reading for every step that measures the notes against the
-    ///     pool (an overPool write-down, the zero-target turbo, WRITEUP): read apart, the turbo paid a
-    ///     loss out of excess before it was realized and WRITEUP left the notes under the pool by it.
-    /// </summary>
-    private static double PoolTheNotesStandAgainst(IDeal deal, PeriodCashflows periodCf) =>
-        periodCf.Balance + (deal.LossesRealizedOnLiquidation ? periodCf.PendingLiquidationBalance : 0);
 
     /// <summary>What the notes have been written down by and not yet written back up.</summary>
     private static double WrittenDown(DynamicGroup dynGroup) =>
@@ -1366,7 +1377,7 @@ public class ComposableStructure : BaseStructure
     private static void WriteNotesUpToPool(IDeal deal, DynamicGroup dynGroup, PeriodCashflows periodCf)
     {
         var tree = WriteUpOrder(deal, dynGroup, periodCf.CashflowDate);
-        var amount = Math.Min(WrittenDown(dynGroup), PoolTheNotesStandAgainst(deal, periodCf) - dynGroup.Balance());
+        var amount = Math.Min(WrittenDown(dynGroup), dynGroup.PoolTheNotesStandAgainst(periodCf) - dynGroup.Balance());
         if (amount <= 0.005)
             return;
         tree.Restore(periodCf.CashflowDate, amount);
@@ -1398,7 +1409,7 @@ public class ComposableStructure : BaseStructure
         var allTranches = dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches).ToList();
 
         // Set collateral balance variables for use in steps (e.g., OC turbo calculation)
-        dynGroup.SetVariable("collat_balance", adjPeriodCf.Balance);
+        dynGroup.SetVariable("collat_balance", dynGroup.PoolTheNotesStandAgainst(adjPeriodCf));
         dynGroup.SetVariable("collat_begin_balance", adjPeriodCf.BeginBalance);
         // Read before any of the period's payments, so a class "paid in full" was paid on an
         // earlier Payment Date, as the switch to a deal's second schedule is worded.
@@ -1675,7 +1686,7 @@ public class ComposableStructure : BaseStructure
 
         // Update Certificate tranche balance to reflect current OC (Pool - Notes)
         // Called AFTER all principal payments so both pool and note balances are at end-of-period values
-        dynGroup.UpdateCertificateBalance(adjPeriodCf.Balance, adjPeriodCf.CashflowDate);
+        dynGroup.UpdateCertificateBalance(dynGroup.PoolTheNotesStandAgainst(adjPeriodCf), adjPeriodCf.CashflowDate);
 
         // What was held back for a release nothing paid is the certificate's, and so is the
         // principal the steps left once the notes are gone. Both are paid here, as cash. They
@@ -3160,7 +3171,7 @@ public class ComposableStructure : BaseStructure
         if (ocConfig == null)
             return 0;
 
-        var poolBalance = periodCf.Balance; // End of period pool balance
+        var poolBalance = dynGroup.PoolTheNotesStandAgainst(periodCf); // End of period pool balance
         var ocBase = OcBase(dynGroup, poolBalance); // the Adjusted Pool Balance on a YSOC deal
         var noteBalance = dynGroup.Balance(); // Current note balance
 
@@ -3309,7 +3320,7 @@ public class ComposableStructure : BaseStructure
         // With WRITEUP the turbo also pays back what is still written down: it pays the notes down to
         // the pool less those write-downs, and WRITEUP restores the classes by the same amount, so
         // the notes end level with the pool (graam-harmony#6199 D7).
-        var downTo = PoolTheNotesStandAgainst(deal, periodCf) - (deal.WritesUp ? WrittenDown(dynGroup) : 0.0);
+        var downTo = dynGroup.PoolTheNotesStandAgainst(periodCf) - (deal.WritesUp ? WrittenDown(dynGroup) : 0.0);
         var amount = Math.Min(availableInterest, Math.Max(dynGroup.Balance() - downTo, 0));
         if (amount <= 0.005 || payable == null)
             return availableInterest;

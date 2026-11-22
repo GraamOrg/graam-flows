@@ -132,9 +132,13 @@ public class CashflowResultArrays
             // first empty one, and include RecoveryPrincipal — so a lagged
             // recovery (graam-harmony #3449) that lands after the pool has
             // amortized to zero (a gap of empty periods before it) is still
-            // emitted instead of truncated.
+            // emitted instead of truncated. And PendingLiquidationChange: a loan
+            // liquidated with nothing recovered (100% severity) carries nothing
+            // else in its liquidation period, and cut off there its loss was never
+            // realized on a deal that realizes losses on liquidation.
             if (Balance[i] != 0 || ScheduledPrincipal[i] != 0 || Interest[i] != 0
-                || DefaultedPrincipal[i] != 0 || RecoveryPrincipal[i] != 0)
+                || DefaultedPrincipal[i] != 0 || RecoveryPrincipal[i] != 0
+                || PendingLiquidationChange[i] != 0)
                 NumberOfPeriods = i + 1;
         }
     }
