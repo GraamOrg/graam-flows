@@ -386,6 +386,33 @@ public class LaggedRecoveryLossTests
     }
 
     [Fact]
+    public void The_rules_see_no_OC_shortfall_while_a_loan_awaits_liquidation()
+    {
+        // A deal's own formulas read oc_amt and oc_pct. The loan awaiting liquidation (about a
+        // million) is still the trust's, so neither reads it as the notes standing above the pool
+        // until the loss is struck; read off the performing balance alone, an OC trigger tripped a
+        // year early. (Triggers are tested before the period's payments, so both also carry that
+        // period's principal, the notes' opening balance against the pool's closing one: a few
+        // tens of thousands while the loan waits, well inside the thresholds. In the month it is
+        // liquidated that gap is the recovery and the loss, so that month is not asserted.)
+        var pool = Pool(Lag);
+        Pending(pool, 0).Should().BeGreaterThan(900_000, "the fixture");
+        var wf = Waterfall(pool, edit: deal => deal.Triggers = new List<TriggerDto>
+        {
+            new() { TriggerName = "OcAmtHeld", TriggerType = "FORMULA_CONDITION", TriggerFormula = "oc_amt > -500000" },
+            new() { TriggerName = "OcPctHeld", TriggerType = "FORMULA_CONDITION", TriggerFormula = "oc_pct < 1.05" }
+        });
+
+        foreach (var name in new[] { "OcAmtHeld", "OcPctHeld" })
+        {
+            var results = wf.TriggerResults!.Where(t => t.TriggerName == name).OrderBy(t => t.Period).ToList();
+            results.Should().HaveCountGreaterThan(Lag, $"the fixture: {name} is tested every period");
+            results.Take(Lag).Where(t => !t.Triggered).Select(t => t.Period).Should().BeEmpty(
+                $"{name}: while the loan awaits liquidation the notes do not stand above the pool");
+        }
+    }
+
+    [Fact]
     public void A_loan_liquidated_with_nothing_recovered_is_still_written_down()
     {
         // At 100% severity the liquidation month carries no recovery, no balance and no interest:
