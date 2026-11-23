@@ -353,7 +353,8 @@ public class ComposableStructure : BaseStructure
                     var cashBeforePayoff = _cashLedger != null
                         ? CashRecorded(dynGroup, adjPeriodCf.CashflowDate)
                         : 0.0;
-                    ExecuteTermination(dynGroup, adjPeriodCf, applyWritedown: false);
+                    ExecuteTermination(dynGroup, adjPeriodCf, applyWritedown: false,
+                        redemptionInterest: RedemptionInterestOf(triggerValues));
                     if (_cashLedger != null)
                     {
                         // The payoff redeems the classes out of the pool's remaining balance, which

@@ -21,4 +21,6 @@ public class DealTrigger : IDealTrigger
     [Database("Possible_Values")] public string PossibleValues { get; set; }
 
     [Database("Trigger_Formula")] public string TriggerFormula { get; set; }
+
+    public string RedemptionInterest { get; set; }
 }

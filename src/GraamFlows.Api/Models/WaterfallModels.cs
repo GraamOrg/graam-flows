@@ -574,6 +574,13 @@ public class TriggerDto
     public bool IsMandatory { get; set; } = false;
     public string? PossibleValues { get; set; }
     public string GroupNum { get; set; } = "1";
+
+    /// <summary>
+    ///     A termination trigger only (DATE_TERMINATION, COLLATERAL_VALUE): whether the Redemption
+    ///     Price also pays interest for the month of redemption — <c>None</c> (default, null) or
+    ///     <c>ToPaymentDate</c>. See <c>GraamFlows.Triggers.RedemptionInterest</c>.
+    /// </summary>
+    public string? RedemptionInterest { get; set; }
 }
 
 public class PayRuleDto
@@ -1268,6 +1275,12 @@ public class TrancheCashflowDto
     ///     begin + capitalized − principal − writedown.
     /// </summary>
     public double CapitalizedInterest { get; set; }
+
+    /// <summary>
+    ///     Interest for the month of redemption a call paid (a <c>redemptionInterest: ToPaymentDate</c>
+    ///     trigger). Already in <c>Interest</c>; 0 on every other row.
+    /// </summary>
+    public double RedemptionInterest { get; set; }
     public double Factor { get; set; }
     public double CreditSupport { get; set; }
     public double BeginCreditSupport { get; set; }

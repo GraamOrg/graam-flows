@@ -345,6 +345,20 @@ public class DynamicTranche : DynamicClass
         return frac;
     }
 
+    /// <summary>
+    ///     The year fraction from the end of this note's accrual period to its Payment Date on
+    ///     <paramref name="cashflowDate" /> — the part of the next period already run on the day it is
+    ///     paid: <c>PayDelay</c> days back from the Payment Date, on the note's own day counter. Zero
+    ///     for a note with no delay. Read only by a call that pays the month of redemption.
+    /// </summary>
+    public virtual double RedemptionMonthYearFraction(DateTime cashflowDate)
+    {
+        if (Tranche.PayDelay <= 0)
+            return 0;
+        var payDate = AdjustedCashflowDate(cashflowDate);
+        return DayCounter.YearFraction(payDate.AddDays(-Tranche.PayDelay), payDate);
+    }
+
     public virtual double TrancheBalance(TrancheCashflow cashflow)
     {
         return cashflow.BeginBalance;

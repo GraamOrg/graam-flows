@@ -265,7 +265,8 @@ public class WaterfallRunner
                     TriggerParam2 = triggerDto.TriggerParam2,
                     IsMandatory = triggerDto.IsMandatory,
                     PossibleValues = triggerDto.PossibleValues,
-                    GroupNum = triggerDto.GroupNum
+                    GroupNum = triggerDto.GroupNum,
+                    RedemptionInterest = triggerDto.RedemptionInterest
                 };
                 deal.DealTriggers.Add(trigger);
             }
@@ -519,6 +520,7 @@ public class WaterfallRunner
                     InterestShortfall = cf.Value.InterestShortfall,
                     AccumInterestShortfall = cf.Value.AccumInterestShortfall,
                     InterestShortfallPayback = cf.Value.InterestShortfallPayback,
+                    RedemptionInterest = cf.Value.RedemptionInterest,
                     ExcessInterest = cf.Value.ExcessInterest,
                     IndexValue = cf.Value.IndexValue,
                     FloaterMargin = cf.Value.FloaterMargin,

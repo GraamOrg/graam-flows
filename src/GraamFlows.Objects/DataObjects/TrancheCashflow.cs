@@ -124,6 +124,14 @@ public class TrancheCashflow
     /// </summary>
     public double CapitalizedInterest { get; set; }
 
+    /// <summary>
+    ///     Interest for the month of redemption paid by a call whose Redemption Price includes it
+    ///     (<c>GraamFlows.Triggers.RedemptionInterest.ToPaymentDate</c>): the part of the next accrual
+    ///     period already run on the Payment Date the note is retired. Already in
+    ///     <see cref="Interest" />; reported apart so a reader can tell it from the regular coupon.
+    /// </summary>
+    public double RedemptionInterest { get; set; }
+
     public TrancheCashflow Copy()
     {
         var tcf = new TrancheCashflow(TrancheName, Tranche, CashflowDate, UnscheduledPrincipal, ScheduledPrincipal,
@@ -134,6 +142,7 @@ public class TrancheCashflow
         tcf.ModificationLoss = ModificationLoss;
         tcf.ModificationWritedown = ModificationWritedown;
         tcf.CapitalizedInterest = CapitalizedInterest;
+        tcf.RedemptionInterest = RedemptionInterest;
         return tcf;
     }
 

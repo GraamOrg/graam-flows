@@ -99,6 +99,21 @@ public class TestDealBuilder
     }
 
     /// <summary>
+    ///     Payment delay, in days, for every tranche added SO FAR (each is added with none): the
+    ///     accrual period ends that many days before the Payment Date.
+    /// </summary>
+    public TestDealBuilder WithPayDelay(int days)
+    {
+        if (_deal.Tranches.Count == 0)
+            throw new InvalidOperationException(
+                "WithPayDelay applies to the tranches added so far — call it AFTER WithTranche.");
+
+        foreach (var t in _deal.Tranches.OfType<Tranche>())
+            t.PayDelay = days;
+        return this;
+    }
+
+    /// <summary>
     ///     Day count for every tranche added SO FAR (each is added at "30/360", Bond Basis).
     /// </summary>
     public TestDealBuilder WithDayCount(string dayCount)
@@ -653,7 +668,7 @@ public class TestDealBuilder
     ///     class still carrying balance is paid off (graam-harmony#4879).
     /// </summary>
     public TestDealBuilder WithDateTermination(DateTime date, bool mandatory = true,
-        string name = "Termination")
+        string name = "Termination", string? redemptionInterest = null)
     {
         _deal.DealTriggers.Add(new DealTrigger
         {
@@ -663,6 +678,26 @@ public class TestDealBuilder
             IsMandatory = mandatory,
             TriggerParam = date.ToString("yyyy-MM-dd"),
             GroupNum = "1",
+            RedemptionInterest = redemptionInterest,
+        });
+        return this;
+    }
+
+    /// <summary>
+    ///     A clean-up call: the deal ends once the pool factor falls below <paramref name="pct" />%.
+    /// </summary>
+    public TestDealBuilder WithCleanUpTermination(double pct, string? redemptionInterest = null,
+        string name = "CleanUp")
+    {
+        _deal.DealTriggers.Add(new DealTrigger
+        {
+            DealName = _deal.DealName,
+            TriggerName = name,
+            TriggerType = "COLLATERAL_VALUE",
+            IsMandatory = true,
+            TriggerParam = pct.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            GroupNum = "1",
+            RedemptionInterest = redemptionInterest,
         });
         return this;
     }

@@ -739,7 +739,8 @@ public abstract class BaseStructure : IWaterfall
                     if (payRuleExecutor != null)
                         ExecutePayRules(dynGroup.Deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf);
                     if (triggerValue.TriggerExecuter.TriggerExecType == TriggerExecutionType.Terminate)
-                        ExecuteTermination(dynGroup, adjPeriodCf);
+                        ExecuteTermination(dynGroup, adjPeriodCf,
+                            redemptionInterest: RedemptionInterestOf(triggerValues));
 
                     return triggerValues;
                 }
@@ -757,7 +758,7 @@ public abstract class BaseStructure : IWaterfall
     /// Executes deal termination: writedown remaining losses, then pay off all tranche balances.
     /// </summary>
     protected void ExecuteTermination(DynamicGroup dynGroup, PeriodCashflows adjPeriodCf,
-        bool applyWritedown = true)
+        bool applyWritedown = true, RedemptionInterest redemptionInterest = RedemptionInterest.None)
     {
         // At termination, writedown remaining losses then pay off all balances.
         // Unabsorbed writedowns are expected at termination (subordinates may already be zero).
@@ -786,6 +787,8 @@ public abstract class BaseStructure : IWaterfall
         }
 
         PayTerminationInterestShortfall(dynGroup, adjPeriodCf);
+        if (redemptionInterest == RedemptionInterest.ToPaymentDate)
+            PayRedemptionMonthInterest(dynGroup, adjPeriodCf.CashflowDate);
 
         foreach (var dynClass in dynGroup.DynamicClasses)
             if (dynClass.DealStructure == null ||
@@ -820,6 +823,70 @@ public abstract class BaseStructure : IWaterfall
     ///     Exchangeable views are skipped (they mirror their components), as are pool-notional
     ///     strips' balances (a notional is not principal the proceeds must fund).
     /// </summary>
+    /// <summary>
+    ///     The call's terms for the redemption-month interest, from the termination trigger that fired
+    ///     this period. Two call legs firing together (a dated call and a clean-up on the same Payment
+    ///     Date) state the same Redemption Price; if they ever disagree, the one that pays more is the
+    ///     price the notes are owed, so <c>ToPaymentDate</c> wins.
+    /// </summary>
+    protected static RedemptionInterest RedemptionInterestOf(IEnumerable<TriggerValue> triggerValues)
+    {
+        return triggerValues
+            .Where(tv => tv?.TriggerResultType == TriggerValueType.Executer)
+            .Select(tv => tv.TriggerExecuter)
+            .OfType<TerminationTriggerExecuter>()
+            .Any(ex => ex.RedemptionInterest == RedemptionInterest.ToPaymentDate)
+            ? RedemptionInterest.ToPaymentDate
+            : RedemptionInterest.None;
+    }
+
+    /// <summary>
+    ///     Pays each note retired by the call the interest for the month of redemption
+    ///     (<see cref="RedemptionInterest.ToPaymentDate" />), before the balances are retired.
+    ///
+    ///     A delay note's accrual period ends before its Payment Date — a calendar month paid on the
+    ///     25th of the next — so on the Payment Date it is retired the note has already run the days
+    ///     from the end of that period to the Payment Date. That stretch is <c>PayDelay</c> days back
+    ///     from the Payment Date, counted on the note's own day counter: 24/360 for a 30/360 note
+    ///     paid on the 25th. A note with no delay accrues to its Payment Date and has nothing to add.
+    ///
+    ///     Rate: the coupon the Payment Date already used (a capped class's capped rate), the "Note
+    ///     Rate applicable to the Accrual Period otherwise in effect for such Payment Date". Balance:
+    ///     what is being redeemed — after this Payment Date's regular principal, before the payoff
+    ///     below; a notional strip on its notional. Strips with no stated coupon (excess interest,
+    ///     residual) and exchangeable views (they mirror their components) get nothing.
+    ///
+    ///     Paid regardless of the pool's proceeds, like the balance retirement after it: the
+    ///     Redemption Price is paid by whoever exercises the call.
+    /// </summary>
+    protected static void PayRedemptionMonthInterest(DynamicGroup dynGroup, DateTime cfDate)
+    {
+        foreach (var dynClass in dynGroup.DynamicClasses)
+        {
+            if (dynClass.Tranche.IsPseudo || dynClass.DealStructure == null ||
+                dynClass.DealStructure.PayFromEnum == PayFromEnum.Exchange || dynClass.IsExchangable())
+                continue;
+
+            foreach (var dynTran in dynClass.DynamicTranches)
+            {
+                var type = dynTran.Tranche.CouponTypeEnum;
+                if (type == CouponType.ExcessInterest || type == CouponType.Residual || type == CouponType.None)
+                    continue;
+                var frac = dynTran.RedemptionMonthYearFraction(cfDate);
+                var balance = dynTran.Balance;
+                if (frac <= 0 || balance <= 0.005)
+                    continue;
+
+                var cf = dynTran.GetCashflow(cfDate);
+                var amount = balance * cf.Coupon * .01 * frac;
+                if (!(amount > 0) || double.IsInfinity(amount))
+                    continue;
+                cf.Interest += amount;
+                cf.RedemptionInterest += amount;
+            }
+        }
+    }
+
     protected void PayTerminationInterestShortfall(DynamicGroup dynGroup, PeriodCashflows adjPeriodCf)
     {
         var cfDate = adjPeriodCf.CashflowDate;
