@@ -10,7 +10,11 @@ public class CollateralValueTerminationTrigger : Trigger
         trigger, assumps)
     {
         SetParams();
+        Redemption = RedemptionInterestParser.Parse(trigger);
     }
+
+    /// <summary>What this call's Redemption Price pays beyond par and the Payment Date's interest.</summary>
+    public RedemptionInterest Redemption { get; }
 
     public double CollateralValueTriggerParam { get; private set; }
 
@@ -35,14 +39,14 @@ public class CollateralValueTerminationTrigger : Trigger
             return null;
 
         if (DealTrigger.IsMandatory || (triggerForecast != null && triggerForecast.AlwaysTrigger))
-            return new TriggerValue(TriggerName, new TerminationTriggerExecuter());
+            return new TriggerValue(TriggerName, new TerminationTriggerExecuter(Redemption));
 
         if (triggerForecast == null)
             return null;
 
         if (triggerForecast.HasCustomParam && double.TryParse(triggerForecast.CustomParam, out var customTriggerParam))
             if (currFactor < customTriggerParam)
-                return new TriggerValue(TriggerName, new TerminationTriggerExecuter());
+                return new TriggerValue(TriggerName, new TerminationTriggerExecuter(Redemption));
         return null;
     }
 

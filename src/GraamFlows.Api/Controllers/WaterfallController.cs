@@ -357,7 +357,8 @@ public class WaterfallController : ControllerBase
                     TriggerParam2 = triggerDto.TriggerParam2,
                     IsMandatory = triggerDto.IsMandatory,
                     PossibleValues = triggerDto.PossibleValues,
-                    GroupNum = triggerDto.GroupNum
+                    GroupNum = triggerDto.GroupNum,
+                    RedemptionInterest = triggerDto.RedemptionInterest
                 };
                 deal.DealTriggers.Add(trigger);
             }
@@ -826,6 +827,7 @@ public class WaterfallController : ControllerBase
                     ModificationLoss = cf.Value.ModificationLoss,
                     ModificationWritedown = cf.Value.ModificationWritedown,
                     CapitalizedInterest = cf.Value.CapitalizedInterest,
+                    RedemptionInterest = cf.Value.RedemptionInterest,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
                     BeginCreditSupport = cf.Value.BeginCreditSupport,
@@ -903,6 +905,7 @@ public class WaterfallController : ControllerBase
                     ModificationLoss = cf.Value.ModificationLoss,
                     ModificationWritedown = cf.Value.ModificationWritedown,
                     CapitalizedInterest = cf.Value.CapitalizedInterest,
+                    RedemptionInterest = cf.Value.RedemptionInterest,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
                     BeginCreditSupport = cf.Value.BeginCreditSupport,
