@@ -578,9 +578,11 @@ public class ComposableStructure : BaseStructure
             "INTEREST",
             "PRINCIPAL_SCHEDULED",
             "PRINCIPAL_UNSCHEDULED",
-            "PRINCIPAL_RECOVERY",
-            "WRITEDOWN"
+            "PRINCIPAL_RECOVERY"
         };
+        if (CarriesAccrualClasses(deal))
+            order.Add("ACCRUAL");
+        order.Add("WRITEDOWN");
         if (deal.DeclaresReserveDeposit)
             order.Add("RESERVE_DEPOSIT");
         order.Add("EXCESS_TURBO");
@@ -588,11 +590,78 @@ public class ComposableStructure : BaseStructure
         return order;
     }
 
+    /// <summary>A class of the deal pays from Accrual: an accrual (Z) class.</summary>
+    private static bool CarriesAccrualClasses(IDeal deal) =>
+        deal.DealStructures.Any(ds =>
+            string.Equals(ds.PayFrom, nameof(PayFromEnum.Accrual), StringComparison.OrdinalIgnoreCase) ||
+            (ds.PayFrom ?? "").StartsWith("z", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    ///     An accrual (Z) class is paid right only when three things hold, and each one missing
+    ///     still runs and returns a plausible grid, so each is refused:
+    ///     <list type="bullet">
+    ///         <item>the order runs ACCRUAL — without it the Z is paid its coupon in cash, as a
+    ///         current-pay class, and the classes its accrual is directed to get none of it;</item>
+    ///         <item>the Z is in the INTEREST structure — its coupon accrues there, and ACCRUAL
+    ///         turns that coupon into balance, so a Z outside INTEREST would be paid principal
+    ///         out of interest it was never credited with;</item>
+    ///         <item>its Accrual Amount has somewhere stated to go (SET_SPEC_ACC_STRUCT, or a
+    ///         group-wide SET_ACC_STRUCT) — the fallback to the scheduled-principal structure is a
+    ///         guess at the document's order.</item>
+    ///     </list>
+    ///     ACCRUAL on a deal with no accrual class is refused too: the order says the deal has one.
+    /// </summary>
+    private static void ValidateAccrualClasses(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
+    {
+        var accrualClasses = dynGroup.DynamicClasses
+            .Where(dc => !dc.Tranche.IsPseudo && dc.DealStructure != null &&
+                         dc.DealStructure.PayFromEnum == PayFromEnum.Accrual)
+            .ToList();
+        var runsAccrual = executionOrder.Any(s => string.Equals(s, "ACCRUAL", StringComparison.OrdinalIgnoreCase));
+
+        if (accrualClasses.Count == 0)
+        {
+            if (runsAccrual && !CarriesAccrualClasses(deal))
+                throw new DealModelingException(deal.DealName,
+                    "The execution order runs ACCRUAL, but no class of the deal accrues. Name each " +
+                    "accrual (Z) class in an ACCRUAL step, or take ACCRUAL out of the order.");
+            return;
+        }
+
+        var names = string.Join(", ", accrualClasses.Select(dc => dc.Tranche.TrancheName));
+        if (!runsAccrual)
+            throw new DealModelingException(deal.DealName,
+                $"{names} accrue{(accrualClasses.Count == 1 ? "s" : "")}, but the execution order " +
+                "has no ACCRUAL step, so each would be paid its coupon in cash and the classes its " +
+                "Accrual Amount is directed to would get none of it. Add ACCRUAL after the PRINCIPAL steps.");
+
+        var interestLeaves = OrderedLeaves(dynGroup.InterestPayable).OfType<DynamicClass>().ToHashSet();
+        var outside = accrualClasses.Where(dc => !interestLeaves.Contains(dc)).ToList();
+        if (outside.Count > 0)
+            throw new DealModelingException(deal.DealName,
+                $"{string.Join(", ", outside.Select(dc => dc.Tranche.TrancheName))} accrue" +
+                $"{(outside.Count == 1 ? "s" : "")} but {(outside.Count == 1 ? "is" : "are")} not in the " +
+                "INTEREST structure. An accrual class's coupon accrues in INTEREST, and ACCRUAL adds it to " +
+                "the balance; outside INTEREST it would be paid principal out of interest it was never " +
+                "credited with. Add it to the INTEREST step.");
+
+        var undirected = accrualClasses
+            .Where(dc => dynGroup.GetAccrualPayable(dc.Tranche.TrancheName) == null && dynGroup.AccrualPayable == null)
+            .ToList();
+        if (undirected.Count > 0)
+            throw new DealModelingException(deal.DealName,
+                $"No structure is stated for the Accrual Amount of " +
+                $"{string.Join(", ", undirected.Select(dc => dc.Tranche.TrancheName))}. State it on the " +
+                "ACCRUAL step (or SET_SPEC_ACC_STRUCT) in the document's order.");
+    }
+
     /// <summary>
     ///     Validates that all required payable structures are set.
     /// </summary>
     private void ValidateRequiredPayables(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
     {
+        ValidateAccrualClasses(deal, dynGroup, executionOrder);
+
         if (dynGroup.InterestPayable == null)
             throw new DealModelingException(deal.DealName,
                 "ComposableStructure requires INTEREST step in waterfall. Add SET_INTEREST_STRUCT rule.");
@@ -767,6 +836,9 @@ public class ComposableStructure : BaseStructure
             ["PRINCIPAL_UNSCHEDULED"] = StepEffect.PaysNotesFromCollections,
             ["PRINCIPAL_RECOVERY"] = StepEffect.PaysNotesFromCollections,
             ["SUPPLEMENTAL_REDUCTION"] = StepEffect.PaysNotesFromCollections,
+            // Pays the accrual (Z) classes' coupon, which INTEREST accrued on them, as principal
+            // to the classes each Z's Accrual Amount is directed to.
+            ["ACCRUAL"] = StepEffect.PaysNotesFromCollections,
             ["MODIFICATION_LOSS"] = StepEffect.PaysNotesFromCollections,
             ["EXCESS_TURBO"] = StepEffect.PaysNotesFromExcess,
             ["WRITEDOWN"] = StepEffect.WritesNotesDown,
@@ -1597,6 +1669,19 @@ public class ComposableStructure : BaseStructure
                     availableRecovPrin = PayRecoveryPrincipalStep(deal, dynGroup, adjPeriodCf, cfAlloc,
                         triggerValues, payRuleExecutor, availableRecovPrin);
                     break;
+
+                case "ACCRUAL":
+                {
+                    // Each accrual (Z) class's coupon, credited to it in INTEREST, is added to its
+                    // balance and paid as principal through the structure its Accrual Amount is
+                    // directed to (e.g. VA, then the Z). The Z's interest and its negative principal
+                    // net to no cash; the classes paid get the accrual as principal. No funds move:
+                    // the cash is the interest INTEREST already set aside for the Z.
+                    var accruing = dynGroup.AccrualStructures().ToList();
+                    if (accruing.Count > 0)
+                        PayAccrualStructures(dynGroup, rateProvider, adjPeriodCf, triggerValues, accruing);
+                    break;
+                }
 
                 case "WRITEDOWN":
                     if (deal.WritedownSize == WritedownSize.OverPool)

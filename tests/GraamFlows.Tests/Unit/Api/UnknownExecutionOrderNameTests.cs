@@ -142,7 +142,8 @@ public class UnknownExecutionOrderNameTests
     public void Every_name_a_step_answers_to_runs(string name)
     {
         // A name dropped from the switch is a hard 400 now, so each one is pinned by name.
-        // MODIFICATION_LOSS needs its ladder, so ModificationLossTests pins that one.
+        // MODIFICATION_LOSS needs its ladder, so ModificationLossTests pins that one; ACCRUAL needs
+        // an accrual class, so AccrualClassTests pins that one.
         Run(Request("INTEREST", name, "PRINCIPAL_SCHEDULED")).Result.Should().BeOfType<OkObjectResult>();
         Run(Request("INTEREST", name.ToLowerInvariant(), "PRINCIPAL_SCHEDULED")).Result.Should()
             .BeOfType<OkObjectResult>();
