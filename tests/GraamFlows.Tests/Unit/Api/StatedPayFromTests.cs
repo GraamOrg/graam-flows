@@ -48,7 +48,8 @@ public class StatedPayFromTests
         var structures = Build(Io("X", payFrom: "Notional", notionalReference: "A, B"));
 
         PayFrom(structures, "X").Should().Be("Notional");
-        structures.Single(s => s.ClassGroupName == "X").ExchangableTranche.Should().Be("A, B");
+        structures.Single(s => s.ClassGroupName == "X").ExchangableTranche.Should().Be("A,B",
+            "the engine trims class names but not a group name, so the list is handed over trimmed");
     }
 
     [Fact]
@@ -112,6 +113,53 @@ public class StatedPayFromTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*'AB'*no exchange shares*");
     }
 
+    [Theory]
+    [InlineData("a", "*follows 'a'*names match exactly*")] // the engine looks classes up by exact name
+    [InlineData("GROUP_2", "*follows 'GROUP_2'*")] // a unified waterfall builds only GROUP_1
+    [InlineData("group_1", "*follows 'group_1'*")]
+    [InlineData("A,GROUP_1", "*mixes the collateral group with classes*")] // amortized twice
+    [InlineData("X", "*follows 'X'*pays no principal*")] // itself
+    [InlineData("AX", "*follows 'AX'*pays no principal*")] // another interest-only class
+    public void A_notional_the_engine_would_not_follow_as_stated_is_refused(string reference, string message)
+    {
+        var act = () => Build(Io("AX", notionalReference: "A"), Io("X", payFrom: "Notional", notionalReference: reference));
+        act.Should().Throw<InvalidOperationException>().WithMessage(message);
+    }
+
+    [Fact]
+    public void A_notional_on_the_pool_alone_is_accepted()
+    {
+        var structures = Build(Io("X", payFrom: "Notional", notionalReference: " GROUP_1 "));
+        structures.Single(s => s.ClassGroupName == "X").ExchangableTranche.Should().Be("GROUP_1");
+    }
+
+    [Fact]
+    public void An_interest_only_class_stating_sequential_with_a_reference_is_refused()
+    {
+        // Its reference would be ignored and it would run on the pool.
+        var act = () => Build(Io("AX", payFrom: "Sequential", notionalReference: "A"));
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'AX' states payFrom 'Sequential' but names a notional reference*");
+    }
+
+    [Theory]
+    [InlineData("Sequential")]
+    [InlineData("Notional")]
+    public void An_exchange_class_stating_anything_but_exchange_is_refused(string payFrom)
+    {
+        // Left flat at its issuance balance: it is not paid as a class, and not as an exchange.
+        var act = () => Build(new TrancheDto
+            { TrancheName = "AB", CashflowType = "IO", TrancheType = "Exchanged", NotionalReference = "A", PayFrom = payFrom });
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'AB' is an exchange class*state \"Exchange\"*");
+    }
+
+    [Fact]
+    public void An_excess_interest_class_stating_the_servicing_fee_is_refused()
+    {
+        var act = () => Build(new TrancheDto
+            { TrancheName = "XS", CashflowType = "IO", CouponType = "ExcessInterest", PayFrom = "ExcessServicing" });
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'XS'*excess interest*");
+    }
+
     [Fact]
     public void An_exchange_with_its_components_is_paid_from_them()
     {
@@ -160,7 +208,9 @@ public class StatedPayFromTests
     {
         var response = Run(new TrancheDto
         {
-            TrancheName = "X", OriginalBalance = A1 + A2, CashflowType = "IO", CouponType = "Fixed",
+            // Typed Reference: derived, it would pay from the servicing fee. Stated, it is a notional.
+            TrancheName = "X", OriginalBalance = A1 + A2, CashflowType = "IO", TrancheType = "Reference",
+            CouponType = "Fixed",
             FixedCoupon = 1.0, NotionalReference = "A1,A2", PayFrom = "Notional",
             FirstPayDate = FirstPayDate, PayDay = FirstPayDate.Day, SubordinationOrder = 50
         });
@@ -185,7 +235,8 @@ public class StatedPayFromTests
         var collateral = Collateral();
         var response = Run(new TrancheDto
         {
-            TrancheName = "XP", OriginalBalance = face, CashflowType = "IO", CouponType = "Fixed",
+            TrancheName = "XP", OriginalBalance = face, CashflowType = "IO", TrancheType = "Reference",
+            CouponType = "Fixed",
             FixedCoupon = 1.0, NotionalReference = "GROUP_1", PayFrom = "Notional",
             FirstPayDate = FirstPayDate, PayDay = FirstPayDate.Day, SubordinationOrder = 50
         }, collateral);
@@ -194,6 +245,66 @@ public class StatedPayFromTests
         for (var i = 0; i < xp.Count && i < collateral.Count; i++)
             xp[i].Balance.Should().BeApproximately(face * collateral[i].Balance / Pool, 1.0,
                 $"XP's notional is half the pool in period {i + 1}, not the whole pool");
+    }
+
+    [Fact]
+    public void A_stated_servicing_strip_is_paid_the_servicing_fee()
+    {
+        // No "IOS" in its name and typed Offered: derived, it would be paid nothing (no step names it).
+        var collateral = Collateral();
+        var response = Run(new TrancheDto
+        {
+            TrancheName = "SS1", OriginalBalance = Pool, CashflowType = "IO", CouponType = "Fixed", FixedCoupon = 0,
+            PayFrom = "ExcessServicing", FirstPayDate = FirstPayDate, PayDay = FirstPayDate.Day, SubordinationOrder = 50
+        }, collateral, nameInInterest: false);
+
+        var ss1 = response.TrancheCashflows["SS1"];
+        ss1.Sum(c => c.Interest).Should().BeApproximately(collateral.Sum(c => c.ServiceFee), 1.0,
+            "a strip with no coupon of its own takes the whole servicing fee");
+    }
+
+    [Fact]
+    public void A_stated_exchange_mirrors_its_components()
+    {
+        // Typed Offered: derived, a class the exchange shares name is left flat at its issuance balance.
+        var response = Run(new TrancheDto
+            {
+                TrancheName = "A12", OriginalBalance = A1 + A2, CashflowType = "PI", CouponType = "Fixed",
+                FixedCoupon = 5.0, PayFrom = "Exchange", FirstPayDate = FirstPayDate, PayDay = FirstPayDate.Day,
+                SubordinationOrder = 50
+            }, nameInInterest: false,
+            exchangeShares: new List<ExchangeShareDto>
+            {
+                new()
+                {
+                    ExchangeTranche = "A12",
+                    Shares = new List<ExShareDto>
+                        { new() { TrancheName = "A1", ShareAmount = A1 }, new() { TrancheName = "A2", ShareAmount = A2 } }
+                }
+            });
+
+        var a1 = response.TrancheCashflows["A1"];
+        var a2 = response.TrancheCashflows["A2"];
+        var ab = response.TrancheCashflows["A12"];
+        ab.Last().Balance.Should().BeApproximately(a1.Last().Balance + a2.Last().Balance, 1.0);
+        ab[3].Balance.Should().BeLessThan(A1 + A2 - 1.0, "it pays down with A1 and A2, not flat at issuance");
+        ab[3].Balance.Should().BeApproximately(a1[3].Balance + a2[3].Balance, 1.0);
+    }
+
+    [Fact]
+    public void A_pay_source_stated_where_it_is_not_read_is_refused()
+    {
+        var request = Request(Io("X", payFrom: "Notional", notionalReference: "A1"), Collateral(), true, null);
+        request.Deal.DealStructures = new List<DealStructureDto>
+        {
+            new() { ClassGroupName = "A1", PayFrom = "Sequential", GroupNum = "1" }
+        };
+
+        var result = new WaterfallController(NullLogger<WaterfallController>.Instance).Execute(request);
+
+        var bad = result.Result as BadRequestObjectResult;
+        bad.Should().NotBeNull("a stated payFrom the request would drop is refused");
+        bad!.Value!.ToString().Should().Contain("'X' state payFrom").And.Contain("deal structures itself");
     }
 
     // ---- helpers ----
@@ -223,25 +334,38 @@ public class StatedPayFromTests
     private static PayableStructureDto Seq(params string[] tranches) => new()
         { Type = "SEQ", Tranches = tranches.ToList() };
 
-    private static WaterfallResponse Run(TrancheDto io, List<PeriodCashflowDto>? collateral = null)
+    private static WaterfallResponse Run(TrancheDto io, List<PeriodCashflowDto>? collateral = null,
+        bool nameInInterest = true, List<ExchangeShareDto>? exchangeShares = null)
     {
-        var request = new WaterfallRequest
+        var result = new WaterfallController(NullLogger<WaterfallController>.Instance)
+            .Execute(Request(io, collateral ?? Collateral(), nameInInterest, exchangeShares));
+        var ok = result.Result as OkObjectResult;
+        ok.Should().NotBeNull($"the waterfall request should succeed: {(result.Result as ObjectResult)?.Value}");
+        return (ok!.Value as WaterfallResponse)!;
+    }
+
+    private static WaterfallRequest Request(TrancheDto io, List<PeriodCashflowDto> collateral, bool nameInInterest,
+        List<ExchangeShareDto>? exchangeShares)
+    {
+        var interest = nameInInterest ? Seq("A1", "A2", io.TrancheName, "B") : Seq("A1", "A2", "B");
+        return new WaterfallRequest
         {
             ProjectionDate = FirstPayDate.AddMonths(-1),
-            CollateralCashflows = collateral ?? Collateral(),
+            CollateralCashflows = collateral,
             Deal = new DealDto
             {
                 DealName = "STATED_PAY_FROM_TEST",
                 WaterfallType = "ComposableStructure",
                 ClosingDate = FirstPayDate.AddMonths(-1),
                 Tranches = new List<TrancheDto> { Bond("A1", A1, 0), Bond("A2", A2, 1), Bond("B", B, 2), io },
+                ExchangeShares = exchangeShares,
                 UnifiedWaterfall = new UnifiedWaterfallDto
                 {
                     ExecutionOrder = new List<string>
                         { "INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN" },
                     Steps = new List<WaterfallStepDto>
                     {
-                        new() { Type = "INTEREST", Structure = Seq("A1", "A2", io.TrancheName, "B") },
+                        new() { Type = "INTEREST", Structure = interest },
                         new() { Type = "PRINCIPAL", Source = "scheduled", Default = Seq("A1", "A2", "B") },
                         new() { Type = "PRINCIPAL", Source = "unscheduled", Default = Seq("A1", "A2", "B") },
                         new() { Type = "PRINCIPAL", Source = "recovery", Default = Seq("A1", "A2", "B") },
@@ -250,10 +374,6 @@ public class StatedPayFromTests
                 }
             }
         };
-        var result = new WaterfallController(NullLogger<WaterfallController>.Instance).Execute(request);
-        var ok = result.Result as OkObjectResult;
-        ok.Should().NotBeNull("the waterfall request should succeed");
-        return (ok!.Value as WaterfallResponse)!;
     }
 
     private static TrancheDto Bond(string name, double balance, int order) => new()
@@ -270,6 +390,7 @@ public class StatedPayFromTests
         for (var i = 0; i < 36 && balance > 1.0; i++)
         {
             var interest = balance * wac / 100 / 12;
+            var fee = balance * 0.25 / 100 / 12;
             var scheduled = i == 35 ? balance : balance * 0.05;
             var unscheduled = i == 35 ? 0.0 : balance * 0.02;
             var end = balance - scheduled - unscheduled;
@@ -277,7 +398,8 @@ public class StatedPayFromTests
             {
                 Period = i + 1, CashflowDate = FirstPayDate.AddMonths(i), GroupNum = "1",
                 BeginBalance = balance, Balance = end, ScheduledPrincipal = scheduled,
-                UnscheduledPrincipal = unscheduled, Interest = interest, NetInterest = interest, Wac = wac
+                UnscheduledPrincipal = unscheduled, Interest = interest, NetInterest = interest - fee, Wac = wac,
+                ServiceFee = fee
             });
             balance = end;
         }

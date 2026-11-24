@@ -243,6 +243,8 @@ public class WaterfallController : ControllerBase
 
         // Handle alias: use ClassGroups if DealStructures is null
         var dealStructures = dto.DealStructures ?? dto.ClassGroups;
+        UnifiedWaterfallBuilder.RefuseUnreadPayFrom(dto.Tranches, dto.UnifiedWaterfall,
+            dealStructures != null && dealStructures.Any());
         // Handle alias: use Variables if DealVariables is null
         var dealVariables = dto.DealVariables ?? dto.Variables;
 

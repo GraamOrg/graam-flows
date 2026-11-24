@@ -36,9 +36,10 @@ public static class UnifiedWaterfallBuilder
                         string.Join(",", es.Shares.Select(s => s.TrancheName));
 
         var accrualClasses = AccrualClasses(waterfall, tranches);
-        var trancheNames = new HashSet<string>(
-            tranches.Select(t => t.TrancheName).Where(n => !string.IsNullOrEmpty(n)),
-            StringComparer.OrdinalIgnoreCase);
+        // Exact, as the engine looks classes up (DynamicGroup.ClassByName is ordinal).
+        var byName = tranches.Where(t => !string.IsNullOrEmpty(t.TrancheName))
+            .GroupBy(t => t.TrancheName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
         // Create DealStructure for each tranche
         return tranches.Select((t, idx) =>
@@ -47,15 +48,20 @@ public static class UnifiedWaterfallBuilder
             exchangeComponents.TryGetValue(t.TrancheName, out var exchangableTranche);
             // A class an ACCRUAL step names accrues: its coupon is added to its balance and paid
             // as principal to the classes the step directs it to (PayAccrualStructures).
-            var payFrom = accrualClasses.Contains(t.TrancheName)
-                ? AccrualPayFrom(t)
-                : StatedPayFrom(t, trancheNames, exchangeComponents) ?? PayFromForTranche(t);
+            string payFrom;
+            string? statedNotional = null;
+            if (accrualClasses.Contains(t.TrancheName))
+                payFrom = AccrualPayFrom(t);
+            else if (StatedPayFrom(t, byName, exchangeComponents) is { } stated)
+                (payFrom, statedNotional) = stated;
+            else
+                payFrom = PayFromForTranche(t);
             // #3691: a class-cut IO (PayFrom=Notional) amortizes off its NotionalReference
             // bond — expose it as the ExchangableTranche so PayNotionalClasses reads that
             // bond's principal. (Carried on the tranche, NOT via ExchangeShares, so the
             // exchange-share pay-block doesn't also pay it — that double-counts.)
             if (payFrom == "Notional" && string.IsNullOrEmpty(exchangableTranche))
-                exchangableTranche = t.NotionalReference;
+                exchangableTranche = statedNotional ?? t.NotionalReference;
             return new DealStructureDto
             {
                 ClassGroupName = t.TrancheName,
@@ -127,21 +133,36 @@ public static class UnifiedWaterfallBuilder
     }
 
     /// <summary>
-    ///     The pay source the tranche states, checked against what the class can be paid by, or
-    ///     null when it states none. Refused, never coerced: a statement that cannot hold would
-    ///     otherwise run as some other pay source with no error.
+    ///     The pay source the tranche states, checked against what the engine will do with it,
+    ///     or null when it states none. For "Notional" it also returns the reference list as the
+    ///     engine is to read it (trimmed, comma-joined). Refused, never coerced: each case below
+    ///     would otherwise run as something other than what was stated, with no error.
     ///     <list type="bullet">
+    ///         <item>
+    ///             A class with exchange components, or typed Exchanged, is paid as an exchange.
+    ///             Anything else leaves it flat at its issuance balance.
+    ///         </item>
     ///         <item>"Notional" and "ExcessServicing" are for an interest-only class.</item>
     ///         <item>
-    ///             "Notional" needs a <see cref="TrancheDto.NotionalReference" /> whose every name is a
-    ///             tranche of the deal or a collateral group (GROUP_n). A name the deal lacks would
-    ///             leave the notional with nothing to follow, and it would pay nothing.
+    ///             An interest-only class stating "Sequential" with a notional reference would have
+    ///             the reference ignored and run on the pool.
     ///         </item>
-    ///         <item>"Exchange" needs the exchange shares that name its components.</item>
+    ///         <item>
+    ///             An excess-interest class takes the interest left over; it is not paid from the
+    ///             servicing fee.
+    ///         </item>
+    ///         <item>
+    ///             A "Notional" follows either other classes of the deal, named exactly as the
+    ///             engine looks them up, that carry principal, or the collateral group alone
+    ///             ("GROUP_1", the only group a unified waterfall builds). A name the engine cannot
+    ///             find leaves the notional flat at its face; a list mixing classes and the group
+    ///             amortizes it twice.
+    ///         </item>
     ///     </list>
     /// </summary>
-    private static string? StatedPayFrom(
-        TrancheDto t, HashSet<string> trancheNames, IReadOnlyDictionary<string, string> exchangeComponents)
+    private static (string PayFrom, string? Notional)? StatedPayFrom(
+        TrancheDto t, IReadOnlyDictionary<string, TrancheDto> byName,
+        IReadOnlyDictionary<string, string> exchangeComponents)
     {
         if (string.IsNullOrWhiteSpace(t.PayFrom))
             return null;
@@ -152,6 +173,14 @@ public static class UnifiedWaterfallBuilder
                 $"'{t.TrancheName}' states payFrom '{t.PayFrom}'. State one of: " +
                 string.Join(", ", StatablePayFrom) + ".");
 
+        var isExchange = exchangeComponents.ContainsKey(t.TrancheName) ||
+                         string.Equals(t.TrancheType, "Exchanged", StringComparison.OrdinalIgnoreCase);
+        if (isExchange != (stated == "Exchange"))
+            throw new InvalidOperationException(isExchange
+                ? $"'{t.TrancheName}' is an exchange class but states payFrom '{stated}'. An exchange " +
+                  "class mirrors its components: state \"Exchange\"."
+                : $"'{t.TrancheName}' states payFrom 'Exchange' but no exchange shares name its components.");
+
         var isIo = string.Equals(t.CashflowType, "IO", StringComparison.OrdinalIgnoreCase);
         if (stated is "Notional" or "ExcessServicing" && !isIo)
             throw new InvalidOperationException(
@@ -159,30 +188,79 @@ public static class UnifiedWaterfallBuilder
                 $"(cashflowType '{t.CashflowType}'). Only an interest-only class is paid on a notional " +
                 "or out of the servicing fee.");
 
-        if (stated == "Notional")
+        var refs = (t.NotionalReference ?? "").Split(',')
+            .Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
+        if (stated == "Sequential" && isIo && refs.Count > 0)
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states payFrom 'Sequential' but names a notional reference " +
+                $"('{t.NotionalReference}'). An interest-only class paid sequentially runs on the pool: " +
+                "state \"Notional\", or drop the reference.");
+
+        if (stated == "ExcessServicing" && IsExcessInterest(t))
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states payFrom 'ExcessServicing' but its coupon is excess interest. " +
+                "An excess-interest class takes the interest left over; it is not paid from the servicing fee.");
+
+        if (stated != "Notional")
+            return (stated, null);
+
+        if (refs.Count == 0)
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states payFrom 'Notional' but names nothing its notional follows. " +
+                "State the classes (\"A1,A2\") or the collateral group (\"GROUP_1\") in notionalReference.");
+        if (refs.Contains(PoolReference))
         {
-            var refs = (t.NotionalReference ?? "").Split(',')
-                .Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
-            if (refs.Count == 0)
+            if (refs.Count > 1)
                 throw new InvalidOperationException(
-                    $"'{t.TrancheName}' states payFrom 'Notional' but names nothing its notional follows. " +
-                    "State the classes (\"A1,A2\") or collateral group (\"GROUP_1\") in notionalReference.");
-            var unknown = refs.Where(r => !trancheNames.Contains(r) && !IsGroupReference(r)).ToList();
-            if (unknown.Count > 0)
-                throw new InvalidOperationException(
-                    $"'{t.TrancheName}' states a notional that follows '{string.Join("', '", unknown)}', " +
-                    "which is not a tranche of this deal or a collateral group (GROUP_n).");
+                    $"'{t.TrancheName}' states a notional on '{t.NotionalReference}', which mixes the " +
+                    $"collateral group with classes. State the classes, or \"{PoolReference}\" alone.");
+            return (stated, PoolReference);
         }
 
-        if (stated == "Exchange" && !exchangeComponents.ContainsKey(t.TrancheName))
-            throw new InvalidOperationException(
-                $"'{t.TrancheName}' states payFrom 'Exchange' but no exchange shares name its components.");
+        foreach (var r in refs)
+        {
+            if (!byName.TryGetValue(r, out var followed))
+                throw new InvalidOperationException(
+                    $"'{t.TrancheName}' states a notional that follows '{r}', which is not a tranche of " +
+                    $"this deal (names match exactly) or the collateral group \"{PoolReference}\".");
+            if (string.Equals(r, t.TrancheName, StringComparison.Ordinal) ||
+                string.Equals(followed.CashflowType, "IO", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"'{t.TrancheName}' states a notional that follows '{r}', which pays no principal, " +
+                    "so the notional would never amortize. A notional follows classes with principal.");
+        }
 
-        return stated;
+        return (stated, string.Join(",", refs));
     }
 
-    private static bool IsGroupReference(string name) =>
-        name.StartsWith("GROUP_", StringComparison.OrdinalIgnoreCase) && name.Length > "GROUP_".Length;
+    /// <summary>The collateral group a unified waterfall builds (every class has GroupNum "1").</summary>
+    private const string PoolReference = "GROUP_1";
+
+    private static bool IsExcessInterest(TrancheDto t) =>
+        string.Equals(t.CouponType, "ExcessInterest", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(t.CouponType, "ResidualInterest", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Refuse a request whose tranches state <see cref="TrancheDto.PayFrom" /> where it is not
+    ///     read: only <see cref="BuildDealStructures" /> reads it, and a request that gives its deal
+    ///     structures (or class groups) itself, or has no unified waterfall, never calls it. The
+    ///     statement would be dropped with no error.
+    /// </summary>
+    public static void RefuseUnreadPayFrom(
+        IEnumerable<TrancheDto> tranches, UnifiedWaterfallDto? waterfall, bool explicitStructures)
+    {
+        if (waterfall != null && !explicitStructures)
+            return;
+        var stating = tranches.Where(t => !string.IsNullOrWhiteSpace(t.PayFrom))
+            .Select(t => t.TrancheName).ToList();
+        if (stating.Count == 0)
+            return;
+        var why = explicitStructures
+            ? "this request states its deal structures itself, so state the pay source there"
+            : "this request has no unifiedWaterfall, and only a unified waterfall reads it";
+        throw new InvalidOperationException(
+            $"'{string.Join("', '", stating)}' state payFrom, but {why}.");
+    }
 
     /// <summary>
     ///     Pick the DealStructure pay source for a tranche that states none. Tranches default to
@@ -205,9 +283,7 @@ public static class UnifiedWaterfallBuilder
         // The monthly-excess-cashflow (XS) strip keeps the interest sweep and must not be
         // re-routed to ExcessServicing/Notional. Accept both the new "ExcessInterest" type
         // and the legacy "ResidualInterest" string.
-        var isResidualInterest =
-            string.Equals(t.CouponType, "ExcessInterest", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(t.CouponType, "ResidualInterest", StringComparison.OrdinalIgnoreCase);
+        var isResidualInterest = IsExcessInterest(t);
         var name = (t.TrancheName ?? "").ToUpperInvariant().Replace("-", "");
         var isReference =
             string.Equals(t.TrancheType, "Reference", StringComparison.OrdinalIgnoreCase);
