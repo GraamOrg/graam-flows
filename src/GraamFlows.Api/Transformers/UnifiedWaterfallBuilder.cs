@@ -36,6 +36,9 @@ public static class UnifiedWaterfallBuilder
                         string.Join(",", es.Shares.Select(s => s.TrancheName));
 
         var accrualClasses = AccrualClasses(waterfall, tranches);
+        var trancheNames = new HashSet<string>(
+            tranches.Select(t => t.TrancheName).Where(n => !string.IsNullOrEmpty(n)),
+            StringComparer.OrdinalIgnoreCase);
 
         // Create DealStructure for each tranche
         return tranches.Select((t, idx) =>
@@ -44,7 +47,9 @@ public static class UnifiedWaterfallBuilder
             exchangeComponents.TryGetValue(t.TrancheName, out var exchangableTranche);
             // A class an ACCRUAL step names accrues: its coupon is added to its balance and paid
             // as principal to the classes the step directs it to (PayAccrualStructures).
-            var payFrom = accrualClasses.Contains(t.TrancheName) ? "Accrual" : PayFromForTranche(t);
+            var payFrom = accrualClasses.Contains(t.TrancheName)
+                ? AccrualPayFrom(t)
+                : StatedPayFrom(t, trancheNames, exchangeComponents) ?? PayFromForTranche(t);
             // #3691: a class-cut IO (PayFrom=Notional) amortizes off its NotionalReference
             // bond — expose it as the ExchangableTranche so PayNotionalClasses reads that
             // bond's principal. (Carried on the tranche, NOT via ExchangeShares, so the
@@ -104,8 +109,83 @@ public static class UnifiedWaterfallBuilder
         return named;
     }
 
+    /// <summary>The pay sources a tranche may state (<see cref="TrancheDto.PayFrom" />).</summary>
+    private static readonly string[] StatablePayFrom = { "Sequential", "Notional", "ExcessServicing", "Exchange" };
+
     /// <summary>
-    ///     Pick the DealStructure pay source for a tranche. Tranches default to
+    ///     An accrual (Z) class pays from "Accrual". It carries a principal balance, so a stated
+    ///     pay source other than "Sequential" contradicts the ACCRUAL step that names it.
+    /// </summary>
+    private static string AccrualPayFrom(TrancheDto t)
+    {
+        if (!string.IsNullOrWhiteSpace(t.PayFrom) &&
+            !string.Equals(t.PayFrom.Trim(), "Sequential", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' is named by an ACCRUAL step but states payFrom '{t.PayFrom}'. An " +
+                "accrual class accrues on its own balance: state \"Sequential\" or leave payFrom out.");
+        return "Accrual";
+    }
+
+    /// <summary>
+    ///     The pay source the tranche states, checked against what the class can be paid by, or
+    ///     null when it states none. Refused, never coerced: a statement that cannot hold would
+    ///     otherwise run as some other pay source with no error.
+    ///     <list type="bullet">
+    ///         <item>"Notional" and "ExcessServicing" are for an interest-only class.</item>
+    ///         <item>
+    ///             "Notional" needs a <see cref="TrancheDto.NotionalReference" /> whose every name is a
+    ///             tranche of the deal or a collateral group (GROUP_n). A name the deal lacks would
+    ///             leave the notional with nothing to follow, and it would pay nothing.
+    ///         </item>
+    ///         <item>"Exchange" needs the exchange shares that name its components.</item>
+    ///     </list>
+    /// </summary>
+    private static string? StatedPayFrom(
+        TrancheDto t, HashSet<string> trancheNames, IReadOnlyDictionary<string, string> exchangeComponents)
+    {
+        if (string.IsNullOrWhiteSpace(t.PayFrom))
+            return null;
+        var stated = StatablePayFrom.FirstOrDefault(p =>
+            string.Equals(p, t.PayFrom.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (stated == null)
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states payFrom '{t.PayFrom}'. State one of: " +
+                string.Join(", ", StatablePayFrom) + ".");
+
+        var isIo = string.Equals(t.CashflowType, "IO", StringComparison.OrdinalIgnoreCase);
+        if (stated is "Notional" or "ExcessServicing" && !isIo)
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states payFrom '{stated}' but is not interest-only " +
+                $"(cashflowType '{t.CashflowType}'). Only an interest-only class is paid on a notional " +
+                "or out of the servicing fee.");
+
+        if (stated == "Notional")
+        {
+            var refs = (t.NotionalReference ?? "").Split(',')
+                .Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
+            if (refs.Count == 0)
+                throw new InvalidOperationException(
+                    $"'{t.TrancheName}' states payFrom 'Notional' but names nothing its notional follows. " +
+                    "State the classes (\"A1,A2\") or collateral group (\"GROUP_1\") in notionalReference.");
+            var unknown = refs.Where(r => !trancheNames.Contains(r) && !IsGroupReference(r)).ToList();
+            if (unknown.Count > 0)
+                throw new InvalidOperationException(
+                    $"'{t.TrancheName}' states a notional that follows '{string.Join("', '", unknown)}', " +
+                    "which is not a tranche of this deal or a collateral group (GROUP_n).");
+        }
+
+        if (stated == "Exchange" && !exchangeComponents.ContainsKey(t.TrancheName))
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states payFrom 'Exchange' but no exchange shares name its components.");
+
+        return stated;
+    }
+
+    private static bool IsGroupReference(string name) =>
+        name.StartsWith("GROUP_", StringComparison.OrdinalIgnoreCase) && name.Length > "GROUP_".Length;
+
+    /// <summary>
+    ///     Pick the DealStructure pay source for a tranche that states none. Tranches default to
     ///     "Sequential" (the unified-waterfall steps drive their order), but an
     ///     excess-servicing IO strip (Class A-IO-S) must pay from
     ///     "ExcessServicing" so it draws its strip from the servicing fee —
