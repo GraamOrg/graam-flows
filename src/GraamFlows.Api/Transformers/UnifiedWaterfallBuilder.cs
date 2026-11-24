@@ -35,12 +35,16 @@ public static class UnifiedWaterfallBuilder
                     exchangeComponents[es.ExchangeTranche] =
                         string.Join(",", es.Shares.Select(s => s.TrancheName));
 
+        var accrualClasses = AccrualClasses(waterfall, tranches);
+
         // Create DealStructure for each tranche
         return tranches.Select((t, idx) =>
         {
             var writedownIdx = writedownOrder.IndexOf(t.TrancheName);
             exchangeComponents.TryGetValue(t.TrancheName, out var exchangableTranche);
-            var payFrom = PayFromForTranche(t);
+            // A class an ACCRUAL step names accrues: its coupon is added to its balance and paid
+            // as principal to the classes the step directs it to (PayAccrualStructures).
+            var payFrom = accrualClasses.Contains(t.TrancheName) ? "Accrual" : PayFromForTranche(t);
             // #3691: a class-cut IO (PayFrom=Notional) amortizes off its NotionalReference
             // bond — expose it as the ExchangableTranche so PayNotionalClasses reads that
             // bond's principal. (Carried on the tranche, NOT via ExchangeShares, so the
@@ -59,6 +63,45 @@ public static class UnifiedWaterfallBuilder
                 ExchangableTranche = exchangableTranche
             };
         }).ToList();
+    }
+
+    /// <summary>
+    ///     The accrual (Z) classes the ACCRUAL steps name. A step that names no class, names one the
+    ///     deal does not carry, names an interest-only class, states no structure to pay the accrual
+    ///     through, or names a class another ACCRUAL step already names is refused: each would leave
+    ///     the class paid its coupon in cash, with no error, which is the shape a Z took before this
+    ///     step existed.
+    /// </summary>
+    private static HashSet<string> AccrualClasses(UnifiedWaterfallDto waterfall, List<TrancheDto> tranches)
+    {
+        var byName = tranches.Where(t => !string.IsNullOrEmpty(t.TrancheName))
+            .GroupBy(t => t.TrancheName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var step in waterfall.Steps.Where(s =>
+                     s.Type.Equals("ACCRUAL", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (string.IsNullOrWhiteSpace(step.Tranche))
+                throw new InvalidOperationException(
+                    "An ACCRUAL step names no tranche. State the accrual (Z) class in \"tranche\".");
+            if (!byName.TryGetValue(step.Tranche, out var z))
+                throw new InvalidOperationException(
+                    $"An ACCRUAL step names '{step.Tranche}', which is not a tranche of this deal.");
+            if (string.Equals(z.CashflowType, "IO", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"An ACCRUAL step names '{step.Tranche}', an interest-only class. An accrual class " +
+                    "carries a principal balance that its interest is added to.");
+            if (step.Structure == null)
+                throw new InvalidOperationException(
+                    $"The ACCRUAL step for '{step.Tranche}' states no structure. State the classes its " +
+                    "Accrual Amount is paid to, in order (e.g. SEQ of the accretion-directed class, then " +
+                    $"'{step.Tranche}').");
+            if (!named.Add(z.TrancheName))
+                throw new InvalidOperationException(
+                    $"'{step.Tranche}' is named by two ACCRUAL steps. Name each accrual class once.");
+        }
+
+        return named;
     }
 
     /// <summary>
@@ -251,6 +294,20 @@ public static class UnifiedWaterfallBuilder
 
                 case "MODIFICATION_LOSS":
                     rules.AddRange(BuildModificationLossRules(step, groupName, ref priority));
+                    break;
+
+                case "ACCRUAL":
+                    // Where this Z's Accrual Amount is paid (BuildDealStructures has already
+                    // refused a step without a tranche or a structure).
+                    if (step.Structure != null && !string.IsNullOrWhiteSpace(step.Tranche))
+                        rules.Add(new PayRuleDto
+                        {
+                            RuleName = $"AccrualStruct_{step.Tranche}",
+                            ClassGroupName = groupName,
+                            Formula =
+                                $"SET_SPEC_ACC_STRUCT('{step.Tranche}', {WaterfallBuilder.BuildStructureDsl(step.Structure)})",
+                            Priority = priority++
+                        });
                     break;
 
                 case "SUPPLEMENTAL_REDUCTION":

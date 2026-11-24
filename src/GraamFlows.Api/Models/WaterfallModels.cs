@@ -949,6 +949,17 @@ public class WaterfallStepDto
     public string? UseStructure { get; set; }
 
     /// <summary>
+    ///     For ACCRUAL: the accrual (Z) class. Its interest is not paid to it in cash: each period
+    ///     the amount accrued on it is added to its balance (the Accrual Amount) and paid as principal
+    ///     through <see cref="Structure" />, the classes the document directs that amount to, in their
+    ///     order (e.g. SEQ VA, ZA: to the accretion-directed class until retired, then to the Z
+    ///     itself). The class stays in the INTEREST step, where its coupon accrues; the ACCRUAL step
+    ///     turns that coupon into balance, so the class's cash in a period is the principal it is paid
+    ///     and no more. Name the step in executionOrder after the PRINCIPAL steps.
+    /// </summary>
+    public string? Tranche { get; set; }
+
+    /// <summary>
     ///     OC target for EXCESS_TURBO step.
     ///     Target OC = MAX(TargetPct * PoolBalance, FloorAmt)
     /// </summary>
