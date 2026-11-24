@@ -478,6 +478,19 @@ public class TrancheDto
     // (class-GROUP membership); this becomes the DealStructure's ExchangableTranche.
     public string? NotionalReference { get; set; }
 
+    /// <summary>
+    ///     How the class is paid, in the engine's own terms: "Sequential" (on its own balance),
+    ///     "Notional" (on a notional that follows the classes or collateral groups named in
+    ///     <see cref="NotionalReference" />, comma-separated, e.g. "A1,A2" or "GROUP_1"),
+    ///     "ExcessServicing" (out of the servicing fee) or "Exchange" (mirrors the components its
+    ///     exchange shares name).
+    ///
+    ///     Optional. When it is absent the engine derives the pay source from the class's other
+    ///     fields exactly as before, including the "IOS" name test for a servicing strip. When it
+    ///     is stated it is used as stated, and a statement the class cannot be paid by is refused.
+    /// </summary>
+    public string? PayFrom { get; set; }
+
     public DateTime? FirstPayDate { get; set; }
 
     /// <summary>

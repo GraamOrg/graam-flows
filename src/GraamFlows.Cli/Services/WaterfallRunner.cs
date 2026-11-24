@@ -156,6 +156,8 @@ public class WaterfallRunner
         _ = deal.FirstPeriodCollateralPolicyEnum;
 
         var dealStructures = dto.DealStructures ?? dto.ClassGroups;
+        UnifiedWaterfallBuilder.RefuseUnreadPayFrom(dto.Tranches, dto.UnifiedWaterfall,
+            dealStructures != null && dealStructures.Any());
         var dealVariables = dto.DealVariables ?? dto.Variables;
 
         // Build tranches
