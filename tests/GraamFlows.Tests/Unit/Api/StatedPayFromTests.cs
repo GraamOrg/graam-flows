@@ -88,7 +88,7 @@ public class StatedPayFromTests
     {
         var act = () => Build(new TrancheDto
             { TrancheName = "X", CashflowType = "PI", NotionalReference = "A", PayFrom = payFrom });
-        act.Should().Throw<InvalidOperationException>().WithMessage("*'X'*not interest-only*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'X' states payFrom*but has principal*");
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class StatedPayFromTests
     {
         // Its reference would be ignored and it would run on the pool.
         var act = () => Build(Io("AX", payFrom: "Sequential", notionalReference: "A"));
-        act.Should().Throw<InvalidOperationException>().WithMessage("*'AX' states payFrom 'Sequential' but names a notional reference*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'AX' states payFrom 'Sequential' but is interest-only with a coupon of its own*");
     }
 
     [Theory]
@@ -158,6 +158,38 @@ public class StatedPayFromTests
         var act = () => Build(new TrancheDto
             { TrancheName = "XS", CashflowType = "IO", CouponType = "ExcessInterest", PayFrom = "ExcessServicing" });
         act.Should().Throw<InvalidOperationException>().WithMessage("*'XS'*excess interest*");
+    }
+
+    // The interest-only table: each row's allowed pay sources, and each other one refused.
+    [Theory]
+    [InlineData("Fixed", "Notional", "A", true)]
+    [InlineData("Fixed", "ExcessServicing", null, true)]
+    [InlineData("Fixed", "Sequential", null, false)] // would run on the pool, not its own face
+    [InlineData("Fixed", "ExcessServicing", "A", false)] // the reference would be dropped
+    [InlineData("ExcessInterest", "Sequential", null, true)]
+    [InlineData("ExcessInterest", "Notional", "GROUP_1", false)] // would change its reported notional only
+    [InlineData("ExcessInterest", "ExcessServicing", null, false)]
+    [InlineData("ResidualInterest", "Sequential", "A", false)] // the reference would be dropped
+    public void An_interest_only_class_states_only_what_its_coupon_allows(
+        string coupon, string payFrom, string? reference, bool accepted)
+    {
+        var act = () => Build(new TrancheDto
+        {
+            TrancheName = "S", CashflowType = "IO", CouponType = coupon, PayFrom = payFrom,
+            NotionalReference = reference
+        });
+        if (accepted)
+            PayFrom(act(), "S").Should().Be(payFrom);
+        else
+            act.Should().Throw<InvalidOperationException>().WithMessage("*'S' states payFrom*");
+    }
+
+    [Fact]
+    public void A_class_with_principal_states_sequential_and_no_reference()
+    {
+        PayFrom(Build(new TrancheDto { TrancheName = "S", PayFrom = "Sequential" }), "S").Should().Be("Sequential");
+        var act = () => Build(new TrancheDto { TrancheName = "S", PayFrom = "Sequential", NotionalReference = "A" });
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'S'*only a \"Notional\" follows*");
     }
 
     [Fact]

@@ -142,14 +142,11 @@ public static class UnifiedWaterfallBuilder
     ///             A class with exchange components, or typed Exchanged, is paid as an exchange.
     ///             Anything else leaves it flat at its issuance balance.
     ///         </item>
-    ///         <item>"Notional" and "ExcessServicing" are for an interest-only class.</item>
     ///         <item>
-    ///             An interest-only class stating "Sequential" with a notional reference would have
-    ///             the reference ignored and run on the pool.
-    ///         </item>
-    ///         <item>
-    ///             An excess-interest class takes the interest left over; it is not paid from the
-    ///             servicing fee.
+    ///             What else a class may state is one table, by what it is: an interest-only class with
+    ///             an excess-interest coupon states "Sequential"; one with a coupon of its own states
+    ///             "Notional" or "ExcessServicing"; a class with principal states "Sequential". Only a
+    ///             "Notional" may carry a notional reference.
     ///         </item>
     ///         <item>
     ///             A "Notional" follows either other classes of the deal, named exactly as the
@@ -181,25 +178,36 @@ public static class UnifiedWaterfallBuilder
                   "class mirrors its components: state \"Exchange\"."
                 : $"'{t.TrancheName}' states payFrom 'Exchange' but no exchange shares name its components.");
 
+        if (isExchange)
+            return (stated, null);
+
+        // What the class may state, by what it is (one table, not a check per bad combination):
+        //   interest-only, excess-interest coupon -> Sequential: the leftover interest, on the pool
+        //   interest-only, any other coupon       -> Notional (on what it follows) or ExcessServicing
+        //   with principal                        -> Sequential
+        // An interest-only class paid Sequential is reset to the pool every period, whatever its
+        // face (DynamicGroup.NotionalClasses): that is the excess-interest strip's convention, and
+        // for any other interest-only class it would silently replace its notional with the pool.
         var isIo = string.Equals(t.CashflowType, "IO", StringComparison.OrdinalIgnoreCase);
-        if (stated is "Notional" or "ExcessServicing" && !isIo)
+        var (allowed, what) = !isIo
+            ? (new[] { "Sequential" }, $"has principal (cashflowType '{t.CashflowType}')")
+            : IsExcessInterest(t)
+                ? (new[] { "Sequential" }, "is interest-only with an excess interest coupon: it takes the " +
+                                          "interest left over, on the pool")
+                : (new[] { "Notional", "ExcessServicing" }, "is interest-only with a coupon of its own: " +
+                                                            "it is paid on a notional or out of the servicing fee");
+        if (!allowed.Contains(stated))
             throw new InvalidOperationException(
-                $"'{t.TrancheName}' states payFrom '{stated}' but is not interest-only " +
-                $"(cashflowType '{t.CashflowType}'). Only an interest-only class is paid on a notional " +
-                "or out of the servicing fee.");
+                $"'{t.TrancheName}' states payFrom '{stated}' but {what}. State " +
+                string.Join(" or ", allowed.Select(p => $"\"{p}\"")) + ".");
 
         var refs = (t.NotionalReference ?? "").Split(',')
             .Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
-        if (stated == "Sequential" && isIo && refs.Count > 0)
+        if (stated != "Notional" && refs.Count > 0)
             throw new InvalidOperationException(
-                $"'{t.TrancheName}' states payFrom 'Sequential' but names a notional reference " +
-                $"('{t.NotionalReference}'). An interest-only class paid sequentially runs on the pool: " +
-                "state \"Notional\", or drop the reference.");
-
-        if (stated == "ExcessServicing" && IsExcessInterest(t))
-            throw new InvalidOperationException(
-                $"'{t.TrancheName}' states payFrom 'ExcessServicing' but its coupon is excess interest. " +
-                "An excess-interest class takes the interest left over; it is not paid from the servicing fee.");
+                $"'{t.TrancheName}' states payFrom '{stated}' but names a notional reference " +
+                $"('{t.NotionalReference}'), which only a \"Notional\" follows. Its reference would be " +
+                "dropped with no error.");
 
         if (stated != "Notional")
             return (stated, null);
