@@ -460,6 +460,10 @@ public static class UnifiedWaterfallBuilder
                     rules.AddRange(BuildModificationLossRules(step, groupName, ref priority));
                     break;
 
+                case "PREPAYMENT_PENALTY":
+                    rules.Add(BuildPrepaymentPenaltyRule(step, groupName, ref priority));
+                    break;
+
                 case "ACCRUAL":
                     // Where this Z's Accrual Amount is paid (BuildDealStructures has already
                     // refused a step without a tranche or a structure).
@@ -750,6 +754,41 @@ public static class UnifiedWaterfallBuilder
         if (structure.Forced != null) ExtractTranchesRecursive(structure.Forced, tranches);
         if (structure.Senior != null) ExtractTranchesRecursive(structure.Senior, tranches);
         if (structure.Support != null) ExtractTranchesRecursive(structure.Support, tranches);
+    }
+
+    /// <summary>
+    ///     The rule for a PREPAYMENT_PENALTY step: one share per class it names. A step with no
+    ///     share, a share naming no class, or a share outside (0, 100] is refused here; a class the
+    ///     deal does not carry and shares that do not total 100% are refused by the engine
+    ///     (SET_PENALTY_STRUCT), which resolves the names.
+    /// </summary>
+    private static PayRuleDto BuildPrepaymentPenaltyRule(WaterfallStepDto step, string groupName, ref int priority)
+    {
+        if (step.Shares == null || step.Shares.Count == 0)
+            throw new InvalidOperationException(
+                "A PREPAYMENT_PENALTY step requires a non-empty 'shares' list: the classes the " +
+                "prepayment penalties are paid to, each its percent.");
+        var shareDsl = new List<string>();
+        for (var i = 0; i < step.Shares.Count; i++)
+        {
+            var share = step.Shares[i];
+            if (string.IsNullOrWhiteSpace(share.Tranche))
+                throw new InvalidOperationException($"PREPAYMENT_PENALTY share {i + 1} names no tranche.");
+            if (!double.IsFinite(share.Pct) || share.Pct <= 0 || share.Pct > 100)
+                throw new InvalidOperationException(
+                    $"PREPAYMENT_PENALTY share {i + 1} ('{share.Tranche}') is {share.Pct}%; a share is " +
+                    "more than 0 and at most 100.");
+            shareDsl.Add(
+                $"PENALTY_SHARE(SINGLE('{share.Tranche}'), {share.Pct.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
+        }
+
+        return new PayRuleDto
+        {
+            RuleName = "PenaltyStruct",
+            ClassGroupName = groupName,
+            Formula = $"SET_PENALTY_STRUCT({string.Join(", ", shareDsl)})",
+            Priority = priority++
+        };
     }
 
     /// <summary>

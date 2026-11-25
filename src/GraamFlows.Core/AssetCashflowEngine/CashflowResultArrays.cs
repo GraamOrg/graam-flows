@@ -16,6 +16,7 @@ public class CashflowResultArrays
         Balance = new double[maxPeriods];
         ScheduledPrincipal = new double[maxPeriods];
         UnscheduledPrincipal = new double[maxPeriods];
+        PrepaymentPenalty = new double[maxPeriods];
         Interest = new double[maxPeriods];
         NetInterest = new double[maxPeriods];
         ServiceFee = new double[maxPeriods];
@@ -45,6 +46,9 @@ public class CashflowResultArrays
     public double[] Balance { get; }
     public double[] ScheduledPrincipal { get; }
     public double[] UnscheduledPrincipal { get; }
+
+    /// <summary>See <see cref="PeriodCashflows.PrepaymentPenalty" />.</summary>
+    public double[] PrepaymentPenalty { get; }
     public double[] Interest { get; }
     public double[] NetInterest { get; }
     public double[] ServiceFee { get; }
@@ -86,6 +90,7 @@ public class CashflowResultArrays
                 Balance = Balance[period],
                 ScheduledPrincipal = ScheduledPrincipal[period],
                 UnscheduledPrincipal = UnscheduledPrincipal[period],
+                PrepaymentPenalty = PrepaymentPenalty[period],
                 Interest = Interest[period],
                 NetInterest = NetInterest[period],
                 ServiceFee = ServiceFee[period],

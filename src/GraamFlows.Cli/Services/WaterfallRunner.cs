@@ -523,6 +523,7 @@ public class WaterfallRunner
                     AccumInterestShortfall = cf.Value.AccumInterestShortfall,
                     InterestShortfallPayback = cf.Value.InterestShortfallPayback,
                     RedemptionInterest = cf.Value.RedemptionInterest,
+                    PrepaymentPenalty = cf.Value.PrepaymentPenalty,
                     ExcessInterest = cf.Value.ExcessInterest,
                     IndexValue = cf.Value.IndexValue,
                     FloaterMargin = cf.Value.FloaterMargin,

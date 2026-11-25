@@ -157,6 +157,10 @@ public class CalcCollateralController : ControllerBase
                 .Where(a => a.ScheduledPrincipal is > 0)
                 .Select(a => a.AssetId ?? a.AssetName)
                 .ToList();
+            response.PrepaymentPenaltyAssetIds = assets
+                .Where(a => a.PrepaymentPenalties is { Count: > 0 })
+                .Select(a => a.AssetId ?? a.AssetName)
+                .ToList();
 
             stopwatch.Stop();
             _logger.LogInformation("CalcCollateral completed: {CashflowCount} cashflows, {TotalPeriods} periods, elapsed {ElapsedMs}ms",
@@ -384,6 +388,8 @@ public class CalcCollateralController : ControllerBase
             IOTerm = dto.IOTerm,
             BalloonAmortizationTerm = dto.BalloonAmortizationTerm,
             ScheduledPayments = dto.ScheduledPayments,
+            PrepaymentPenalties = dto.PrepaymentPenalties?
+                .Select(s => new PrepaymentPenaltyStep(s.From, s.Pct)).ToList(),
             ScheduledPrincipal = dto.ScheduledPrincipal,
             ForbearanceAmt = dto.ForbearanceAmt,
             StepDatesList = dto.StepDatesList,

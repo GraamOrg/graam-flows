@@ -362,6 +362,18 @@ EXPENSE -> INTEREST -> PRINCIPAL_SCHEDULED -> PRINCIPAL_UNSCHEDULED ->
 PRINCIPAL_RECOVERY -> WRITEDOWN -> RESERVE_DEPOSIT -> EXCESS_TURBO -> EXCESS_RELEASE
 ```
 
+### Prepayment penalties
+
+An asset may state a prepayment penalty schedule, `prepaymentPenalties`: steps of `{ "from", "pct" }` in date order. From the payment date in `from`'s month, a voluntary prepayment pays `pct` percent of the principal prepaid, until the next step; the last step is a 0 where the penalty ends. Defaults, balloons and the end of the projection pay none. The schedule does not hold prepayments (call protection is `lockoutEndDate` and its siblings). The response lists the assets whose schedule ran in `prepaymentPenaltyAssetIds`, and each period's `prepaymentPenalty` is its own field, not part of `interest`.
+
+A deal pays the penalties with a `PREPAYMENT_PENALTY` step after `INTEREST`, naming the classes and their shares (totalling 100):
+
+```json
+{ "type": "PREPAYMENT_PENALTY", "shares": [{ "tranche": "IO", "pct": 100 }] }
+```
+
+Each class is paid its share whole, as interest: it is in the class's `interest` and also reported as its `prepaymentPenalty`. A penalty no step pays, a step with no shares, shares that do not total 100, a class the deal does not carry, and a step ahead of `INTEREST` are refused.
+
 ### Cash ledger
 
 Set `reportCashLedger: true` on a waterfall request and the response carries a `cashLedger` section: the run's cash checked against itself. The cashflows are the same with it on or off.
@@ -448,7 +460,7 @@ A deal that states either field is checked three ways, because a mis-stated deal
 | Pays them principal out of the interest left | `EXCESS_TURBO` |
 | Writes them down | `WRITEDOWN` |
 | Pays out all the interest left | `EXCESS`, `EXCESS_RELEASE` (one step under two names) |
-| Never pays them principal | `EXPENSE`, `RESERVE_DEPOSIT`, `CAP_CARRYOVER` (which pays them carried-over interest) |
+| Never pays them principal | `EXPENSE`, `RESERVE_DEPOSIT`, `CAP_CARRYOVER` (which pays them carried-over interest), `PREPAYMENT_PENALTY` (which pays the collateral's prepayment penalties as interest) |
 
 - **Presence.** The order names `INTEREST` and the three `PRINCIPAL_*` steps. A step that states a field is in the order too: `WRITEDOWN` for `overPool`, `EXCESS_TURBO` for `target: 0`.
 - **Count.** No step in the first four rows is named twice.

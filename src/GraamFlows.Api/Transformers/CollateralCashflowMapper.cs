@@ -57,7 +57,8 @@ public static class CollateralCashflowMapper
                 AdvancedPrincipal = cf.AdvancedPrincipal,
                 AdvancedInterest = cf.AdvancedInterest,
                 Expenses = cf.Expenses,
-                ModificationLoss = cf.ModificationLoss
+                ModificationLoss = cf.ModificationLoss,
+                PrepaymentPenalty = cf.PrepaymentPenalty
             });
         }
 

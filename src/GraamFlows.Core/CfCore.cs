@@ -179,6 +179,10 @@ public class CfCore
             // assets using CDR/MDR.
             double[][]? origMdrTime = null;
 
+            // Prepayment penalty percent by row, per asset (IAsset.PrepaymentPenalties). Elements
+            // stay null for assets that state none.
+            double[]?[]? penaltyPctTime = null;
+
             for (var i = 0; i < assetCount; i++)
             {
                 var aa = assetAssumps[i];
@@ -250,6 +254,13 @@ public class CfCore
                 delAdvPrinTime[i] = BuildAssumptionArray(aa?.DelinqAdvPctPrin, maxPeriods, startTime, false, 100.0, 100.0);
                 forbRecovPpayTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryPrepay, maxPeriods, startTime, -1.0);
                 forbRecovMaturityTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryMaturity, maxPeriods, startTime, 1.0);
+                // The percent of a voluntary prepayment the asset pays as a penalty, by row. Left
+                // null when no asset states a schedule, so the amortizer books no penalty.
+                if (PrepaymentPenalties.PctByRow(groupAssets[i], startTime, maxPeriods) is { } penaltyPct)
+                {
+                    penaltyPctTime ??= new double[assetCount][];
+                    penaltyPctTime[i] = penaltyPct;
+                }
                 forbRecovDefaultTime[i] = BuildForbearanceArray(aa?.ForbearanceRecoveryDefault, maxPeriods, startTime, -1.0);
 
                 // A quarterly / semi-annual asset prepays and defaults on its payment rows only; so does
@@ -309,7 +320,8 @@ public class CfCore
                 firstProjDate: firstProjDate,
                 interestAccrualStart: interestAccrualStart,
                 interestReserve: interestReserve,
-                delinqOnOriginal: delinqOnOriginal);
+                delinqOnOriginal: delinqOnOriginal,
+                penaltyPctTime: penaltyPctTime);
 
             // Convert results to PeriodCashflows and add to deal cashflows
             var periodCashflows = results.ToPeriodCashflows(firstProjDate, groupNum);

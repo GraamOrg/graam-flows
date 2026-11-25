@@ -169,6 +169,10 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     // that states no such priority, which is every deal but agency CRT.
     public ModificationLossLadder? ModificationLossLadder { get; set; }
 
+    // Where the collateral's prepayment penalties are paid (SET_PENALTY_STRUCT), or null for a
+    // deal that allocates none.
+    public PrepaymentPenaltyAllocation? PrepaymentPenaltyAllocation { get; set; }
+
     /// <summary>
     ///     Every Modification Loss Amount the ladder's NOTIONAL priorities have applied so far —
     ///     the running sum of what the MODIFICATION_LOSS step wrote off the junior classes'

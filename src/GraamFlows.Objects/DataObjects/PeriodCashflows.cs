@@ -106,6 +106,15 @@ public class PeriodCashflows
     public double ModificationLoss { get; set; }
 
     /// <summary>
+    ///     Prepayment penalties the borrowers paid this period: each asset's voluntary prepayment
+    ///     times its <see cref="IAsset.PrepaymentPenalties" /> percent. Its own channel, NOT in
+    ///     <see cref="Interest" /> or <see cref="TotalCashflow" />: folded into the pool's interest the
+    ///     INTEREST step would pay it to every class by its coupon, where a document allocates it
+    ///     (a PREPAYMENT_PENALTY step, in ComposableStructure). Zero for an asset with no schedule.
+    /// </summary>
+    public double PrepaymentPenalty { get; set; }
+
+    /// <summary>
     ///     Recovery proceeds the reinvestment loop SPENT on new collateral this period
     ///     (graam-harmony#5596). The loop subtracts that cash from <see cref="RecoveryPrincipal" />
     ///     — correctly, because spent cash must not also be distributed — but recovered cash that
@@ -223,6 +232,7 @@ public class PeriodCashflows
         // the whole modification axis out of any path that clones a period (the deferred
         // termination fold does).
         clone.ModificationLoss = ModificationLoss;
+        clone.PrepaymentPenalty = PrepaymentPenalty;
         clone.CollateralMonths = CollateralMonths;
         clone.FeeBasis = FeeBasis;
         clone.PeriodYears30360 = PeriodYears30360;
@@ -249,6 +259,7 @@ public class PeriodCashflows
         CollateralLoss += periodCf.CollateralLoss;
         Expenses += periodCf.Expenses;
         ModificationLoss += periodCf.ModificationLoss;
+        PrepaymentPenalty += periodCf.PrepaymentPenalty;
         ReinvestedRecoveryPrincipal += periodCf.ReinvestedRecoveryPrincipal;
         PendingLiquidationChange += periodCf.PendingLiquidationChange;
         AdditionalPurchaseFace += periodCf.AdditionalPurchaseFace;

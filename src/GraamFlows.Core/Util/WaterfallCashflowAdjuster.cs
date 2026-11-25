@@ -43,6 +43,7 @@ public static class WaterfallCashflowAdjuster
             cf.Value.AccumInterestShortfall *= adjFactor;
             cf.Value.InterestShortfallPayback *= adjFactor;
             cf.Value.RedemptionInterest *= adjFactor;
+            cf.Value.PrepaymentPenalty *= adjFactor;
         }
     }
 }

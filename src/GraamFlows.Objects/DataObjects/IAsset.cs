@@ -114,6 +114,16 @@ public interface IAsset
     double[]? ScheduledPayments { get; set; }
 
     /// <summary>
+    ///     The asset's prepayment penalty schedule, in date order, or null for none. A voluntary
+    ///     prepayment (the prepayment rate's principal, never a default, a balloon or the end of the
+    ///     projection) pays the step's percent of the principal prepaid, reported as the period's
+    ///     <see cref="PeriodCashflows.PrepaymentPenalty" />. Before the first step there is no
+    ///     penalty; the last step lasts to the end, so a schedule ends with a step of 0. It does not
+    ///     hold prepayments: call protection is <see cref="LockoutEndDate" /> and its siblings.
+    /// </summary>
+    List<PrepaymentPenaltyStep>? PrepaymentPenalties { get; set; }
+
+    /// <summary>
     ///     A fixed amount of principal the asset pays every monthly period, or null. Some commercial
     ///     mortgages amortize by a stated dollar amount instead of a level payment: interest on the
     ///     balance plus the same principal every month, and the balance left at maturity balloons.

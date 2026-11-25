@@ -735,6 +735,7 @@ public class ComposableStructure : BaseStructure
         }
 
         ValidateLossSteps(deal, dynGroup, executionOrder);
+        ValidatePrepaymentPenaltyStep(deal, dynGroup, executionOrder);
 
         // The coverage cascade IS a per-level interleaving of interest and principal
         // (each failing level diverts interest to principal mid-interest-waterfall),
@@ -827,6 +828,57 @@ public class ComposableStructure : BaseStructure
     ///     before it can run, and the position rule in <see cref="ValidateLossSteps" /> reads the
     ///     effect, not the name.
     /// </summary>
+    /// <summary>
+    ///     A PREPAYMENT_PENALTY step and the allocation it pays by (SET_PENALTY_STRUCT, or 'shares'
+    ///     on the step) come together, and the step runs after INTEREST. Either half alone pays the
+    ///     penalties to no class; and INTEREST sets each class's interest for the period, so a
+    ///     penalty paid ahead of it would be overwritten.
+    /// </summary>
+    private static void ValidatePrepaymentPenaltyStep(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
+    {
+        var penaltyIndex = executionOrder.FindIndex(s =>
+            string.Equals(s, "PREPAYMENT_PENALTY", StringComparison.OrdinalIgnoreCase));
+        if (penaltyIndex >= 0 && dynGroup.PrepaymentPenaltyAllocation == null)
+            throw new DealModelingException(deal.DealName,
+                "The waterfall has a PREPAYMENT_PENALTY step but no class to pay the penalties to " +
+                "for this class group. State the step's 'shares' (or a SET_PENALTY_STRUCT rule).");
+        if (penaltyIndex < 0 && dynGroup.PrepaymentPenaltyAllocation != null)
+            throw new DealModelingException(deal.DealName,
+                "The deal states where prepayment penalties are paid but the execution order has no " +
+                "PREPAYMENT_PENALTY step. Add it to executionOrder, after INTEREST.");
+        if (penaltyIndex < 0)
+            return;
+        var interestIndex = executionOrder.FindIndex(s =>
+            string.Equals(s, "INTEREST", StringComparison.OrdinalIgnoreCase));
+        if (interestIndex < 0 || penaltyIndex < interestIndex)
+            throw new DealModelingException(deal.DealName,
+                "PREPAYMENT_PENALTY runs before INTEREST in the execution order. INTEREST sets each " +
+                "class's interest for the period, so a penalty paid ahead of it is overwritten. Move " +
+                "PREPAYMENT_PENALTY after INTEREST.");
+    }
+
+    /// <summary>
+    ///     Pays the period's prepayment penalties (<see cref="PeriodCashflows.PrepaymentPenalty" />) to
+    ///     the classes the deal names, each its share, as interest: added to the tranche's
+    ///     <see cref="TrancheCashflow.Interest" /> and reported in its
+    ///     <see cref="TrancheCashflow.PrepaymentPenalty" />. Whole, not through
+    ///     <see cref="IPayable.PayInterest" />: that pays a class up to the interest it is due, and a
+    ///     penalty is due to none (<see cref="PrepaymentPenaltyAllocation" />).
+    /// </summary>
+    private static void PayPrepaymentPenaltyStep(DynamicGroup dynGroup, PeriodCashflows periodCf)
+    {
+        var penalty = periodCf.PrepaymentPenalty;
+        if (penalty == 0 || dynGroup.PrepaymentPenaltyAllocation is not { } allocation)
+            return;
+        foreach (var share in allocation.Shares)
+        {
+            var amount = penalty * share.Pct / 100.0;
+            var cf = share.Target.DynamicTranches[0].GetCashflow(periodCf.CashflowDate);
+            cf.Interest += amount;
+            cf.PrepaymentPenalty += amount;
+        }
+    }
+
     private static readonly IReadOnlyDictionary<string, StepEffect> StepEffects =
         new Dictionary<string, StepEffect>(StringComparer.OrdinalIgnoreCase)
         {
@@ -840,6 +892,9 @@ public class ComposableStructure : BaseStructure
             // to the classes each Z's Accrual Amount is directed to.
             ["ACCRUAL"] = StepEffect.PaysNotesFromCollections,
             ["MODIFICATION_LOSS"] = StepEffect.PaysNotesFromCollections,
+            // Pays the classes the penalties the collateral collected, as interest: cash of its
+            // own, outside the running totals, and never principal.
+            ["PREPAYMENT_PENALTY"] = StepEffect.NeverPaysNotesPrincipal,
             ["EXCESS_TURBO"] = StepEffect.PaysNotesFromExcess,
             ["WRITEDOWN"] = StepEffect.WritesNotesDown,
             ["WRITEUP"] = StepEffect.WritesNotesUp,
@@ -1580,6 +1635,15 @@ public class ComposableStructure : BaseStructure
         var interleavedDone = false;
         var interestDiversionApplied = false;
 
+        // A penalty the collateral collected that no step pays would leave the deal with no error
+        // and every class a little short; the step and its allocation come together (validated).
+        if (adjPeriodCf.PrepaymentPenalty > 0.005 && dynGroup.PrepaymentPenaltyAllocation == null)
+            throw new DealModelingException(deal.DealName,
+                $"The collateral collects {adjPeriodCf.PrepaymentPenalty:N2} of prepayment penalties on " +
+                $"{adjPeriodCf.CashflowDate:MM/dd/yyyy} but the waterfall pays them to no class. Add a " +
+                "PREPAYMENT_PENALTY step naming the classes they are paid to, or send the assets " +
+                "without a penalty schedule.");
+
         foreach (var step in executionOrder)
         {
             // The table decides which names run; the switch below has a case for each.
@@ -1706,6 +1770,19 @@ public class ComposableStructure : BaseStructure
                 case "MODIFICATION_LOSS":
                     PayModificationLossStep(deal, dynGroup, rateProvider, adjPeriodCf, allTranches,
                         excessSpreadFirstLoss);
+                    break;
+
+                case "PREPAYMENT_PENALTY":
+                    // The penalties are cash of their own, collected and paid in this step: the
+                    // ledger takes them in here, so the step's line shows them used and paid.
+                    if (ledger != null && adjPeriodCf.PrepaymentPenalty != 0)
+                    {
+                        ledger.Collect(adjPeriodCf.PrepaymentPenalty);
+                        ledgerFunds += adjPeriodCf.PrepaymentPenalty;
+                    }
+
+                    // Mark, after the switch, books the step: funds used (the penalties) and cash paid.
+                    PayPrepaymentPenaltyStep(dynGroup, adjPeriodCf);
                     break;
 
                 case "RESERVE_DEPOSIT":
