@@ -182,6 +182,14 @@ public class AssetDto
     public double[]? ScheduledPayments { get; set; }
 
     /// <summary>
+    ///     The asset's prepayment penalty schedule (<c>IAsset.PrepaymentPenalties</c>): steps of
+    ///     <c>{ from, pct }</c> in date order, each the penalty in percent of the principal
+    ///     voluntarily prepaid from the payment date in <c>from</c>'s month on, the last a step of 0
+    ///     where the penalty ends. Absent: no penalty. Monthly projection periods only.
+    /// </summary>
+    public List<PrepaymentPenaltyStepDto>? PrepaymentPenalties { get; set; }
+
+    /// <summary>
     ///     A fixed amount of principal the asset pays every monthly period (<c>IAsset.ScheduledPrincipal</c>):
     ///     interest on the balance plus this principal, unchanged by prepayments, the rest at maturity.
     ///     Wins over <see cref="DebtService" />. Not combinable with <see cref="ScheduledPayments" />,
@@ -195,6 +203,13 @@ public class AssetDto
     // Step rates
     public string? StepDatesList { get; set; }
     public string? StepRatesList { get; set; }
+}
+
+/// <summary>One step of an asset's prepayment penalty schedule (<see cref="AssetDto.PrepaymentPenalties" />).</summary>
+public class PrepaymentPenaltyStepDto
+{
+    public DateTime From { get; set; }
+    public double Pct { get; set; }
 }
 
 public class AssumptionsDto
@@ -293,6 +308,14 @@ public class CalcCollateralResponse
     ///     (an engine that predates it ignores the field and answers without this list).
     /// </summary>
     public List<string> ScheduledPrincipalAssetIds { get; set; } = new();
+
+    /// <summary>
+    ///     The assets whose prepayment penalty schedule was read (<see cref="AssetDto.PrepaymentPenalties" />).
+    ///     Present on every successful response, so a caller that sent schedules reads whether they
+    ///     ran: an engine that predates the field ignores it and answers without this list, and its
+    ///     rows carry no penalty.
+    /// </summary>
+    public List<string> PrepaymentPenaltyAssetIds { get; set; } = new();
 }
 
 public class SeverityResolutionDto
@@ -445,6 +468,14 @@ public class PeriodCashflowDto
     ///     Current Accrual Rates, which the waterfall never sees.
     /// </summary>
     public double ModificationLoss { get; set; }
+
+    /// <summary>
+    ///     Prepayment penalties the borrowers paid this period (<c>PeriodCashflows.PrepaymentPenalty</c>),
+    ///     from the assets' <see cref="AssetDto.PrepaymentPenalties" />. Not in <see cref="Interest" />;
+    ///     a deal pays it to classes with a PREPAYMENT_PENALTY step. Posted back to the waterfall
+    ///     as returned; zero by default.
+    /// </summary>
+    public double PrepaymentPenalty { get; set; }
 }
 
 public class CollateralSummaryDto

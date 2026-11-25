@@ -1007,7 +1007,8 @@ public class ExcessCoversLossesStepsTests
         cases.Should().OnlyHaveUniqueItems();
         cases.Should().Equal(listed, "a step the switch runs states its effect in the table, and the table " +
                                      "lists no step the switch does not run");
-        listed.Should().HaveCount(15, "ACCRUAL (an agency CMO's accrual classes) is the fifteenth");
+        listed.Should().HaveCount(16,
+            "ACCRUAL (an agency CMO's accrual classes) is the fifteenth, PREPAYMENT_PENALTY the sixteenth");
     }
 
     [Fact]

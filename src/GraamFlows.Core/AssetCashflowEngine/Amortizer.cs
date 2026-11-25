@@ -81,7 +81,8 @@ public static class Amortizer
         DateTime? firstProjDate = null,
         DateTime? interestAccrualStart = null,
         bool interestReserve = false,
-        bool[]? delinqOnOriginal = null)
+        bool[]? delinqOnOriginal = null,
+        double[]?[]? penaltyPctTime = null)
     {
         if (monthsPerPeriod < 1) monthsPerPeriod = 1;
         if (interestReserve && firstProjDate == null && assetData.Actual360.Any(a => a))
@@ -97,6 +98,9 @@ public static class Amortizer
         if (monthsPerPeriod != 1 && assetData.PaymentMonths.Any(m => m > 1))
             throw new NotSupportedException(
                 "A less-than-monthly asset's payment calendar is defined on monthly projection periods only.");
+        if (monthsPerPeriod != 1 && penaltyPctTime != null && penaltyPctTime.Any(p => p != null))
+            throw new NotSupportedException(
+                "A prepayment penalty schedule is defined on monthly projection periods only.");
         if (monthsPerPeriod != 1 && assetData.ScheduledPayments.Any(s => s != null))
             throw new NotSupportedException(
                 "A stated payment schedule is defined on monthly projection periods only.");
@@ -140,6 +144,7 @@ public static class Amortizer
         var resultBalance = results.Balance;
         var resultScheduledPrincipal = results.ScheduledPrincipal;
         var resultUnscheduledPrincipal = results.UnscheduledPrincipal;
+        var resultPrepaymentPenalty = results.PrepaymentPenalty;
         var resultInterest = results.Interest;
         var resultNetInterest = results.NetInterest;
         var resultServiceFee = results.ServiceFee;
@@ -187,6 +192,8 @@ public static class Amortizer
             // The asset's own scheduled payments by projection row (StatedPayments), or null: they
             // replace the level payment, and the asset ends with the last of them.
             var statedPayments = assetData.ScheduledPayments[assetIndex];
+            // The percent of a voluntary prepayment paid as a penalty, by row (PrepaymentPenalties), or null.
+            var penaltyPct = penaltyPctTime?[assetIndex];
             // Pay-date accrual: the asset states its next payment date, so each payment pays the
             // interest accrued to that DATE. `unpaid` holds the accrual not yet paid, by span.
             var statedNextPayment = assetData.NextPaymentDate[assetIndex];
@@ -612,6 +619,12 @@ public static class Amortizer
                     unschedPrin = smm * balPost;
                 }
                 var unscheduledPrincipal = unschedPrin;
+                // The penalty is on the voluntary prepayment only: the rate's principal, struck here
+                // before any balloon, clean-up or end-of-projection balance joins the period's
+                // unscheduled principal below. A default never pays it.
+                var prepaymentPenalty = penaltyPct != null && period < penaltyPct.Length
+                    ? unschedPrin * penaltyPct[period] / 100.0
+                    : 0.0;
 
                 // capitalizedInterest is zero for every non-PIK asset, so this
                 // reduces to the original balance recurrence. For PIK it grows the
@@ -853,6 +866,7 @@ public static class Amortizer
                 resultBalance[period] += balance;
                 resultScheduledPrincipal[period] += scheduledPrincipalOut;
                 resultUnscheduledPrincipal[period] += unscheduledPrincipal;
+                resultPrepaymentPenalty[period] += prepaymentPenalty;
                 resultInterest[period] += interest;
                 resultNetInterest[period] += netInterest;
                 resultServiceFee[period] += effectiveServiceFee;

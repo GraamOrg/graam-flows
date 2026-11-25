@@ -132,6 +132,14 @@ public class TrancheCashflow
     /// </summary>
     public double RedemptionInterest { get; set; }
 
+    /// <summary>
+    ///     Prepayment penalties paid to this tranche this period by a PREPAYMENT_PENALTY step: its
+    ///     share of the collateral's <see cref="PeriodCashflows.PrepaymentPenalty" />. Paid as
+    ///     interest, so already in <see cref="Interest" />; reported apart so a reader can tell it
+    ///     from the coupon.
+    /// </summary>
+    public double PrepaymentPenalty { get; set; }
+
     public TrancheCashflow Copy()
     {
         var tcf = new TrancheCashflow(TrancheName, Tranche, CashflowDate, UnscheduledPrincipal, ScheduledPrincipal,
@@ -143,6 +151,7 @@ public class TrancheCashflow
         tcf.ModificationWritedown = ModificationWritedown;
         tcf.CapitalizedInterest = CapitalizedInterest;
         tcf.RedemptionInterest = RedemptionInterest;
+        tcf.PrepaymentPenalty = PrepaymentPenalty;
         return tcf;
     }
 

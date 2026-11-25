@@ -822,6 +822,46 @@ namespace GraamFlows.RulesEngine
             };
         }
 
+        // --- Prepayment penalties ----------------------------------------------------------
+        // PENALTY_SHARE builds one class's share; SET_PENALTY_STRUCT takes them all. A share
+        // whose class does not resolve, a class of more than one tranche, a duplicate class or
+        // shares that do not total 100% are refused: each would pay a penalty dollar to the
+        // wrong class or to none, and the run would look complete.
+        private PrepaymentPenaltyShare PENALTY_SHARE(IPayable target, double pct)
+        {
+            if (target is not DynamicClass dynClass)
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    "A prepayment penalty share names a class this deal does not carry in group " +
+                    $"'{DynamicGroup.GroupNum}'. Check the share's tranche against the tranche roster.");
+            if (dynClass.DynamicTranches.Count != 1)
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    $"A prepayment penalty share names '{dynClass.Tranche.TrancheName}', a class of " +
+                    $"{dynClass.DynamicTranches.Count} tranches. Name the tranche the penalty is paid to.");
+            if (!double.IsFinite(pct) || pct <= 0 || pct > 100)
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    $"A prepayment penalty share pays '{dynClass.Tranche.TrancheName}' {pct}%; a share " +
+                    "is more than 0% and at most 100% of the penalties.");
+            return new PrepaymentPenaltyShare(dynClass, pct);
+        }
+
+        private void SET_PENALTY_STRUCT(params PrepaymentPenaltyShare[] shares)
+        {
+            if (shares == null || shares.Length == 0)
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    "SET_PENALTY_STRUCT states no share. Name the classes the prepayment penalties are paid to.");
+            var duplicate = shares.GroupBy(s => s.Target).FirstOrDefault(g => g.Count() > 1);
+            if (duplicate != null)
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    $"'{duplicate.Key.Tranche.TrancheName}' is named by two prepayment penalty shares. " +
+                    "Name each class once, with its whole share.");
+            var total = shares.Sum(s => s.Pct);
+            if (Math.Abs(total - 100.0) > PrepaymentPenaltyAllocation.TotalTolerancePct)
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    $"The prepayment penalty shares total {total}%, not 100%. A document pays all the " +
+                    "penalties it collects; state where each part goes.");
+            DynamicGroup.PrepaymentPenaltyAllocation = new PrepaymentPenaltyAllocation(shares.ToList());
+        }
+
         private void SET_MODLOSS_WRITEUP(string className)
         {
             DynamicGroup.ModificationLossLadder ??= new ModificationLossLadder(null);

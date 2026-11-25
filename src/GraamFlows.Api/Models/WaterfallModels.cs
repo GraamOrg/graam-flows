@@ -1026,6 +1026,22 @@ public class WaterfallStepDto
     ///     notional bites as pure reductions.
     /// </summary>
     public string? WriteUpTranche { get; set; }
+
+    /// <summary>
+    ///     For PREPAYMENT_PENALTY: the classes the collateral's prepayment penalties are paid to,
+    ///     each its percent, totalling 100 ("pay 100% of any Prepayment Penalties ... to Class IO").
+    ///     Paid as interest, after INTEREST in the execution order.
+    /// </summary>
+    public List<PrepaymentPenaltyShareDto>? Shares { get; set; }
+}
+
+/// <summary>One class's share of the prepayment penalties (<see cref="WaterfallStepDto.Shares" />).</summary>
+public class PrepaymentPenaltyShareDto
+{
+    public string Tranche { get; set; } = "";
+
+    /// <summary>The share, in percent: 100 pays the class every penalty.</summary>
+    public double Pct { get; set; }
 }
 
 /// <summary>
@@ -1305,6 +1321,12 @@ public class TrancheCashflowDto
     ///     trigger). Already in <c>Interest</c>; 0 on every other row.
     /// </summary>
     public double RedemptionInterest { get; set; }
+
+    /// <summary>
+    ///     Prepayment penalties a PREPAYMENT_PENALTY step paid this class this period. Already in
+    ///     <c>Interest</c>; 0 on every other row.
+    /// </summary>
+    public double PrepaymentPenalty { get; set; }
     public double Factor { get; set; }
     public double CreditSupport { get; set; }
     public double BeginCreditSupport { get; set; }

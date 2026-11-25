@@ -742,7 +742,8 @@ public class WaterfallController : ControllerBase
                 DQ = dto.Dq,
                 CumDefaultedPrincipal = dto.CumDefaultedPrincipal,
                 CumCollateralLoss = dto.CumCollateralLoss,
-                ModificationLoss = dto.ModificationLoss
+                ModificationLoss = dto.ModificationLoss,
+                PrepaymentPenalty = dto.PrepaymentPenalty
             };
             periodCashflows.Add(cf);
         }
@@ -830,6 +831,7 @@ public class WaterfallController : ControllerBase
                     ModificationWritedown = cf.Value.ModificationWritedown,
                     CapitalizedInterest = cf.Value.CapitalizedInterest,
                     RedemptionInterest = cf.Value.RedemptionInterest,
+                    PrepaymentPenalty = cf.Value.PrepaymentPenalty,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
                     BeginCreditSupport = cf.Value.BeginCreditSupport,
@@ -908,6 +910,7 @@ public class WaterfallController : ControllerBase
                     ModificationWritedown = cf.Value.ModificationWritedown,
                     CapitalizedInterest = cf.Value.CapitalizedInterest,
                     RedemptionInterest = cf.Value.RedemptionInterest,
+                    PrepaymentPenalty = cf.Value.PrepaymentPenalty,
                     Factor = cf.Value.Factor,
                     CreditSupport = cf.Value.CreditSupport,
                     BeginCreditSupport = cf.Value.BeginCreditSupport,

@@ -109,6 +109,7 @@ public class CollateralCashflows
                 existingCf.ForbearanceRecovery += periodCf.ForbearanceRecovery;
                 existingCf.ForbearanceLiquidated += periodCf.ForbearanceLiquidated;
                 existingCf.ModificationLoss += periodCf.ModificationLoss;
+                existingCf.PrepaymentPenalty += periodCf.PrepaymentPenalty;
                 // graam-harmony#5596. This merge re-lists fields by hand rather than calling
                 // PeriodCashflows.Add, so a field added there is silently dropped here — the
                 // first cut of #5596 did exactly that, and the loss fix never reached the
