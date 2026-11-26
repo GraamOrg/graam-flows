@@ -1,16 +1,17 @@
 using FluentAssertions;
 using GraamFlows.Tests.Fixtures;
 using GraamFlows.Tests.Helpers;
+using GraamFlows.Waterfall;
 using GraamFlows.Waterfall.Structures.PayableStructures;
 using Xunit;
 
 namespace GraamFlows.Tests.Unit.Payables;
 
 /// <summary>
-/// Tests for ProformaStructure.
+/// Tests for SplitStructure's legs (the DSL's PROFORMA is a split written in fractions).
 /// Distributes payments according to fixed percentage shares.
 /// </summary>
-public class ProformaStructureTests
+public class SplitLegsTests
 {
     private readonly DateTime _testDate = TestConstants.DefaultFirstPayDate;
     private readonly ConstantTestRateProvider _rateProvider = new();
@@ -20,7 +21,7 @@ public class ProformaStructureTests
     {
         var p1 = TestPayableBuilder.Mock(balance: 1000, name: "A");
         var p2 = TestPayableBuilder.Mock(balance: 1000, name: "B");
-        var proforma = new ProformaStructure(p1, 0.6, p2, 0.4);
+        var proforma = Split(new[] { 60.0, 40.0 }, p1, p2);
 
         proforma.PaySp(null, _testDate, 500, () => { });
 
@@ -34,7 +35,7 @@ public class ProformaStructureTests
         var p1 = TestPayableBuilder.Mock(balance: 1000, name: "A");
         var p2 = TestPayableBuilder.Mock(balance: 1000, name: "B");
         var p3 = TestPayableBuilder.Mock(balance: 1000, name: "C");
-        var proforma = new ProformaStructure(p1, 0.5, p2, 0.3, p3, 0.2);
+        var proforma = Split(new[] { 50.0, 30.0, 20.0 }, p1, p2, p3);
 
         proforma.PaySp(null, _testDate, 1000, () => { });
 
@@ -47,7 +48,7 @@ public class ProformaStructureTests
     public void PaySp_SinglePayable_GetsAll()
     {
         var p1 = TestPayableBuilder.Mock(balance: 1000, name: "A");
-        var proforma = new ProformaStructure(p1);
+        var proforma = Split(new[] { 100.0 }, p1);
 
         proforma.PaySp(null, _testDate, 500, () => { });
 
@@ -59,7 +60,7 @@ public class ProformaStructureTests
     {
         var p1 = TestPayableBuilder.Mock(balance: 100, name: "A");
         var p2 = TestPayableBuilder.Mock(balance: 1000, name: "B");
-        var proforma = new ProformaStructure(p1, 0.5, p2, 0.5);
+        var proforma = Split(new[] { 50.0, 50.0 }, p1, p2);
 
         proforma.PaySp(null, _testDate, 500, () => { });
 
@@ -73,9 +74,9 @@ public class ProformaStructureTests
         var p1 = TestPayableBuilder.Mock(name: "A");
         var p2 = TestPayableBuilder.Mock(name: "B");
 
-        var act = () => new ProformaStructure(p1, 0.5, p2, 0.3);
+        var act = () => Split(new[] { 50.0, 30.0 }, p1, p2);
 
-        act.Should().Throw<Exception>();
+        act.Should().Throw<ArgumentException>().WithMessage("*not 100%*");
     }
 
     [Fact]
@@ -83,14 +84,27 @@ public class ProformaStructureTests
     {
         var p1 = TestPayableBuilder.Mock(interestDue: 600, name: "A");
         var p2 = TestPayableBuilder.Mock(interestDue: 400, name: "B");
-        var proforma = new ProformaStructure(p1, 0.5, p2, 0.5);
+        var proforma = Split(new[] { 50.0, 50.0 }, p1, p2);
 
         var paid = proforma.PayInterest(null, _testDate, 1000, _rateProvider, null);
 
-        // Proforma splits by forma percentage, capped at interest due
-        // p1 gets min(500, 600) = 500, p2 gets min(500, 400) = 400, total = 900
-        paid.Should().Be(900);
-        p1.TotalInterestPaid.Should().Be(500);
+        // Each leg its share, capped at the interest it is due: p1 500 of 600, p2 400; the 100 p2
+        // does not need goes to p1, so nothing it is owed is left unpaid.
+        paid.Should().Be(1000);
+        p1.TotalInterestPaid.Should().Be(600);
         p2.TotalInterestPaid.Should().Be(400);
     }
+
+    [Fact]
+    public void PaySp_MoreLegsThanThree_EachItsShare()
+    {
+        var legs = Enumerable.Range(0, 5).Select(i => TestPayableBuilder.Mock(balance: 1000, name: $"L{i}")).ToArray();
+        var split = Split(new[] { 10.0, 20.0, 30.0, 25.0, 15.0 }, legs);
+
+        split.PaySp(null, _testDate, 1000, () => { });
+
+        legs.Select(l => l.TotalSpPaid).Should().Equal(100, 200, 300, 250, 150);
+    }
+
+    private static SplitStructure Split(double[] shares, params IPayable[] legs) => new(shares, legs);
 }

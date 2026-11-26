@@ -56,7 +56,7 @@ public class PrincipalReceiptTests
         ["CSCAP"] = m => new EnhancementCapStructure(0.3, m[0], new SequentialStructure(new IPayable[] { m[1], m[2] })),
         ["FIXED"] = m => new FixedStructure(300.0, m[0], new SequentialStructure(new IPayable[] { m[1], m[2] })),
         ["FORCE_PAYDOWN"] = m => new ForcedPaydownStructure(m[2], new SequentialStructure(new IPayable[] { m[0], m[1] })),
-        ["PROFORMA"] = m => new ProformaStructure(m[0], 0.5, m[1], 0.3, m[2], 0.2),
+        ["SPLIT"] = m => new SplitStructure(new[] { 50.0, 30.0, 20.0 }, m),
         ["TARGET"] = m => new TargetBalanceStructure(new Variables(), "target", m[0],
             new SequentialStructure(new IPayable[] { m[1], m[2] })),
         ["PAC"] = m => new PlannedAmortizationStructure(new Variables(), "schedule", m[0],
@@ -99,7 +99,7 @@ public class PrincipalReceiptTests
             {
                 // Fixed shares refuse an amount they cannot place within their classes. Nothing
                 // was reported because nothing was to be relied on.
-                structure.Should().Be("PROFORMA");
+                structure.Should().Be("SPLIT");
                 continue;
             }
 

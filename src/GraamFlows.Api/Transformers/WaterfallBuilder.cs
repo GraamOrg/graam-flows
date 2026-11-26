@@ -160,6 +160,8 @@ public static class WaterfallBuilder
                 return BuildTargetDsl(structure);
             case "FIXED":
                 return BuildFixedDsl(structure);
+            case "SPLIT":
+                return BuildSplitDsl(structure);
             case "FORCE_PAYDOWN":
                 return BuildForcePaydownDsl(structure);
             case "PAC":
@@ -199,6 +201,22 @@ public static class WaterfallBuilder
         }
 
         return "PRORATA()";
+    }
+
+    /// <summary>
+    ///     SPLIT: principal by fixed shares, ``SPLIT('30.0074920518,69.9925079482', leg1, leg2)``. A
+    ///     split with no legs, or not one share per leg, is refused here; shares that do not total
+    ///     100 are refused by the engine.
+    /// </summary>
+    private static string BuildSplitDsl(PayableStructureDto structure)
+    {
+        var legs = structure.Children ?? new List<PayableStructureDto>();
+        var shares = structure.Shares ?? new List<double>();
+        if (legs.Count == 0 || legs.Count != shares.Count)
+            throw new InvalidOperationException(
+                $"A SPLIT states {shares.Count} shares for {legs.Count} legs; state one share per child.");
+        var text = string.Join(",", shares.Select(s => s.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
+        return $"SPLIT('{text}', {string.Join(", ", legs.Select(BuildStructureDsl))})";
     }
 
     private static string BuildSingleDsl(PayableStructureDto structure)

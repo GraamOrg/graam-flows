@@ -472,6 +472,27 @@ namespace GraamFlows.RulesEngine
             return new SequentialStructure(payables);
         }
 
+        /// <summary>
+        ///     Principal split by fixed shares, one per leg, in percent ("30.0074920518,69.9925079482"):
+        ///     <see cref="SplitStructure" />.
+        /// </summary>
+        private SplitStructure SPLIT(string shares, params IPayable[] payables)
+        {
+            var parsed = shares.Split(',')
+                .Select(s => double.Parse(s.Trim(), System.Globalization.CultureInfo.InvariantCulture)).ToList();
+            if (payables.Any(p => p == null))
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    "A SPLIT leg names a class this deal does not carry; check its tranche names.");
+            try
+            {
+                return new SplitStructure(parsed, payables);
+            }
+            catch (ArgumentException e)
+            {
+                throw new DealModelingException(DynamicGroup.Deal.DealName, e.Message);
+            }
+        }
+
         private PlannedAmortizationStructure PAC(string balSchedVar, IPayable senior, IPayable support)
         {
             return new PlannedAmortizationStructure(DynamicGroup, balSchedVar, senior, support);
@@ -482,19 +503,34 @@ namespace GraamFlows.RulesEngine
             return new SinglePlannedAmortizationClass(DynamicGroup, balSchedVar, spac);
         }
 
-        private ProformaStructure PROFORMA(IPayable payable, double forma)
+        private SplitStructure PROFORMA(IPayable payable, double forma)
         {
-            return new ProformaStructure(payable, forma);
+            return Proforma(new[] { payable }, new[] { forma });
         }
 
-        private ProformaStructure PROFORMA(IPayable payable1, double forma1, IPayable payable2, double forma2)
+        private SplitStructure PROFORMA(IPayable payable1, double forma1, IPayable payable2, double forma2)
         {
-            return new ProformaStructure(payable1, forma1, payable2, forma2);
+            return Proforma(new[] { payable1, payable2 }, new[] { forma1, forma2 });
         }
 
-        private ProformaStructure PROFORMA(IPayable payable1, double forma1, IPayable payable2, double forma2, IPayable payable3, double forma3)
+        private SplitStructure PROFORMA(IPayable payable1, double forma1, IPayable payable2, double forma2, IPayable payable3, double forma3)
         {
-            return new ProformaStructure(payable1, forma1, payable2, forma2, payable3, forma3);
+            return Proforma(new[] { payable1, payable2, payable3 }, new[] { forma1, forma2, forma3 });
+        }
+
+        /// <summary>
+        ///     <c>PROFORMA(A, 0.6, B, 0.4)</c>: a <see cref="SplitStructure" /> whose shares are written as
+        ///     fractions. They total 1 to 0.0001, and the last leg takes what the others leave, so no
+        ///     cash is lost to their rounding.
+        /// </summary>
+        private SplitStructure Proforma(IPayable[] payables, double[] formas)
+        {
+            if (Math.Abs(formas.Sum() - 1) > 0.0001)
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    $"Proforma amounts must sum up to 1 otherwise there will be lost cashflow. Sum is {formas.Sum()}");
+            var shares = formas.Select(f => f * 100.0).ToList();
+            shares[^1] = 100.0 - shares.Take(shares.Count - 1).Sum();
+            return new SplitStructure(shares, payables);
         }
 
         private FixedStructure FIXED(string @var, IPayable @fixed, IPayable support)
