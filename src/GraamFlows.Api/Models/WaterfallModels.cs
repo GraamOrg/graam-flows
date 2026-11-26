@@ -685,6 +685,12 @@ public class PayableStructureDto
     // A-SB class, or a classic PAC/companion pair.
     public string? ScheduleVariable { get; set; } // Scheduled variable holding the planned balance
     public PayableStructureDto? Senior { get; set; } // The scheduled class
+
+    /// <summary>
+    ///     For SPLIT: each child's share of the amount, in percent, in the order of
+    ///     <see cref="Children" /> (totalling 100). Principal split by fixed shares, not by balance.
+    /// </summary>
+    public List<double>? Shares { get; set; }
 }
 
 // ============== Unified Waterfall Models ==============

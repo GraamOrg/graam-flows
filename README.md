@@ -323,11 +323,12 @@ Each step uses a payable structure tree to define distribution order:
 |---|---|---|
 | Sequential | `SEQ(A, B, C)` | Pay A fully, then B, then C |
 | Pro rata | `PRORATA(A, B)` | Split proportionally by balance |
+| Fixed shares | `SPLIT('30,70', A, B)` | Each leg its stated % of the amount, whatever the balances; a retired leg's share goes to the rest (JSON: `{"type": "SPLIT", "shares": [30, 70], "children": [...]}`) |
 | Shifting interest | `SHIFTI(0.7, seniors, subs)` | Split by percentage (70/30) |
 | Enhancement cap | `CSCAP(0.055, seniors, subs)` | Redirect excess credit support to subs |
 | Fixed amount | `FIXED(var, primary, overflow)` | Fixed dollar amount to primary, rest to overflow |
 | Forced paydown | `FORCE_PAYDOWN(forced, support)` | Force one tranche to zero first |
-| Proforma | `PROFORMA(A, 0.6, B, 0.4)` | Fixed percentage shares |
+| Proforma | `PROFORMA(A, 0.6, B, 0.4)` | `SPLIT` with its shares written as fractions |
 
 Structures can be nested: `SEQ(PRORATA('A-1','A-2','A-3'), SINGLE('B'), SINGLE('C'))`.
 
