@@ -72,7 +72,9 @@ public static class UnifiedWaterfallBuilder
                 PayFrom = payFrom,
                 GroupNum = "1",
                 ExchangableTranche = exchangableTranche,
-                NotionalReference = payFrom == "Exchange" ? ExchangeNotional(t, byName) : null
+                NotionalReference = payFrom == "Exchange" && exchangeComponents.ContainsKey(t.TrancheName)
+                    ? ExchangeNotional(t, byName)
+                    : null
             };
         }).ToList();
     }
@@ -84,17 +86,20 @@ public static class UnifiedWaterfallBuilder
     ///     IA ($77,100,891) and half of Class AI ($28,317,000), and its Class Notional Balance is
     ///     "100% of A, VA and ZA" — $77,100,891. Following its components would cut it twice as
     ///     fast; following nothing reset it to the pool, $187,100,891, every period.
+    ///     <para>
+    ///         Only an interest-only class with declared exchange shares: every other exchange class
+    ///         is built exactly as before, whatever it states here. Agency CRT strips (M-2AI, M-2I)
+    ///         are sent as exchange classes with principal and a notionalReference the engine has
+    ///         always ignored; refusing that reference turned 28 of harmony's engine tests into
+    ///         400s before this was deployed.
+    ///     </para>
     /// </summary>
     private static string? ExchangeNotional(TrancheDto t, IReadOnlyDictionary<string, TrancheDto> byName)
     {
         var refs = (t.NotionalReference ?? "").Split(',')
             .Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
-        if (refs.Count == 0)
+        if (refs.Count == 0 || !string.Equals(t.CashflowType, "IO", StringComparison.OrdinalIgnoreCase))
             return null;
-        if (!string.Equals(t.CashflowType, "IO", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(
-                $"'{t.TrancheName}' is an exchange class with principal but names a notional reference " +
-                $"('{t.NotionalReference}'). Only an interest-only exchange class has a notional.");
         foreach (var r in refs)
         {
             if (!byName.TryGetValue(r, out var followed))
