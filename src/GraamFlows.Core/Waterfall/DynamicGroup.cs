@@ -638,8 +638,11 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         // amortizes off its ExchangableTranche reference bond via PayNotionalClasses —
         // excluding it here stops SettleNotionalBalances from clobbering that balance
         // back to the pool (#3691).
+        // An exchange class whose notional follows stated classes amortizes off them in the
+        // exchange pass (BaseStructure.PayExchangeables), so it is not reset to the pool either.
         DynamicClasses.Where(dc => dc.Tranche.CashflowTypeEnum == CashflowType.InterestOnly
-                                   && dc.DealStructure?.PayFromEnum != PayFromEnum.Notional);
+                                   && dc.DealStructure?.PayFromEnum != PayFromEnum.Notional
+                                   && string.IsNullOrEmpty(dc.DealStructure?.NotionalReference));
 
     public void InitNotionalBalances(double poolBeginBalance, DateTime cashflowDate)
     {
