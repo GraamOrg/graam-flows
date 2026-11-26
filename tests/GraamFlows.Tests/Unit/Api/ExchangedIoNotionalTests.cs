@@ -143,10 +143,14 @@ public class ExchangedIoNotionalTests
     }
 
     [Fact]
-    public void A_notional_on_an_exchange_class_with_principal_is_refused()
+    public void A_notional_on_an_exchange_class_with_principal_is_ignored_as_before()
     {
-        var bad = Run(Request(Mx("A", cashflowType: "PI"))).Result.Should().BeOfType<BadRequestObjectResult>().Subject;
-        bad.Value!.ToString().Should().Contain("Only an interest-only exchange class has a notional");
+        // Agency CRT strips are sent this way (Exchanged, principal, a notionalReference): the
+        // reference has never been read for them, and it is not now.
+        var withRef = Ok(Request(Mx("A", cashflowType: "PI")));
+        var without = Ok(Request(Mx(null, cashflowType: "PI")));
+        for (var i = 0; i < withRef["IB"].Count; i++)
+            withRef["IB"][i].Balance.Should().Be(without["IB"][i].Balance, $"period {i + 1}");
     }
 
     [Fact]
