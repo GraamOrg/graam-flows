@@ -173,15 +173,34 @@ public abstract class BaseStructure : IWaterfall
                 }
 
                 double usp = 0, sp = 0, wd = 0;
-                foreach (var (tran, prop) in components)
+                var notional = NotionalReferenceOf(dynGroup, exchClass);
+                if (notional != null)
                 {
-                    var ccf = tran.GetCashflow(cashflowDate);
-                    if (ccf == null)
-                        continue;
-                    usp += ccf.UnscheduledPrincipal * prop;
-                    sp += ccf.ScheduledPrincipal * prop;
-                    wd += ccf.Writedown * prop;
+                    // Its notional follows the classes the document states, at its share of their
+                    // original balance, as a notional class's does (PayNotionalClasses): not the
+                    // notionals exchanged for it.
+                    var original = notional.Sum(c => c.Tranche.OriginalBalance);
+                    var share = original > 0.01 ? exchClass.Tranche.OriginalBalance / original : 0;
+                    foreach (var c in notional)
+                    {
+                        var ccf = c.GetCashflow(cashflowDate);
+                        if (ccf == null)
+                            continue;
+                        usp += ccf.UnscheduledPrincipal * share;
+                        sp += ccf.ScheduledPrincipal * share;
+                        wd += ccf.Writedown * share;
+                    }
                 }
+                else
+                    foreach (var (tran, prop) in components)
+                    {
+                        var ccf = tran.GetCashflow(cashflowDate);
+                        if (ccf == null)
+                            continue;
+                        usp += ccf.UnscheduledPrincipal * prop;
+                        sp += ccf.ScheduledPrincipal * prop;
+                        wd += ccf.Writedown * prop;
+                    }
 
                 if (sp + usp > exchClass.Balance)
                     exchClass.Pay(cashflowDate, exchClass.Balance, 0);
@@ -309,6 +328,31 @@ public abstract class BaseStructure : IWaterfall
         }
 
         return outp;
+    }
+
+    /// <summary>
+    ///     The classes an interest-only exchange class's notional follows, when the document states
+    ///     them apart from its components (<see cref="IDealStructure.NotionalReference" />), or
+    ///     null. A name the deal does not carry is refused, never skipped: skipping it would cut
+    ///     the notional by less than the document says.
+    /// </summary>
+    private static List<DynamicClass>? NotionalReferenceOf(DynamicGroup dynGroup, DynamicClass exchClass)
+    {
+        var stated = exchClass.DealStructure?.NotionalReference;
+        if (string.IsNullOrWhiteSpace(stated))
+            return null;
+        var classes = new List<DynamicClass>();
+        foreach (var name in stated.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var dc = dynGroup.ClassByName(name);
+            if (dc == null)
+                throw new DealModelingException(dynGroup.Deal.DealName,
+                    $"Exchange class '{exchClass.Tranche.TrancheName}' states a notional that follows " +
+                    $"'{name}', which is not a class of this deal.");
+            classes.Add(dc);
+        }
+
+        return classes;
     }
 
     /// <summary>

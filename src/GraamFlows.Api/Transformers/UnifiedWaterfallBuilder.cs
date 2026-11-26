@@ -71,9 +71,43 @@ public static class UnifiedWaterfallBuilder
                     : idx,
                 PayFrom = payFrom,
                 GroupNum = "1",
-                ExchangableTranche = exchangableTranche
+                ExchangableTranche = exchangableTranche,
+                NotionalReference = payFrom == "Exchange" ? ExchangeNotional(t, byName) : null
             };
         }).ToList();
+    }
+
+    /// <summary>
+    ///     The classes an interest-only EXCHANGE class's notional follows, when its tranche states
+    ///     them, or null. A Ginnie Mae REMIC prints an MX interest-only class's notional apart from
+    ///     the notionals exchanged for it: Class IB of GNMA 2026-059 is received for all of Class
+    ///     IA ($77,100,891) and half of Class AI ($28,317,000), and its Class Notional Balance is
+    ///     "100% of A, VA and ZA" — $77,100,891. Following its components would cut it twice as
+    ///     fast; following nothing reset it to the pool, $187,100,891, every period.
+    /// </summary>
+    private static string? ExchangeNotional(TrancheDto t, IReadOnlyDictionary<string, TrancheDto> byName)
+    {
+        var refs = (t.NotionalReference ?? "").Split(',')
+            .Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
+        if (refs.Count == 0)
+            return null;
+        if (!string.Equals(t.CashflowType, "IO", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' is an exchange class with principal but names a notional reference " +
+                $"('{t.NotionalReference}'). Only an interest-only exchange class has a notional.");
+        foreach (var r in refs)
+        {
+            if (!byName.TryGetValue(r, out var followed))
+                throw new InvalidOperationException(
+                    $"'{t.TrancheName}' states a notional that follows '{r}', which is not a tranche of " +
+                    "this deal (names match exactly).");
+            if (string.Equals(followed.CashflowType, "IO", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"'{t.TrancheName}' states a notional that follows '{r}', which pays no principal, " +
+                    "so the notional would never amortize. A notional follows classes with principal.");
+        }
+
+        return string.Join(",", refs);
     }
 
     /// <summary>

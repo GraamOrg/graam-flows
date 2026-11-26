@@ -18,6 +18,8 @@ public class DealStructure : IDealStructure
 
     [Database("Class_Tags")] public string ClassTags { get; set; }
 
+    public string? NotionalReference { get; set; }
+
     public PayFromEnum PayFromEnum
     {
         get

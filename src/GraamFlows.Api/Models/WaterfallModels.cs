@@ -571,6 +571,13 @@ public class DealStructureDto
     public string GroupNum { get; set; } = "0";
     public string? ExchangableTranche { get; set; }
     public string? ClassTags { get; set; }
+
+    /// <summary>
+    ///     An interest-only EXCHANGE class's notional, when the document states it apart from its
+    ///     components: the classes it follows, comma-separated (the tranche's
+    ///     <see cref="TrancheDto.NotionalReference" />). Its interest is still its components'.
+    /// </summary>
+    public string? NotionalReference { get; set; }
 }
 
 public class TriggerDto
