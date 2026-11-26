@@ -36,24 +36,43 @@ This repository focuses on the deterministic modeling layer.
 graph LR
     Input["User Query / Prospectus"] --> Agent["Graam Agent"]
     Agent -->|Deal DSL| D
+    Agent -->|Program + series| R
     subgraph graam-flows
         D["Collateral Engine"] -->|pool cashflows| E["Waterfall Engine"]
+        R["Revolving Engine"]
         E -->|tranche cashflows| F["Pricing Engine"]
+        R -->|series cashflows| F
     end
     F --> Output["Price / Yield / Spread / WAL"]
 ```
 
 ## What it does
 
-graam-flows has three engines:
+graam-flows has four engines. They can be used together or independently: project a pool, run it through a waterfall, price the tranches — or call any one of them on its own.
 
-1. **Collateral engine** - projects loan pool cashflows from asset-level data and assumptions (CPR, CDR, severity, delinquency). Supports fixed-rate, ARM, step-rate, and interest-only loans with ABS and CPR prepayment conventions.
-2. **Waterfall engine** - distributes collateral cashflows across tranches according to deal rules. Produces period-by-period interest, principal, writedowns, and balance for each tranche.
-3. **Pricing engine** - computes bond analytics from cashflow streams: price, yield, spread (Z-spread and discount margin), modified duration, WAL, and accrued interest. Supports arbitrary term structures and day count conventions.
+1. **Collateral engine** — projects loan-level or rep-line cashflows from asset data and assumptions.
+   - Rate types: fixed, ARM/hybrid (reset off a supplied forward curve), step-rate; amortizing, interest-only, balloon, bullet and PIK.
+   - An asset can state its own scheduled payments, a fixed monthly principal amount, its own payment calendar, and Actual/360 accrual.
+   - Prepayments as `CPR`, `SMM`, `PSA` (each asset on its own age), `ABS` (% of original balance) or `CPY` (prepaying from the month call protection ends); defaults as `CDR`, `MDR` or `ORIGMDR`.
+   - Severity as a percent or as a dollar loss per period; delinquency on current or original balance; advancing; recovery lag.
+   - Prepayment penalty schedules, and reinvestment of proceeds into new collateral from templates during a reinvestment period.
+2. **Waterfall engine** — distributes collateral cashflows across classes according to the deal's priority of payments, period by period: interest, principal, shortfalls, write-downs and write-ups, reserve and expense flows, triggers, and the balance of every class.
+3. **Revolving engine** — revolving trusts with several series over one pool: credit card master trusts (revolving, accumulation and amortization phases, principal and excess sharing, de-linked notes), installment pools valued at the present value of their remaining payments, and amortizing owner trusts. Forecasts from a statement date, or replays printed monthly figures and forecasts on from there.
+4. **Pricing engine** — price, yield, Z-spread, discount margin, modified duration, WAL and accrued interest from any cashflow stream against a term structure, with the common day counts (`30/360`, `30/360 SIA`, `30/360E`, `Actual/360`, `Actual/365`, `Actual/Actual`) and compounding conventions.
 
-The engines can be used together or independently. Generate collateral projections, run them through a waterfall, then price the output tranches — or use any engine in isolation.
+Runs are deterministic: the same request returns the same answer on any day and any machine. A request the engine cannot model correctly is refused with a reason, not run on a guess.
 
-The engine supports the deal structures found in Auto ABS, RMBS, and credit risk transfer (CRT) securitizations: sequential and pro-rata payment priorities, shifting interest, enhancement caps, trigger-dependent structure switching, reserve accounts, OC turbo mechanisms, and more.
+## Supported deal types
+
+| Family | What the engine models |
+|---|---|
+| **Auto ABS / consumer installment** | Sequential and turbo structures, OC targets with yield supplement OC schedules, reserve accounts, OC release to the certificate |
+| **Private-label RMBS (non-QM, prime)** | Shifting interest, net WAC caps and cap carryover, trigger-dependent structures, excess-spread strips, step-up coupons, losses realized on liquidation, optional redemption |
+| **Credit risk transfer (CRT)** | Reference-pool deals: guaranteed interest, supplemental reduction, modification losses, computed variables, exchangeable (MACR) classes (e.g. STACR) |
+| **Agency CMO** | PAC/support, accrual (Z) classes and accretion-directed classes, fixed-share principal splits, notional IO classes, exchangeable (MX) combinations |
+| **CMBS** | Balloon loans on their own schedules, Actual/360 loans, interest reserve, prepayment penalties paid to IO classes, loan-specific certificates |
+| **CLO** | OC/IC coverage tests with interest-to-principal diversion, reinvestment, deferrable notes, incentive fee above a hurdle IRR, quarterly payment calendars |
+| **Credit card / revolving** | Master trusts and owner trusts on the revolving engine (`POST /api/revolving`) |
 
 ## Quick start
 
@@ -74,7 +93,7 @@ dotnet test
 dotnet run --project src/GraamFlows.Api
 ```
 
-The API starts on `http://localhost:5200` with Swagger UI at `/swagger`.
+The API starts on `http://localhost:5200` with Swagger UI at `/swagger`. It binds to `$PORT` when set.
 
 ### Docker
 
@@ -85,7 +104,7 @@ docker run -p 5200:5200 graam-flows
 
 ### Run the CLI
 
-Both commands take the deal model as a positional argument:
+Both commands take a deal model (or a run file, below) as a positional argument:
 
 ```sh
 # project a deal and export the cashflows to Excel
@@ -95,13 +114,15 @@ dotnet run --project src/GraamFlows.Cli -- run path/to/deal.json
 dotnet run --project src/GraamFlows.Cli -- wal-tests path/to/deal.json --verbose
 ```
 
+`samples/reinvesting_deal.json` is a complete deal model to try `run` on (it carries no decrement table, so `wal-tests` has nothing to score).
+
 `wal-tests` strikes the grid entirely from the deal model — nothing is taken from the clock, so
 two runs of the same file on different days give the same answer. Three fields decide the basis:
 
 | Field | Meaning |
 |---|---|
 | `firstPaymentDate` (deal level) | First distribution date, when the tranches carry only a `payDay`. Per-tranche `firstPayDate` wins; `closingDate` is the last resort. A deal that states none of the three is rejected rather than anchored to today. |
-| `walScenarios.assumptions.prepaymentType` | `CPR` (% of current balance — the default, and what RMBS decrement tables are struck in) or `ABS` (% of original balance, the auto-ABS convention). |
+| `walScenarios.assumptions.prepaymentType` | `CPR` (% of current balance — the default, and what RMBS decrement tables are struck in), `ABS` (% of original balance, the auto-ABS convention), `PSA` or `CPY`. |
 | `walScenarios.assumptions.callTriggers` | Names of the triggers the "to redemption date" column is struck to; the run stops at whichever fires first. Omitted, a dated `DATE_TERMINATION` redemption is used when the deal declares one, else the `COLLATERAL_VALUE` clean-up. |
 
 #### Run files
@@ -145,6 +166,16 @@ sets a speed per asset, since those vectors were derived from the scenario's own
 
 ## API usage
 
+| Endpoint | What it does |
+|---|---|
+| `POST /api/calccollateral` | Project pool cashflows from assets and assumptions |
+| `POST /api/waterfall` | Distribute collateral cashflows across a deal's classes |
+| `POST /api/pricing` | Bond analytics from a cashflow stream |
+| `POST /api/revolving` | Run a revolving trust: a program, its series, and the pool they share |
+| `POST /api/revolving/pool` | Run an installment pool alone: its monthly roll and present value |
+
+The API accepts both `camelCase` and `snake_case` JSON keys. A refused request returns `400` with an `error` that says why.
+
 ### Collateral projection
 
 `POST /api/calccollateral` projects loan pool cashflows from asset data and assumptions.
@@ -174,7 +205,17 @@ sets a speed per asset, since those vectors were derived from the scenario's own
 }
 ```
 
-Assumptions support constant scalars, per-period vectors (`cprVector: [6.0, 7.0, 8.0, ...]`), or ramp strings (`cprVectorStr: "1.0R12,6.0"`). Prepayment convention can be `CPR` (% of current balance, standard for RMBS) or `ABS` (% of original balance, standard for Auto ABS).
+Rates are percents (`cdr: 10` is 10%). Each assumption can be a constant, a per-period vector (`cprVector: [6.0, 7.0, 8.0, ...]`), or a ramp string (`cprVectorStr: "1.0R12,6.0"`).
+
+| Field | Values |
+|---|---|
+| `prepaymentType` | `CPR` (default), `SMM`, `PSA`, `ABS`, `CPY` |
+| `defaultType` | `CDR` (default), `MDR`, `ORIGMDR` |
+| `severityType` | `Pct` (default), or `LossAmount`: the severity is a dollar loss per period, spread over that period's defaults |
+| `delinquencyType` | `PctCurrBal` or `PctOrigBal` |
+| `recoveryLag` | Months from default to recovery |
+
+The response says which convention each run applied (`prepaymentResolution`, `delinquencyResolution`, `severityResolution`), and which index each floating asset priced on (`marketRateResolution`): a floating index the caller did not supply is refused, never assumed.
 
 ### Pricing and analytics
 
@@ -198,7 +239,7 @@ Assumptions support constant scalars, per-period vectors (`cprVector: [6.0, 7.0,
 }
 ```
 
-Input types: `price` (solve for yield/spread), `yield` (solve for price), `spread` (solve for price from Z-spread). Returns price, yield, Z-spread, discount margin, modified duration, WAL, and accrued interest. The `rates` array provides a term structure as `[term_years, rate_percent]` pairs for spread and duration calculations.
+Input types: `price` (solve for yield/spread), `yield` (solve for price), `spread` (solve for price from Z-spread). Returns price, yield, Z-spread, discount margin, modified duration, WAL, and accrued interest. The `rates` array provides a term structure as `[term_years, rate_percent]` pairs for spread and duration calculations. A yield the solver cannot find is refused by name rather than returned as a sentinel.
 
 ### Waterfall execution
 
@@ -290,14 +331,29 @@ Required fields to note:
 
 - **`collateralCashflows[].groupNum`** must match the group emitted by the unified waterfall (`"1"` by default). The default on `PeriodCashflowDto` is `"0"`, which will cause every PayRule to be skipped.
 - **`collateralCashflows[].netInterest`** drives tranche interest distribution; `interest` alone is not used. When chaining from `/api/calccollateral`, both fields are populated automatically.
-- **`deal.closingDate`** seeds `FirstSettleDate` on each tranche and anchors first-period accrual. Without it, accrual days collapse to zero for `interestTreatment: "Collateral"`.
+- **`deal.closingDate`** seeds `FirstSettleDate` on each tranche and anchors first-period accrual. Without it, accrual days collapse to zero for `interestTreatment: "Collateral"`. A class can state its own dated date (`firstSettleDate`).
 - **`tranche.payFrequency`** is **payments per year** (12 = monthly, 4 = quarterly, 2 = semi-annual, 1 = annual), not months between payments. It must match the cadence of `collateralCashflows`; `/api/calccollateral` emits monthly cashflows, so tranches should use `12`. The default is `12`.
 
-The API accepts both `camelCase` and `snake_case` JSON keys.
+Optional request flags:
+
+- `reportCashLedger: true` adds a `cashLedger` section that checks the run's cash against itself, step by step. See [docs/cash-ledger.md](docs/cash-ledger.md).
+- `includeCollateralCashflows: true` returns the collateral the waterfall distributed (and any reinvestment purchases).
+- `triggerForecasts` forces a trigger's pass/fail state by period.
 
 ## Deal definition
 
 Deals can be defined using the **unified waterfall** format (recommended) or the lower-level **PayRules DSL**.
+
+### Tranches
+
+| Field | Values |
+|---|---|
+| `couponType` | `Fixed`, `Floating` (index + `floaterSpread`), `TrancheWac`, `Formula` (`couponFormula`), `ExcessInterest`, `Residual` |
+| `cashflowType` | `PI`, `IO`, `PO` |
+| `trancheType` | `Offered`, `Exchanged`, `Reference`, `Certificate`, `ResidualInterest`, `CapFundsReserve`, `OfferedCapFundsReserve` |
+| `payFrom` | How the class is paid in the engine's own terms: `Sequential`, `ProRata`, `Accrual` (a Z class), `Exchange`, `Notional`, `ExcessServicing`, `Residual`, `Expense`, `Group`, `Rule` |
+| `notionalReference` / `classReference` | The classes an IO class's notional, or an exchange class's components, follow |
+| `reserveConfig` | A reserve account's target: a percent of a base or of the cut-off pool, optionally capped at the note balance |
 
 ### Unified waterfall
 
@@ -305,15 +361,28 @@ The unified waterfall is a steps-based format where each step defines how a spec
 
 | Step | Description |
 |---|---|
+| `EXPENSE` | Deal expense payments (trustee, servicer, senior fees) |
 | `INTEREST` | Interest distribution to tranches |
-| `PRINCIPAL` | Principal distribution (source: `scheduled`, `unscheduled`, `recovery`) |
-| `WRITEDOWN` | Loss allocation (reverse seniority) |
-| `EXPENSE` | Deal expense payments |
+| `PRINCIPAL` | Principal distribution, by `source`: `scheduled`, `unscheduled`, `recovery` (named in the order as `PRINCIPAL_SCHEDULED`, `PRINCIPAL_UNSCHEDULED`, `PRINCIPAL_RECOVERY`) |
+| `ACCRUAL` | Turns the accrual (Z) classes' coupon into balance and pays it as principal to the classes it is directed to |
+| `PREPAYMENT_PENALTY` | Pays the collateral's prepayment penalties to the classes named, by share, as interest |
+| `SUPPLEMENTAL_REDUCTION` | Credit-support-capped subordinate reduction (CRT) |
+| `MODIFICATION_LOSS` | A modification-loss priority that interleaves interest reductions with the write-down (CRT) |
+| `WRITEDOWN` | Loss allocation (reverse seniority); `size: "periodLoss"` (default) or `"overPool"` |
+| `WRITEUP` | Writes earlier write-downs back up to the pool |
 | `RESERVE_DEPOSIT` | Reserve account deposits |
-| `EXCESS_TURBO` | OC turbo paydown from excess interest |
-| `EXCESS_RELEASE` | Remaining excess to certificateholders |
-| `SUPPLEMENTAL_REDUCTION` | Credit-support-capped subordinate reduction |
-| `CAP_CARRYOVER` | WAC cap shortfall payback |
+| `EXCESS_TURBO` | Pays the notes principal out of excess interest, to an OC target or to the pool (`target: 0`) |
+| `EXCESS_RELEASE` / `EXCESS` | Pays out the remaining excess (one step under two names) |
+| `CAP_CARRYOVER` | Net WAC cap shortfall payback |
+
+`executionOrder` lists which steps run and in what sequence. A name no step answers to is refused, not ignored. The default order is:
+
+```
+EXPENSE -> INTEREST -> PRINCIPAL_SCHEDULED -> PRINCIPAL_UNSCHEDULED -> PRINCIPAL_RECOVERY ->
+[ACCRUAL] -> WRITEDOWN -> [RESERVE_DEPOSIT] -> EXCESS_TURBO -> EXCESS_RELEASE
+```
+
+`ACCRUAL` is in it when the deal carries an accrual class, `RESERVE_DEPOSIT` when the deal declares a deposit step.
 
 ### Payable structures
 
@@ -321,14 +390,18 @@ Each step uses a payable structure tree to define distribution order:
 
 | Structure | DSL | Description |
 |---|---|---|
+| Single | `SINGLE('A')` | One class |
 | Sequential | `SEQ(A, B, C)` | Pay A fully, then B, then C |
 | Pro rata | `PRORATA(A, B)` | Split proportionally by balance |
 | Fixed shares | `SPLIT('30,70', A, B)` | Each leg its stated % of the amount, whatever the balances; a retired leg's share goes to the rest (JSON: `{"type": "SPLIT", "shares": [30, 70], "children": [...]}`) |
-| Shifting interest | `SHIFTI(0.7, seniors, subs)` | Split by percentage (70/30) |
+| Proforma | `PROFORMA(A, 0.6, B, 0.4)` | `SPLIT` with its shares written as fractions |
+| Shifting interest | `SHIFTI(0.7, seniors, subs)` | Split by percentage (70/30), constant or from a variable |
 | Enhancement cap | `CSCAP(0.055, seniors, subs)` | Redirect excess credit support to subs |
+| Target balance | `TARGET('var', primary, cap)` | Pay the primary leg down to a target balance, the rest to the cap leg |
+| Planned amortization | `PAC('schedule', senior, support)` | Pay the PAC class to its scheduled balance, the rest to support |
 | Fixed amount | `FIXED(var, primary, overflow)` | Fixed dollar amount to primary, rest to overflow |
 | Forced paydown | `FORCE_PAYDOWN(forced, support)` | Force one tranche to zero first |
-| Proforma | `PROFORMA(A, 0.6, B, 0.4)` | `SPLIT` with its shares written as fractions |
+| Accrete | `ACCRETE('OC')` | Accrete an OC class's balance from excess |
 
 Structures can be nested: `SEQ(PRORATA('A-1','A-2','A-3'), SINGLE('B'), SINGLE('C'))`.
 
@@ -352,16 +425,27 @@ Principal structures can switch based on trigger pass/fail state:
 }
 ```
 
-Rules are evaluated in order; the first match wins. A rule with no `when` is the unconditional fallback.
+Rules are evaluated in order; the first match wins. A rule with no `when` is the unconditional fallback. Triggers are formulas over the deal's state (delinquency, cumulative loss including modification write-downs, credit support, OC and dates); a termination trigger ends the deal, and can pay interest for the month of redemption.
 
-### Execution order
+### Deal-level features
 
-The `executionOrder` array controls which steps run and in what sequence. The default order is:
+These sit on `unifiedWaterfall`, on `deal`, or on the step named:
 
-```
-EXPENSE -> INTEREST -> PRINCIPAL_SCHEDULED -> PRINCIPAL_UNSCHEDULED ->
-PRINCIPAL_RECOVERY -> WRITEDOWN -> RESERVE_DEPOSIT -> EXCESS_TURBO -> EXCESS_RELEASE
-```
+| Field | What it does |
+|---|---|
+| `waterfallOrder` | `standard` (all interest, then all principal), `interestFirst` or `principalFirst` (per seniority level) |
+| `coverageCascade` | CLO OC/IC tests, each level curing by diverting interest to principal |
+| `interestDiversion` | Reinvestment-period interest diversion test, run to a fixed point |
+| `incentiveFee` | A fee on the residual above a hurdle IRR |
+| `deferrableNotes` | Unpaid interest added to a deferrable class's balance while a senior class is outstanding |
+| `expensesAfterInterest` / `expensesFromPrincipal` | Expenses carried past interest, topped up or paid from principal proceeds |
+| `interestFromPrincipal` / `principalAfterNotes` | Notes' unpaid interest paid from principal ahead of their principal; principal left after the notes |
+| `writeNotesDownToPool` | Write the notes down to the pool's balance |
+| `lossesRealizedOnLiquidation` | Realize a loss when the loan is liquidated (after the recovery lag), not when it defaults |
+| `computedVariables` | Named formulas the steps and triggers read |
+| `deal.reinvestment` | Buy new collateral from templates during the reinvestment period, on the run's own assumptions |
+| `deal.exchangeShares` | Exchangeable (MACR / MX) combinations of classes |
+| `ocTarget` (on `EXCESS_TURBO`) | Target OC = max(percent × pool, floor), optionally with a yield supplement OC schedule (`ysoc`) |
 
 ### Prepayment penalties
 
@@ -375,168 +459,42 @@ A deal pays the penalties with a `PREPAYMENT_PENALTY` step after `INTEREST`, nam
 
 Each class is paid its share whole, as interest: it is in the class's `interest` and also reported as its `prepaymentPenalty`. A penalty no step pays, a step with no shares, shares that do not total 100, a class the deal does not carry, and a step ahead of `INTEREST` are refused.
 
-### Cash ledger
-
-Set `reportCashLedger: true` on a waterfall request and the response carries a `cashLedger` section: the run's cash checked against itself. The cashflows are the same with it on or off.
-
-The waterfall carries each period's interest and principal in running totals, and every step takes what it reckons it paid off them. The ledger records, for each step, what it took (`taken`) and the cash the classes were actually paid while it ran (`paid`).
-
-```json
-"cashLedger": {
-  "collected": 16500000.0,
-  "leftInterest": 0.0, "leftPrincipal": 0.0, "overdrawn": 0.0, "periodsLeft": 0,
-  "steps": [
-    { "step": "INTEREST", "periods": 6, "taken": 2000000.0, "paid": 2000000.0,
-      "takenNotPaid": 0.0, "paidNotTaken": 0.0, "periodsOff": 0, "largestGap": 0.0, "paidPastBalance": 0.0, "overdrew": 0.0 }
-  ]
-}
-```
-
-- `takenNotPaid`: the step removed cash that reached no class the response reports. A release step with no one to release to shows here; so does a release to a class typed as the funds account, whose tranche rows the response drops.
-- `paidNotTaken`: a class was paid cash no running total gave up. Guaranteed interest the pool did not collect shows here.
-- `leftInterest`, `leftPrincipal`: cash left after the last step with no class to take it. A residual class takes both. On a deal with a certificate, principal left once the notes are gone is paid to it (the `CERTIFICATE` line below); principal left while a note still has a balance is left, because no structure could place it. Principal held back for an OC release that nothing paid is paid to the certificate, or left on a deal with none.
-- `paidPastBalance`: principal a step's classes show as paid beyond what their balances fell by. A class takes only what it holds, so this is nothing on a well-formed deal. It shows on a deal whose rows and balances disagree, such as a tranche filed under a class that does not hold its balance.
-
-- `overdrew`: how far the step took the running totals below zero: cash it paid out beyond what it held, such as a forced paydown that pays its class in full whatever the step was given. The step's taken and paid agree on that cash, so this is where it shows. `overdrawn` is the same over the run, as it stood at the end of each period, counted total by total: interest and each principal total on its own, so an overdraft on one does not hide cash left on another. A step that later puts a total back above zero (a release cannot: it pays nothing out of an overdraft, and the overdraft stands) shows a negative `overdrew`; the `CERTIFICATE` and `RESIDUAL` lines do when the sum they take covers one total's overdraft with another's cash.
-
-A period's gap counts once it is over a cent. Over the run, `collected` equals the steps' `paid`, plus `takenNotPaid` less `paidNotTaken`, plus what was left, less `overdrawn`.
-
-**Principal payments report what they paid.** A payable structure returns a receipt for every principal payment: what the response will show as paid to the classes it reached, and what their balances fell by. A step takes the reported payment off its funds. It does not work the payment out from balances, which read a class paid past its balance as paid nothing and a payment to a class outside the notes as no payment, and left the same cash to be paid again. The principal steps, the interleaved payments, the coverage cure, the OC turbo, the OC release and the built-in excess-spread rule all spend the receipt. The reserve draw inside a principal step reads its receipt too, and what the notes could not take goes back to the reserve: the draw is undone by that much, so the reserve's row shows the draw that was spent, not a larger draw and a deposit. One payment still assumes the amount it asks for was paid: the supplemental reduction.
-
-**A class takes what it holds.** Handed more principal than its balance, a class takes its balance and the rest stays with the step, to go on to the next class in the structure or to be left at the end. A certificate is the exception: its balance is the pool less the notes, which says what stands behind the notes and not what the certificate may be paid.
-
-**A certificate is paid what the steps pay it.** Its balance is set to the pool less the notes at the end of each period, and a certificate at zero is opened at the pool less the notes when a period opens, before the period's triggers read it. Nothing is booked as paid when the balance falls, and with the notes over the pool it holds nothing, so a write-down to the pool is the notes': a loss lowers it as readily as a release does. Principal held back for a release that nothing paid is paid to it as cash, and so is the principal the steps leave once the notes are gone. While a note still has a balance, principal the steps leave is not the certificate's: no structure could place it, and the ledger reports it as left. With more than one certificate class, the first one the release structure names is paid, in the release's own order (the order its interest is paid in), else the first.
-
-**The built-in excess-spread rule gives up only what a note was paid.** With an excess-spread strip swept inside `INTEREST` and no excess step in the order, a period's loss is paid to the notes as principal out of the strip's excess. The payment is made first and the strip gives up what was paid. Once no note can take it, the strip keeps its excess and the loss goes to the write-down.
-
-Some lines are not steps of the execution order:
-
-| Line | What it is |
-|---|---|
-| `SERVICING_STRIP` | The strip paid from the servicing fee, which never enters the running totals. Entered as collected and as paid. |
-| `INTEREST_DIVERSION` | Interest diverted to buy collateral after the last step. Taken and paid to no class. A diversion that runs inside a step shows on that step. |
-| `CERTIFICATE` | The principal the last step leaves on a deal with a certificate, and principal held back for a release nothing paid. Paid to the certificate. |
-| `RESIDUAL` | What the residual class takes of what the last step leaves. |
-| `TERMINATION` | The payoff when the deal ends, out of the pool's remaining balance. Entered as collected and as paid. |
-
-Two things it does not do:
-
-- A reserve account is counted by what it holds, so a deposit is cash paid into it and a draw is cash paid out of it. The balance it opens the run with is not in `collected`.
-- Collateral bought by a reinvesting deal is outside it: `collected` is what entered the waterfall after purchases.
-
-The ledger reads the same rows a receipt reads, so the two cannot disagree. What the response pays in total against what was collected is a separate check, and the tests make it.
-
-It is known to be wrong on three deal shapes:
-
-- **A class the run never pays whose pay date cannot be formed** (pay day 30 in February, on 30/360): asking for the ledger returns an error where the same request without it succeeds.
-- **A residual class typed as a certificate:** the leftover it is credited is on no line.
-- **A termination payoff that differs from the pool's remaining balance:** `TERMINATION` shows no gap.
-
 ### Excess spread covering losses
 
-How excess spread meets losses is stated in two step fields. Neither is on unless stated.
+How excess spread meets losses is stated in two step fields, neither on unless stated: `EXCESS_TURBO` with `target: 0` pays the notes down to the pool out of excess interest, and `WRITEDOWN` with `size: "overPool"` writes down only what the notes still stand above the pool. A deal that states either is checked for its execution order, its shape, and what the two steps find as they run, because a mis-stated deal would otherwise return a plausible grid with a loss counted wrongly. See [docs/excess-spread-losses.md](docs/excess-spread-losses.md).
 
-```json
-"executionOrder": ["INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY",
-                   "EXCESS_TURBO", "WRITEDOWN", "EXCESS_RELEASE"],
-"steps": [
-  { "type": "EXCESS_TURBO", "target": 0 },
-  { "type": "WRITEDOWN", "size": "overPool", "structure": { "type": "SEQ", "tranches": ["B", "A"] } },
-  { "type": "EXCESS_RELEASE", "structure": { "type": "SEQ", "tranches": ["XS"] } }
-]
-```
+## Revolving trusts
 
-- `EXCESS_TURBO` with `target: 0` pays the notes principal out of the interest the steps ahead of it left, until the funded classes are down to the pool. It pays as recovery principal, through the recovery-principal structure as that period's rules leave it, which is what the built-in excess-spread rule pays through; it states no structure of its own (`structure`, `default`, `rules`, `useStructure` or `onTriggerFail`) and is refused if it does. It spends what the structure reports it paid, so what the classes cannot take stays with the interest and goes on to the next step. Zero is the only value; an overcollateralization target is stated in `ocTarget`, and a step states one or the other.
-- `WRITEDOWN` with `size: "overPool"` writes down what the funded classes still stand above the pool by after the steps ahead of it, in place of the period's loss. `size: "periodLoss"` (defaulted principal less recoveries) is the default.
+`POST /api/revolving` runs N series over one pool. A request names the `program`, the `statementDate` (the month end of the last closed period), the `poolBalance`, the forecast `drivers` (payment rate, new receivables, yield, charge-offs, recoveries, dilution), and its `series`, each with its classes, fees, phase dates (`accumulationStart`, `expectedDate`, a `controlledAmount`), principal and excess sharing, and required reserve. `actualPeriods` replays printed monthly pool figures first and forecasts on from the last one.
 
-A loss smaller than the period's excess writes nothing down and the release step pays the excess less the loss. A larger loss writes down only the remainder. A deal whose documents pay the excess-spread class ahead of any loss cover states neither field and names a release step in its order: the notes take the period's loss and the release step pays the whole excess. (With neither field and no excess step in the order, the built-in excess-spread rule still runs.)
-
-A deal that states either field is checked three ways, because a mis-stated deal still runs and returns a plausible grid with principal or a loss counted wrongly.
-
-**1. The execution order.** An order can be wrong three ways (a step is missing, a step is named twice, a step is out of place), and the rule has a part for each, all read off what each step does to the notes:
-
-| What the step does to the notes | Steps |
-|---|---|
-| Pays them from the period's collections | `INTEREST`, `PRINCIPAL_SCHEDULED`, `PRINCIPAL_UNSCHEDULED`, `PRINCIPAL_RECOVERY`, `SUPPLEMENTAL_REDUCTION`, `MODIFICATION_LOSS` |
-| Pays them principal out of the interest left | `EXCESS_TURBO` |
-| Writes them down | `WRITEDOWN` |
-| Pays out all the interest left | `EXCESS`, `EXCESS_RELEASE` (one step under two names) |
-| Never pays them principal | `EXPENSE`, `RESERVE_DEPOSIT`, `CAP_CARRYOVER` (which pays them carried-over interest), `PREPAYMENT_PENALTY` (which pays the collateral's prepayment penalties as interest) |
-
-- **Presence.** The order names `INTEREST` and the three `PRINCIPAL_*` steps. A step that states a field is in the order too: `WRITEDOWN` for `overPool`, `EXCESS_TURBO` for `target: 0`.
-- **Count.** No step in the first four rows is named twice.
-- **Position.** The steps that pay the notes from collections run first, then `EXCESS_TURBO`. No step that pays the notes runs after an `overPool` write-down or after the release.
-
-Steps that never pay the notes principal sit anywhere, any number of times; one placed after the turbo or the release is paid out of what those left. The default execution order runs `EXCESS_TURBO` after `WRITEDOWN`, so a deal using `overPool` states its order.
-
-**2. The deal's shape.** The fields are supported on the shape they are tested on, and a deal outside it is refused as not supported with these fields:
-
-| Not supported | Why |
-|---|---|
-| An interleaved `waterfallOrder` | `INTEREST` pays the principal through the principal structures' children, and what it cannot place is left unpaid. |
-| No structure for unscheduled or for recovery principal | The step returns without paying, and the notes stand above the pool by the principal it did not pay. |
-| More than one collateral group | The notes are measured against one group's pool. |
-| Deferrable notes | Deferred interest is added to a note's balance and would be written down the month it is capitalised. |
-| A forbearance balance in the collateral | The pool's balance leaves it out, so notes sized to include it would be written down by it. |
-| `firstPeriodCollateralPolicy: Drop` with a period to drop | The dropped principal leaves the pool and never reaches the notes. |
-| A zero-target turbo with a structure of its own | It pays through the recovery structure, so its own would be ignored. |
-| `overPool` with a `MODIFICATION_LOSS` step | That step reserves capacity for the write-down before `INTEREST`. |
-| A zero-target turbo ahead of a `periodLoss` write-down | The loss would be paid as principal and written down as well. |
-
-**3. What the two measuring steps find as they run.** Whatever the order and the structures are:
-
-- A zero-target turbo and an `overPool` write-down stop the run if the period's principal is collected and not paid while the notes still have a balance (the pool fell by that principal and the notes did not, so it would be read as a loss), or if the principal steps paid out more principal than the period collected (the notes would stand under the pool by cash the period does not have).
-- A zero-target turbo stops the run if it pays a class that is not a note, records a negative payment to a note (a structure that nets between classes), or if the structure pays out more than the turbo gave it (a forced paydown; a tranche filed under another class). A recovery structure may name a class that is not a note, a zero-balance residual say, as long as the turbo never pays it.
-- An `overPool` write-down stops the run if it writes down a class that is not a note (an IO class heading the write-down order): the notes would still stand above the pool and the same loss would be written down again.
-- Each check works to one unit, not one cent, and each principal total (scheduled, unscheduled, recovery) is held to it on its own: a pro-rata split drops up to a unit when its last class retires, each total has its own split, and sub-cent payments are not recorded.
-
-**Limits.**
-
-- Notes that start above the pool are written down by the gap in the first period (less what excess covers). The engine cannot tell an earlier loss from balances that left something out.
-- With only one of the two fields stated, the order rule is stricter than it needs to be: for example `overPool` alone refuses principal steps after the release, and an `EXCESS_TURBO` with no target and no OC target is still placed as if it paid. State the canonical order.
-- A waterfall request carries the period's forbearance flows and not the accumulated balance, so the forbearance refusal sees a standing balance only on collateral the engine built itself.
-
-A deal that states neither field is not checked.
-
-### Interleaved waterfall ordering
-
-The `waterfallOrder` field controls how interest and principal interact:
-
-- `standard` (default): all interest paid, then all principal
-- `interestFirst`: per seniority level, pay interest then principal
-- `principalFirst`: per seniority level, pay principal then interest
+`program.ownerTrust` runs an amortizing owner trust over an installment pool, and `program.masterTrust` a master trust of series valued at their own discount rates over one installment pool. `POST /api/revolving/pool` runs an installment pool on its own.
 
 ## Project structure
 
 ```
 src/
-  GraamFlows.Api/          REST API (ASP.NET Core)
-  GraamFlows.Cli/          Command-line interface
-  GraamFlows.Core/         Waterfall engine, rules engine, triggers
+  GraamFlows.Api/          REST API (ASP.NET Core): controllers, request models, transformers
+  GraamFlows.Cli/          Command-line interface (run, wal-tests, run files)
+  GraamFlows.Core/         Collateral, waterfall, revolving and rules engines; triggers
   GraamFlows.Domain/       Domain models (Deal, Tranche, PayRule, etc.)
   GraamFlows.Objects/      Interfaces, enums, data contracts
-  GraamFlows.Util/         Pricing analytics, calendar, day counters, term structure, solvers
+  GraamFlows.Util/         Pricing analytics, calendars, day counters, term structure, solvers
 tests/
   GraamFlows.Tests/        Unit and integration tests (xUnit)
+samples/                   Example deal models
+docs/                      Reference for the cash ledger and the excess-spread loss checks
 ```
 
 ### Core components
 
-- **Amortizer** (`Core/AssetCashflowEngine/Amortizer.cs`) - High-performance collateral cashflow generator. Uses a struct-of-arrays asset layout (`AssetDataArrays`) and tight, allocation-free inner loops for cache locality — execution itself is single-threaded. Projects scheduled principal, prepayments, defaults, recoveries, and delinquencies for fixed-rate, ARM, step-rate, and IO loans.
-- **ComposableStructure** (`Core/Waterfall/Structures/ComposableStructure.cs`) - The waterfall execution engine. Runs step-based waterfall periods, tracking available funds through each step.
-- **Payable structures** (`Core/Waterfall/Structures/PayableStructures/`) - Composable payment distribution trees (Sequential, Prorata, ShiftingInterest, EnhancementCap, etc.).
-- **RulesEngine** (`Core/RulesEngine/`) - Compiles PayRule DSL formulas into executable C# at runtime using Roslyn. Supports trigger conditions, variable lookups, balance queries, and structure-building functions.
-- **UnifiedWaterfallBuilder** (`Api/Transformers/UnifiedWaterfallBuilder.cs`) - Transforms the steps-based JSON format into PayRule DSL for the engine.
-- **Cashflow** (`Util/Finance/Cashflow.cs`) - Bond analytics calculator. Computes price, yield, Z-spread, discount margin, modified duration, WAL, and accrued interest from any cashflow stream against a term structure.
-- **Solvers** (`Util/Solvers1D/`) - Numerical root-finding (Brent, Newton-Raphson, bisection, etc.) used by the pricing engine to solve for yield and spread.
-
-## Supported deal types
-
-The engine has been used to model:
-
-- **Auto ABS** - sequential/turbo structures with OC targets (e.g., Exeter, Ford, Ally)
-- **Private-label RMBS** - shifting interest with WAC caps and trigger-dependent structures (e.g., NQM, Angel Oak)
-- **Credit risk transfer (CRT)** - guaranteed interest, supplemental reduction, computed variables (e.g., STACR)
+- **Amortizer** (`Core/AssetCashflowEngine/Amortizer.cs`) — High-performance collateral cashflow generator. Uses a struct-of-arrays asset layout (`AssetDataArrays`) and tight, allocation-free inner loops for cache locality — execution itself is single-threaded. Projects scheduled principal, prepayments, defaults, recoveries, delinquencies and prepayment penalties.
+- **ComposableStructure** (`Core/Waterfall/Structures/ComposableStructure.cs`) — The waterfall execution engine. Runs step-based waterfall periods, tracking available funds through each step; each principal payment returns a receipt of what it paid, and the step spends that.
+- **Payable structures** (`Core/Waterfall/Structures/PayableStructures/`) — Composable payment distribution trees (Sequential, Prorata, Split, ShiftingInterest, EnhancementCap, Target, PAC, etc.).
+- **RulesEngine** (`Core/RulesEngine/`) — Compiles PayRule DSL formulas into executable C# at runtime using Roslyn. Supports trigger conditions, variable lookups, balance queries, and structure-building functions. Identical rules compile once.
+- **Revolving engine** (`Core/Revolving/`) — Pool ledger, allocator, series phases, funding accounts and triggers for revolving trusts; installment pools, owner trusts and master trusts.
+- **UnifiedWaterfallBuilder** (`Api/Transformers/UnifiedWaterfallBuilder.cs`) — Transforms the steps-based JSON format into PayRule DSL for the engine. The other mappers in `Api/Transformers/` turn the deal-level features (coverage cascade, interest diversion, incentive fee, reinvestment, YSOC, revolving programs) into engine objects.
+- **Cashflow** (`Util/Finance/Cashflow.cs`) — Bond analytics calculator. Computes price, yield, Z-spread, discount margin, modified duration, WAL, and accrued interest from any cashflow stream against a term structure.
+- **Solvers** (`Util/Solvers1D/`) — Numerical root-finding (Brent, Newton-Raphson, bisection, etc.) used by the pricing engine to solve for yield and spread.
 
 ## License
 
