@@ -293,6 +293,13 @@ public class WaterfallRunner
             if (dto.UnifiedWaterfall.ExecutionOrder != null && dto.UnifiedWaterfall.ExecutionOrder.Any())
                 deal.ExecutionOrder = dto.UnifiedWaterfall.ExecutionOrder;
 
+            UnifiedWaterfallBuilder.ValidateGroups(dto.UnifiedWaterfall, dto.DealName, composable: true);
+            if (dto.UnifiedWaterfall.Groups is { Count: > 0 } && dealStructures != null && dealStructures.Any())
+                throw new InvalidOperationException(
+                    $"Deal {dto.DealName}: the unified waterfall states collateral groups and the request " +
+                    "states its deal structures itself. A group's classes are the ones its steps name: " +
+                    "leave the deal structures out.");
+
             if (dealStructures == null || !dealStructures.Any())
             {
                 deal.DealStructures.Clear();
@@ -316,6 +323,16 @@ public class WaterfallRunner
 
             var unifiedRules = UnifiedWaterfallBuilder.BuildPayRules(dto.UnifiedWaterfall);
             payRuleDtos = payRuleDtos.Concat(unifiedRules).ToList();
+
+            if (dto.UnifiedWaterfall.Groups is { Count: > 0 })
+            {
+                var after = payRuleDtos.Count == 0 ? 0 : payRuleDtos.Max(r => r.Priority);
+                payRuleDtos = payRuleDtos
+                    .Concat(UnifiedWaterfallBuilder.BuildGroupPayRules(dto.UnifiedWaterfall, after)).ToList();
+                deal.StatedGroups = UnifiedWaterfallBuilder.GroupSteps(dto.UnifiedWaterfall)
+                    .Select(g => g.GroupNum).ToList();
+                deal.PooledInterestGroups = UnifiedWaterfallBuilder.PooledInterestGroups(dto.UnifiedWaterfall);
+            }
         }
 
         if (payRuleDtos.Any())

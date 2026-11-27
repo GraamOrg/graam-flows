@@ -69,7 +69,7 @@ Runs are deterministic: the same request returns the same answer on any day and 
 | **Auto ABS / consumer installment** | Sequential and turbo structures, OC targets with yield supplement OC schedules, reserve accounts, OC release to the certificate |
 | **Private-label RMBS (non-QM, prime)** | Shifting interest, net WAC caps and cap carryover, trigger-dependent structures, excess-spread strips, step-up coupons, losses realized on liquidation, optional redemption |
 | **Credit risk transfer (CRT)** | Reference-pool deals: guaranteed interest, supplemental reduction, modification losses, computed variables, exchangeable (MACR) classes (e.g. STACR) |
-| **Agency CMO** | PAC/support, accrual (Z) classes and accretion-directed classes, fixed-share principal splits, notional IO classes, exchangeable (MX) combinations |
+| **Agency CMO** | PAC/support, accrual (Z) classes and accretion-directed classes, fixed-share principal splits, notional IO classes, exchangeable (MX) combinations, several Security Groups each paid from its own collateral |
 | **CMBS** | Balloon loans on their own schedules, Actual/360 loans, interest reserve, prepayment penalties paid to IO classes, loan-specific certificates |
 | **CLO** | OC/IC coverage tests with interest-to-principal diversion, reinvestment, deferrable notes, incentive fee above a hurdle IRR, quarterly payment calendars |
 | **Credit card / revolving** | Master trusts and owner trusts on the revolving engine (`POST /api/revolving`) |
@@ -446,6 +446,29 @@ These sit on `unifiedWaterfall`, on `deal`, or on the step named:
 | `deal.reinvestment` | Buy new collateral from templates during the reinvestment period, on the run's own assumptions |
 | `deal.exchangeShares` | Exchangeable (MACR / MX) combinations of classes |
 | `ocTarget` (on `EXCESS_TURBO`) | Target OC = max(percent × pool, floor), optionally with a yield supplement OC schedule (`ysoc`) |
+
+### Collateral groups
+
+A deal whose classes are each paid only from their own group's collateral (an agency REMIC's Security Groups) states each group past the first in `unifiedWaterfall.groups`, with its own steps; `steps` are group `"1"`'s:
+
+```json
+"unifiedWaterfall": {
+  "executionOrder": ["INTEREST", "PRINCIPAL_SCHEDULED", "PRINCIPAL_UNSCHEDULED", "PRINCIPAL_RECOVERY", "WRITEDOWN"],
+  "steps": [ ...group 1's steps over A and B... ],
+  "groups": [{ "groupNum": "2", "steps": [ ...group 2's steps over C and D... ] }]
+}
+```
+
+A class is in the group whose steps name it, and is paid only from the collateral rows carrying that `groupNum`; a net-WAC class bears its own group's rate. Each group states `INTEREST`, `PRINCIPAL` (scheduled) and `WRITEDOWN`, and may state `ACCRUAL` and `PREPAYMENT_PENALTY`; the `executionOrder` is one for every group. An exchange (MX) class is in its components' group.
+
+Two fields on a group cover a group that is not paid solely from its own collateral (a CMBS asset group, whose loan's principal pays its own class first and then the pooled cascade):
+
+- `"sharesClasses": true` — its steps may name classes another group's steps name. A class two groups name is shared: every group holds it, each paying it from its own collateral, and it takes its place in group 1's loss order. Every group past the first that names a shared class states it.
+- `"interest": "pooled"` — its collateral's interest (and net interest) is posted in group 1's row each period, so group 1's `INTEREST` step pays it; its own `INTEREST` step may then pay only classes group 1's also pays. `"own"`, the default, pays it through its own `INTEREST` step.
+
+A loan-specific group (a note held outside the pool, paying only its own classes, an interest-only class with the classes it is notional to, a vertical interest pro rata beside them) needs neither: it is a group's steps over its own classes.
+
+Refused: a class two groups' steps name unless the groups past the first state `sharesClasses`, an exchange class whose components are in two groups or are shared, a pooled group whose `INTEREST` step pays a class group 1's does not, an `interest` other than `own` or `pooled`, a group numbered other than 2, 3, ..., a group stated twice, any other step type in a group, explicit `dealStructures` beside the groups, an engine other than ComposableStructure, and collateral whose groups are not exactly the waterfall's (a group with steps and no collateral, or collateral no group's steps pay).
 
 ### Prepayment penalties
 

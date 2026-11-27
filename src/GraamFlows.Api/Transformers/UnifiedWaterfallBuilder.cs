@@ -17,13 +17,17 @@ public static class UnifiedWaterfallBuilder
         List<TrancheDto> tranches,
         List<ExchangeShareDto>? exchangeShares = null)
     {
-        // Find WRITEDOWN step and extract subordination order
-        var writedownStep = waterfall.Steps.FirstOrDefault(s =>
-            s.Type.Equals("WRITEDOWN", StringComparison.OrdinalIgnoreCase));
-
-        var writedownOrder = writedownStep?.Structure != null
-            ? ExtractTrancheOrder(writedownStep.Structure)
-            : new List<string>();
+        // Each group's WRITEDOWN step gives its classes' subordination order (group "1"'s is the
+        // deal's own steps); each class is in the group whose steps name it.
+        var writedownOrders = GroupSteps(waterfall).ToDictionary(g => g.GroupNum, g =>
+        {
+            var writedownStep = g.Steps.FirstOrDefault(s =>
+                s.Type.Equals("WRITEDOWN", StringComparison.OrdinalIgnoreCase));
+            return writedownStep?.Structure != null
+                ? ExtractTrancheOrder(writedownStep.Structure)
+                : new List<string>();
+        });
+        var classGroups = ClassGroups(waterfall);
 
         // Map each exchange (combinable/MACR) class to the comma-joined list of its
         // component tranche names. PayExchangeables/ClassesByNameOrTag expect this
@@ -42,8 +46,18 @@ public static class UnifiedWaterfallBuilder
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
         // Create DealStructure for each tranche
+        // An exchange class is settled from its components within its own group (the engine looks
+        // them up there), so it is in theirs.
+        if (classGroups.Count > 0)
+            foreach (var (exchange, components) in exchangeComponents)
+                if (!classGroups.ContainsKey(exchange))
+                    classGroups[exchange] = ExchangeGroup(exchange, components, byName, classGroups);
+
         return tranches.Select((t, idx) =>
         {
+            var groupNum = classGroups.GetValueOrDefault(t.TrancheName, MainGroup);
+            // A shared class takes its place in group 1's loss order (each group's names it).
+            var writedownOrder = writedownOrders[groupNum == SharedGroup ? MainGroup : groupNum];
             var writedownIdx = writedownOrder.IndexOf(t.TrancheName);
             exchangeComponents.TryGetValue(t.TrancheName, out var exchangableTranche);
             // A class an ACCRUAL step names accrues: its coupon is added to its balance and paid
@@ -52,7 +66,7 @@ public static class UnifiedWaterfallBuilder
             string? statedNotional = null;
             if (accrualClasses.Contains(t.TrancheName))
                 payFrom = AccrualPayFrom(t);
-            else if (StatedPayFrom(t, byName, exchangeComponents) is { } stated)
+            else if (StatedPayFrom(t, byName, exchangeComponents, PoolReferences(waterfall)) is { } stated)
                 (payFrom, statedNotional) = stated;
             else
                 payFrom = PayFromForTranche(t);
@@ -70,7 +84,7 @@ public static class UnifiedWaterfallBuilder
                     ? writedownOrder.Count - writedownIdx
                     : idx,
                 PayFrom = payFrom,
-                GroupNum = "1",
+                GroupNum = groupNum,
                 ExchangableTranche = exchangableTranche,
                 NotionalReference = payFrom == "Exchange" && exchangeComponents.ContainsKey(t.TrancheName)
                     ? ExchangeNotional(t, byName)
@@ -128,7 +142,7 @@ public static class UnifiedWaterfallBuilder
             .GroupBy(t => t.TrancheName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var step in waterfall.Steps.Where(s =>
+        foreach (var step in GroupSteps(waterfall).SelectMany(g => g.Steps).Where(s =>
                      s.Type.Equals("ACCRUAL", StringComparison.OrdinalIgnoreCase)))
         {
             if (string.IsNullOrWhiteSpace(step.Tranche))
@@ -198,7 +212,7 @@ public static class UnifiedWaterfallBuilder
     /// </summary>
     private static (string PayFrom, string? Notional)? StatedPayFrom(
         TrancheDto t, IReadOnlyDictionary<string, TrancheDto> byName,
-        IReadOnlyDictionary<string, string> exchangeComponents)
+        IReadOnlyDictionary<string, string> exchangeComponents, IReadOnlyCollection<string> poolReferences)
     {
         if (string.IsNullOrWhiteSpace(t.PayFrom))
             return null;
@@ -255,13 +269,13 @@ public static class UnifiedWaterfallBuilder
             throw new InvalidOperationException(
                 $"'{t.TrancheName}' states payFrom 'Notional' but names nothing its notional follows. " +
                 "State the classes (\"A1,A2\") or the collateral group (\"GROUP_1\") in notionalReference.");
-        if (refs.Contains(PoolReference))
+        if (refs.FirstOrDefault(poolReferences.Contains) is { } pool)
         {
             if (refs.Count > 1)
                 throw new InvalidOperationException(
                     $"'{t.TrancheName}' states a notional on '{t.NotionalReference}', which mixes the " +
-                    $"collateral group with classes. State the classes, or \"{PoolReference}\" alone.");
-            return (stated, PoolReference);
+                    $"collateral group with classes. State the classes, or \"{pool}\" alone.");
+            return (stated, pool);
         }
 
         foreach (var r in refs)
@@ -269,7 +283,8 @@ public static class UnifiedWaterfallBuilder
             if (!byName.TryGetValue(r, out var followed))
                 throw new InvalidOperationException(
                     $"'{t.TrancheName}' states a notional that follows '{r}', which is not a tranche of " +
-                    $"this deal (names match exactly) or the collateral group \"{PoolReference}\".");
+                    $"this deal (names match exactly) or a collateral group " +
+                    $"(\"{string.Join("\", \"", poolReferences)}\").");
             if (string.Equals(r, t.TrancheName, StringComparison.Ordinal) ||
                 string.Equals(followed.CashflowType, "IO", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException(
@@ -280,8 +295,194 @@ public static class UnifiedWaterfallBuilder
         return (stated, string.Join(",", refs));
     }
 
-    /// <summary>The collateral group a unified waterfall builds (every class has GroupNum "1").</summary>
-    private const string PoolReference = "GROUP_1";
+    /// <summary>The group a unified waterfall's own <see cref="UnifiedWaterfallDto.Steps" /> build.</summary>
+    private const string MainGroup = "1";
+
+    /// <summary>The step types a group of <see cref="UnifiedWaterfallDto.Groups" /> may state.</summary>
+    private static readonly string[] GroupStepTypes = { "INTEREST", "PRINCIPAL", "WRITEDOWN", "ACCRUAL", "PREPAYMENT_PENALTY" };
+
+    /// <summary>
+    ///     Every group's steps, group "1" (the waterfall's own <see cref="UnifiedWaterfallDto.Steps" />)
+    ///     first, then <see cref="UnifiedWaterfallDto.Groups" /> in the order stated.
+    /// </summary>
+    public static IEnumerable<GroupWaterfallDto> GroupSteps(UnifiedWaterfallDto waterfall)
+    {
+        yield return new GroupWaterfallDto { GroupNum = MainGroup, Steps = waterfall.Steps };
+        foreach (var g in waterfall.Groups ?? new List<GroupWaterfallDto>())
+            yield return g;
+    }
+
+    /// <summary>The collateral groups a notional may follow: "GROUP_1", and "GROUP_n" for each stated group.</summary>
+    private static List<string> PoolReferences(UnifiedWaterfallDto waterfall) =>
+        GroupSteps(waterfall).Select(g => $"GROUP_{g.GroupNum}").ToList();
+
+    /// <summary>
+    ///     {class: the group whose steps name it}, for a waterfall that states
+    ///     <see cref="UnifiedWaterfallDto.Groups" /> (empty otherwise: every class is group "1"'s, as
+    ///     before). A class two groups' steps name is refused: it would be paid from one group's
+    ///     collateral and named in the other's priorities, which then pay nothing to it.
+    /// </summary>
+    public static Dictionary<string, string> ClassGroups(UnifiedWaterfallDto waterfall)
+    {
+        var groupOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (waterfall.Groups == null || waterfall.Groups.Count == 0)
+            return groupOf;
+        var namedBy = new Dictionary<string, List<GroupWaterfallDto>>(StringComparer.Ordinal);
+        foreach (var g in GroupSteps(waterfall))
+            foreach (var name in g.Steps.SelectMany(StepClasses).Distinct(StringComparer.Ordinal))
+            {
+                if (!namedBy.TryGetValue(name, out var list))
+                    namedBy[name] = list = new List<GroupWaterfallDto>();
+                list.Add(g);
+            }
+
+        foreach (var (name, groups) in namedBy)
+        {
+            if (groups.Count == 1)
+            {
+                groupOf[name] = groups[0].GroupNum;
+                continue;
+            }
+
+            var unstated = groups.Where(g => g.GroupNum != MainGroup && !g.SharesClasses)
+                .Select(g => g.GroupNum).ToList();
+            if (unstated.Count > 0)
+                throw new InvalidOperationException(
+                    $"'{name}' is named by the steps of groups {string.Join(" and ", groups.Select(g => g.GroupNum))}. " +
+                    "A class is paid from one collateral group: name it in that group's steps only, or " +
+                    $"state \"sharesClasses\": true on group {string.Join(" and ", unstated)} to share it.");
+            groupOf[name] = SharedGroup;
+        }
+
+        return groupOf;
+    }
+
+    /// <summary>The engine's group number for a class every group holds (a shared class).</summary>
+    private const string SharedGroup = "0";
+
+    /// <summary>The groups whose interest is posted with group 1's (<see cref="GroupWaterfallDto.Interest" />).</summary>
+    public static List<string> PooledInterestGroups(UnifiedWaterfallDto waterfall) =>
+        (waterfall.Groups ?? new List<GroupWaterfallDto>())
+        .Where(g => string.Equals(g.Interest, "pooled", StringComparison.OrdinalIgnoreCase))
+        .Select(g => g.GroupNum).ToList();
+
+    /// <summary>
+    ///     The group an exchange class is in: its components' (and, for an interest-only one, the
+    ///     classes its notional follows). Components in two groups are refused: the engine settles
+    ///     an exchange class from its components within its own group, so the other group's would be
+    ///     missing and the class paid from the allocator instead, with no error.
+    /// </summary>
+    private static string ExchangeGroup(string exchange, string components,
+        IReadOnlyDictionary<string, TrancheDto> byName, IReadOnlyDictionary<string, string> classGroups)
+    {
+        var names = components.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+        if (byName.TryGetValue(exchange, out var t) && ExchangeNotional(t, byName) is { } notional)
+            names.AddRange(notional.Split(','));
+        var groups = names.Select(n => classGroups.GetValueOrDefault(n, MainGroup)).Distinct()
+            .OrderBy(g => g, StringComparer.Ordinal).ToList();
+        if (groups.Contains(SharedGroup))
+            throw new InvalidOperationException(
+                $"Exchange class '{exchange}' is exchanged for a class two groups share. An exchange class " +
+                "is settled within one collateral group: exchange it for classes one group pays.");
+        if (groups.Count > 1)
+            throw new InvalidOperationException(
+                $"Exchange class '{exchange}' is exchanged for classes of groups {string.Join(" and ", groups)}. " +
+                "An exchange class is settled within one collateral group: its components must all be " +
+                "named by the same group's steps.");
+        return groups.Single();
+    }
+
+    /// <summary>Every class a step names: its structures, its accrual class, its penalty shares.</summary>
+    private static IEnumerable<string> StepClasses(WaterfallStepDto step)
+    {
+        var structures = new List<PayableStructureDto?> { step.Structure, step.Default, step.OnTriggerFail?.Structure };
+        structures.AddRange((step.Rules ?? new List<WaterfallRuleDto>()).Select(r => r.Structure));
+        foreach (var structure in structures.Where(x => x != null))
+            foreach (var name in ExtractTrancheOrder(structure!))
+                yield return name;
+        if (!string.IsNullOrWhiteSpace(step.Tranche))
+            yield return step.Tranche!;
+        foreach (var share in step.Shares ?? new List<PrepaymentPenaltyShareDto>())
+            if (!string.IsNullOrWhiteSpace(share.Tranche))
+                yield return share.Tranche!;
+    }
+
+    /// <summary>
+    ///     Refuse <see cref="UnifiedWaterfallDto.Groups" /> it cannot run: a group numbered other than
+    ///     a whole number past 1, numbered twice, missing a required step, or stating a step type a
+    ///     group's own priorities do not build (those are the deal's, read from
+    ///     <see cref="UnifiedWaterfallDto.Steps" /> only, so in a group they would be dropped with no
+    ///     error). Only the ComposableStructure engine (an execution order, or that waterfall type)
+    ///     runs them.
+    /// </summary>
+    public static void ValidateGroups(UnifiedWaterfallDto waterfall, string dealName, bool composable)
+    {
+        if (waterfall.Groups == null || waterfall.Groups.Count == 0)
+            return;
+        if (!composable)
+            throw new InvalidOperationException(
+                $"Deal {dealName}: collateral groups are run by the ComposableStructure engine only: state " +
+                "an executionOrder or waterfallType \"ComposableStructure\".");
+        var seen = new HashSet<string>(StringComparer.Ordinal) { MainGroup };
+        foreach (var g in waterfall.Groups)
+        {
+            if (!int.TryParse(g.GroupNum, System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var n) || n < 2 ||
+                n.ToString(System.Globalization.CultureInfo.InvariantCulture) != g.GroupNum)
+                throw new InvalidOperationException(
+                    $"Deal {dealName}: a collateral group is numbered '{g.GroupNum}'. Number each group past " +
+                    "the first 2, 3, ... as its collateral rows carry it; the waterfall's own steps are group 1's.");
+            if (!seen.Add(g.GroupNum))
+                throw new InvalidOperationException(
+                    $"Deal {dealName}: collateral group {g.GroupNum} is stated twice.");
+            var other = g.Steps.Select(st => st.Type.ToUpperInvariant())
+                .Where(t => !GroupStepTypes.Contains(t)).Distinct().ToList();
+            if (other.Count > 0)
+                throw new InvalidOperationException(
+                    $"Deal {dealName}: collateral group {g.GroupNum} states {string.Join(", ", other)}, which a " +
+                    $"group does not build. A group states {string.Join(", ", GroupStepTypes)}.");
+            ValidateSteps(new UnifiedWaterfallDto { Steps = g.Steps }, $"{dealName} group {g.GroupNum}");
+            if (g.Interest != null && !string.Equals(g.Interest, "own", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(g.Interest, "pooled", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"Deal {dealName}: collateral group {g.GroupNum} states interest '{g.Interest}'. State " +
+                    "\"own\" (its INTEREST step pays its interest) or \"pooled\" (paid with group 1's).");
+            if (string.Equals(g.Interest, "pooled", StringComparison.OrdinalIgnoreCase))
+            {
+                // Its interest is posted in group 1's row: a class only its own INTEREST step pays
+                // would be paid from nothing.
+                var mainInterest = waterfall.Steps.Where(st => st.Type.Equals("INTEREST", StringComparison.OrdinalIgnoreCase))
+                    .SelectMany(StepClasses).ToHashSet(StringComparer.Ordinal);
+                var own = g.Steps.Where(st => st.Type.Equals("INTEREST", StringComparison.OrdinalIgnoreCase))
+                    .SelectMany(StepClasses).Where(n => !mainInterest.Contains(n)).Distinct().ToList();
+                if (own.Count > 0)
+                    throw new InvalidOperationException(
+                        $"Deal {dealName}: collateral group {g.GroupNum} pools its interest with group 1, but its " +
+                        $"INTEREST step pays {string.Join(", ", own)}, which group 1's INTEREST step does not: " +
+                        "they would be paid from nothing. Pay them in group 1's INTEREST step, or keep the " +
+                        "group's interest its own.");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     The pay rules of <see cref="UnifiedWaterfallDto.Groups" />: each group's steps built as
+    ///     <see cref="BuildPayRules" /> builds the deal's, for "GROUP_n" (the engine runs a group's
+    ///     rules on its own collateral only), numbered after <paramref name="after" />.
+    /// </summary>
+    public static List<PayRuleDto> BuildGroupPayRules(UnifiedWaterfallDto waterfall, int after)
+    {
+        var rules = new List<PayRuleDto>();
+        foreach (var g in waterfall.Groups ?? new List<GroupWaterfallDto>())
+            foreach (var rule in BuildPayRules(new UnifiedWaterfallDto { Steps = g.Steps }, $"GROUP_{g.GroupNum}"))
+            {
+                rule.Priority = after + 1 + rules.Count;
+                rules.Add(rule);
+            }
+
+        return rules;
+    }
 
     private static bool IsExcessInterest(TrancheDto t) =>
         string.Equals(t.CouponType, "ExcessInterest", StringComparison.OrdinalIgnoreCase) ||

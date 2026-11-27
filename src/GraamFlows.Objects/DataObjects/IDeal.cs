@@ -40,6 +40,20 @@ public interface IDeal : IPayRuleAssemblyStore
     bool DeclaresReserveDeposit { get; }
 
     /// <summary>
+    /// The collateral groups a unified waterfall states steps for ("1" and each of its groups),
+    /// or empty when it states none. A run whose collateral carries any other set of groups is
+    /// refused: a stated group with no collateral pays its classes nothing, and collateral no
+    /// group's classes are paid from is never distributed.
+    /// </summary>
+    IList<string> StatedGroups { get; }
+
+    /// <summary>
+    /// The stated groups whose collateral interest is paid with group 1's: each period their
+    /// interest and net interest are posted in group 1's row before the waterfall runs.
+    /// </summary>
+    IList<string> PooledInterestGroups { get; }
+
+    /// <summary>
     /// Date from which collateral cashflows participate in distributions. Null keeps the
     /// derived boundary (first-of-month of the first tranche's FirstPayDate), so an
     /// existing caller is unaffected.

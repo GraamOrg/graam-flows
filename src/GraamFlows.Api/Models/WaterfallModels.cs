@@ -712,6 +712,20 @@ public class UnifiedWaterfallDto
     public List<WaterfallStepDto> Steps { get; set; } = new();
 
     /// <summary>
+    ///     The deal's other collateral groups, each with its own steps: a deal whose classes are
+    ///     paid only from their own group's collateral (an agency REMIC's Security Groups: "payments
+    ///     on each Group will be based solely on payments on the Trust Asset Group with the same
+    ///     numerical designation"). <see cref="Steps" /> are group "1"'s. A class is in the group
+    ///     whose steps name it, and is paid only from that group's collateral rows (their
+    ///     <c>groupNum</c>); a class named by two groups' steps is refused. Each group states the
+    ///     steps a waterfall requires (INTEREST, PRINCIPAL scheduled, WRITEDOWN), and may state
+    ///     ACCRUAL and PREPAYMENT_PENALTY; any other step type is refused in a group. The
+    ///     collateral must carry exactly the groups stated. Absent, every class is group "1"'s, as
+    ///     before.
+    /// </summary>
+    public List<GroupWaterfallDto>? Groups { get; set; }
+
+    /// <summary>
     /// Explicit execution order for ComposableStructure.
     /// If not provided, the engine runs its default order; it does not read one from Steps,
     /// except that RESERVE_DEPOSIT is in it only when Steps declares one.
@@ -929,6 +943,34 @@ public class ComputedVariableRuleDto
 {
     public RuleConditionDto? When { get; set; }
     public string Formula { get; set; } = "";
+}
+
+/// <summary>One collateral group's steps (<see cref="UnifiedWaterfallDto.Groups" />).</summary>
+public class GroupWaterfallDto
+{
+    /// <summary>The group's number, as its collateral rows carry it ("2", "3", ...).</summary>
+    public string GroupNum { get; set; } = "";
+
+    public List<WaterfallStepDto> Steps { get; set; } = new();
+
+    /// <summary>
+    ///     The group's steps may name classes another group's steps name (a CMBS asset group, whose
+    ///     loan's principal pays its own classes first and then the pooled cascade). A class two
+    ///     groups name is SHARED: it is in every group, and each group naming it pays it from its
+    ///     own collateral. Every group past the first that names a shared class states this. Off,
+    ///     a group's classes are paid solely from its own collateral, and a class two groups name is
+    ///     refused.
+    /// </summary>
+    public bool SharesClasses { get; set; }
+
+    /// <summary>
+    ///     "own" (the default): the group's collateral interest is paid by its own INTEREST step.
+    ///     "pooled": it is paid with group 1's: each period the group's interest (and net interest)
+    ///     is posted in group 1's collateral row, so group 1's INTEREST step pays it (a CMBS asset
+    ///     group's loan, whose interest is the pool's). Its own INTEREST step then pays only classes
+    ///     group 1's INTEREST step also pays. A period with no group-1 row keeps the group's interest.
+    /// </summary>
+    public string? Interest { get; set; }
 }
 
 /// <summary>
