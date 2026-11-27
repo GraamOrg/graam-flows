@@ -952,6 +952,25 @@ public class GroupWaterfallDto
     public string GroupNum { get; set; } = "";
 
     public List<WaterfallStepDto> Steps { get; set; } = new();
+
+    /// <summary>
+    ///     The group's steps may name classes another group's steps name (a CMBS asset group, whose
+    ///     loan's principal pays its own classes first and then the pooled cascade). A class two
+    ///     groups name is SHARED: it is in every group, and each group naming it pays it from its
+    ///     own collateral. Every group past the first that names a shared class states this. Off,
+    ///     a group's classes are paid solely from its own collateral, and a class two groups name is
+    ///     refused.
+    /// </summary>
+    public bool SharesClasses { get; set; }
+
+    /// <summary>
+    ///     "own" (the default): the group's collateral interest is paid by its own INTEREST step.
+    ///     "pooled": it is paid with group 1's: each period the group's interest (and net interest)
+    ///     is posted in group 1's collateral row, so group 1's INTEREST step pays it (a CMBS asset
+    ///     group's loan, whose interest is the pool's). Its own INTEREST step then pays only classes
+    ///     group 1's INTEREST step also pays. A period with no group-1 row keeps the group's interest.
+    /// </summary>
+    public string? Interest { get; set; }
 }
 
 /// <summary>

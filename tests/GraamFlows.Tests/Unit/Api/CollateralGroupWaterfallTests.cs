@@ -305,7 +305,7 @@ public class CollateralGroupWaterfallTests
     public void A_class_two_groups_name_is_refused()
     {
         Refusal(Request(r => r.Deal.UnifiedWaterfall!.Groups![0].Steps = Steps("C", "D", "B")))
-            .Should().Contain("'B' is named by the steps of group 1 and of group 2");
+            .Should().Contain("'B' is named by the steps of groups 1 and 2. A class is paid from one collateral group");
     }
 
     [Fact]

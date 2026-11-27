@@ -453,6 +453,7 @@ public class WaterfallController : ControllerBase
                     .Concat(UnifiedWaterfallBuilder.BuildGroupPayRules(dto.UnifiedWaterfall, after)).ToList();
                 deal.StatedGroups = UnifiedWaterfallBuilder.GroupSteps(dto.UnifiedWaterfall)
                     .Select(g => g.GroupNum).ToList();
+                deal.PooledInterestGroups = UnifiedWaterfallBuilder.PooledInterestGroups(dto.UnifiedWaterfall);
             }
         }
 

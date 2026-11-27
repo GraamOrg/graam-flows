@@ -66,6 +66,7 @@ public class Deal : IDeal
     public IList<string> ExecutionOrder { get; set; }
     public bool DeclaresReserveDeposit { get; set; }
     public IList<string> StatedGroups { get; set; } = new List<string>();
+    public IList<string> PooledInterestGroups { get; set; } = new List<string>();
 
     public DateTime? CollateralAccrualStartDate { get; set; }
     public string FirstPeriodCollateralPolicy { get; set; }

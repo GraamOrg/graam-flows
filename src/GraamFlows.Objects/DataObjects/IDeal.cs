@@ -48,6 +48,12 @@ public interface IDeal : IPayRuleAssemblyStore
     IList<string> StatedGroups { get; }
 
     /// <summary>
+    /// The stated groups whose collateral interest is paid with group 1's: each period their
+    /// interest and net interest are posted in group 1's row before the waterfall runs.
+    /// </summary>
+    IList<string> PooledInterestGroups { get; }
+
+    /// <summary>
     /// Date from which collateral cashflows participate in distributions. Null keeps the
     /// derived boundary (first-of-month of the first tranche's FirstPayDate), so an
     /// existing caller is unaffected.

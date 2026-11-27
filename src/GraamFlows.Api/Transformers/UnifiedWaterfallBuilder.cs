@@ -56,7 +56,8 @@ public static class UnifiedWaterfallBuilder
         return tranches.Select((t, idx) =>
         {
             var groupNum = classGroups.GetValueOrDefault(t.TrancheName, MainGroup);
-            var writedownOrder = writedownOrders[groupNum];
+            // A shared class takes its place in group 1's loss order (each group's names it).
+            var writedownOrder = writedownOrders[groupNum == SharedGroup ? MainGroup : groupNum];
             var writedownIdx = writedownOrder.IndexOf(t.TrancheName);
             exchangeComponents.TryGetValue(t.TrancheName, out var exchangableTranche);
             // A class an ACCRUAL step names accrues: its coupon is added to its balance and paid
@@ -326,18 +327,44 @@ public static class UnifiedWaterfallBuilder
         var groupOf = new Dictionary<string, string>(StringComparer.Ordinal);
         if (waterfall.Groups == null || waterfall.Groups.Count == 0)
             return groupOf;
+        var namedBy = new Dictionary<string, List<GroupWaterfallDto>>(StringComparer.Ordinal);
         foreach (var g in GroupSteps(waterfall))
             foreach (var name in g.Steps.SelectMany(StepClasses).Distinct(StringComparer.Ordinal))
             {
-                if (groupOf.TryGetValue(name, out var other) && other != g.GroupNum)
-                    throw new InvalidOperationException(
-                        $"'{name}' is named by the steps of group {other} and of group {g.GroupNum}. A " +
-                        "class is paid from one collateral group: name it in that group's steps only.");
-                groupOf[name] = g.GroupNum;
+                if (!namedBy.TryGetValue(name, out var list))
+                    namedBy[name] = list = new List<GroupWaterfallDto>();
+                list.Add(g);
             }
+
+        foreach (var (name, groups) in namedBy)
+        {
+            if (groups.Count == 1)
+            {
+                groupOf[name] = groups[0].GroupNum;
+                continue;
+            }
+
+            var unstated = groups.Where(g => g.GroupNum != MainGroup && !g.SharesClasses)
+                .Select(g => g.GroupNum).ToList();
+            if (unstated.Count > 0)
+                throw new InvalidOperationException(
+                    $"'{name}' is named by the steps of groups {string.Join(" and ", groups.Select(g => g.GroupNum))}. " +
+                    "A class is paid from one collateral group: name it in that group's steps only, or " +
+                    $"state \"sharesClasses\": true on group {string.Join(" and ", unstated)} to share it.");
+            groupOf[name] = SharedGroup;
+        }
 
         return groupOf;
     }
+
+    /// <summary>The engine's group number for a class every group holds (a shared class).</summary>
+    private const string SharedGroup = "0";
+
+    /// <summary>The groups whose interest is posted with group 1's (<see cref="GroupWaterfallDto.Interest" />).</summary>
+    public static List<string> PooledInterestGroups(UnifiedWaterfallDto waterfall) =>
+        (waterfall.Groups ?? new List<GroupWaterfallDto>())
+        .Where(g => string.Equals(g.Interest, "pooled", StringComparison.OrdinalIgnoreCase))
+        .Select(g => g.GroupNum).ToList();
 
     /// <summary>
     ///     The group an exchange class is in: its components' (and, for an interest-only one, the
@@ -354,6 +381,10 @@ public static class UnifiedWaterfallBuilder
             names.AddRange(notional.Split(','));
         var groups = names.Select(n => classGroups.GetValueOrDefault(n, MainGroup)).Distinct()
             .OrderBy(g => g, StringComparer.Ordinal).ToList();
+        if (groups.Contains(SharedGroup))
+            throw new InvalidOperationException(
+                $"Exchange class '{exchange}' is exchanged for a class two groups share. An exchange class " +
+                "is settled within one collateral group: exchange it for classes one group pays.");
         if (groups.Count > 1)
             throw new InvalidOperationException(
                 $"Exchange class '{exchange}' is exchanged for classes of groups {string.Join(" and ", groups)}. " +
@@ -412,6 +443,26 @@ public static class UnifiedWaterfallBuilder
                     $"Deal {dealName}: collateral group {g.GroupNum} states {string.Join(", ", other)}, which a " +
                     $"group does not build. A group states {string.Join(", ", GroupStepTypes)}.");
             ValidateSteps(new UnifiedWaterfallDto { Steps = g.Steps }, $"{dealName} group {g.GroupNum}");
+            if (g.Interest != null && !string.Equals(g.Interest, "own", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(g.Interest, "pooled", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"Deal {dealName}: collateral group {g.GroupNum} states interest '{g.Interest}'. State " +
+                    "\"own\" (its INTEREST step pays its interest) or \"pooled\" (paid with group 1's).");
+            if (string.Equals(g.Interest, "pooled", StringComparison.OrdinalIgnoreCase))
+            {
+                // Its interest is posted in group 1's row: a class only its own INTEREST step pays
+                // would be paid from nothing.
+                var mainInterest = waterfall.Steps.Where(st => st.Type.Equals("INTEREST", StringComparison.OrdinalIgnoreCase))
+                    .SelectMany(StepClasses).ToHashSet(StringComparer.Ordinal);
+                var own = g.Steps.Where(st => st.Type.Equals("INTEREST", StringComparison.OrdinalIgnoreCase))
+                    .SelectMany(StepClasses).Where(n => !mainInterest.Contains(n)).Distinct().ToList();
+                if (own.Count > 0)
+                    throw new InvalidOperationException(
+                        $"Deal {dealName}: collateral group {g.GroupNum} pools its interest with group 1, but its " +
+                        $"INTEREST step pays {string.Join(", ", own)}, which group 1's INTEREST step does not: " +
+                        "they would be paid from nothing. Pay them in group 1's INTEREST step, or keep the " +
+                        "group's interest its own.");
+            }
         }
     }
 

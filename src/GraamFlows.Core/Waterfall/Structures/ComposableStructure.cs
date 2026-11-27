@@ -103,6 +103,7 @@ public class ComposableStructure : BaseStructure
 
         ValidateLossStepCollateral(deal, periodCashflows);
         ValidateStatedGroupCollateral(deal, periodCashflows);
+        PoolGroupInterest(deal, periodCashflows);
 
         foreach (var period in periodCashflows.GroupBy(pc => pc.CashflowDate))
         {
@@ -1117,6 +1118,33 @@ public class ComposableStructure : BaseStructure
                     "distributed");
         throw new DealModelingException(deal.DealName,
             "The waterfall's collateral groups and the collateral's do not match: " + string.Join("; ", why) + ".");
+    }
+
+    /// <summary>
+    ///     Post the interest of each group that pools it (<see cref="IDeal.PooledInterestGroups" />)
+    ///     in group 1's row of the same period, so group 1's INTEREST step pays it: a CMBS asset
+    ///     group's loan, whose interest is the pool's. Interest and net interest move; principal,
+    ///     balances and every other field stay in the group's row. A period with no group-1 row
+    ///     keeps its rows as they are.
+    /// </summary>
+    private static void PoolGroupInterest(IDeal deal, IEnumerable<PeriodCashflows> periodCashflows)
+    {
+        if (deal.PooledInterestGroups == null || deal.PooledInterestGroups.Count == 0)
+            return;
+        var pooled = deal.PooledInterestGroups.ToHashSet(StringComparer.Ordinal);
+        foreach (var period in periodCashflows.GroupBy(pc => pc.CashflowDate))
+        {
+            var main = period.FirstOrDefault(pc => pc.GroupNum == "1");
+            if (main == null)
+                continue;
+            foreach (var row in period.Where(pc => pooled.Contains(pc.GroupNum)))
+            {
+                main.Interest += row.Interest;
+                main.NetInterest += row.NetInterest;
+                row.Interest = 0;
+                row.NetInterest = 0;
+            }
+        }
     }
 
     private static void ValidateLossStepCollateral(IDeal deal, IEnumerable<PeriodCashflows> periodCashflows)
