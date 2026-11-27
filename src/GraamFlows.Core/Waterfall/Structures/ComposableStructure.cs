@@ -787,9 +787,12 @@ public class ComposableStructure : BaseStructure
                     "(exchangableTranche is empty). An Exchanged/combinable class must reference the classes " +
                     "it combines; a plain debt note should be typed Offered (or similar), not Exchanged.");
 
+            // A component may be another group's class: an exchange class is settled from its
+            // components wherever they are (BaseStructure.PayExchangeables).
             foreach (var component in ds.ExchangableTranche.Split(
                          ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-                if (dynGroup.ClassByName(component) == null)
+                if (dynGroup.ClassByName(component) == null &&
+                    !deal.DealStructures.Any(other => other.ClassGroupName == component))
                     throw new DealModelingException(deal.DealName,
                         $"Class '{dc.Tranche.TrancheName}' (Exchanged) references unknown component class " +
                         $"'{component}'.");

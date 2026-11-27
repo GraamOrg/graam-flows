@@ -46,8 +46,7 @@ public static class UnifiedWaterfallBuilder
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
         // Create DealStructure for each tranche
-        // An exchange class is settled from its components within its own group (the engine looks
-        // them up there), so it is in theirs.
+        // An exchange class is in its components' group, or shared when they are in more than one.
         if (classGroups.Count > 0)
             foreach (var (exchange, components) in exchangeComponents)
                 if (!classGroups.ContainsKey(exchange))
@@ -368,9 +367,10 @@ public static class UnifiedWaterfallBuilder
 
     /// <summary>
     ///     The group an exchange class is in: its components' (and, for an interest-only one, the
-    ///     classes its notional follows). Components in two groups are refused: the engine settles
-    ///     an exchange class from its components within its own group, so the other group's would be
-    ///     missing and the class paid from the allocator instead, with no error.
+    ///     classes its notional follows). An exchange class whose components are in more than one
+    ///     group, or are shared, is shared itself (<see cref="SharedGroup" />): it is settled once a
+    ///     period, after every group has paid, from its components wherever they are (an agency REMIC's
+    ///     MX class received for classes of two Security Groups).
     /// </summary>
     private static string ExchangeGroup(string exchange, string components,
         IReadOnlyDictionary<string, TrancheDto> byName, IReadOnlyDictionary<string, string> classGroups)
@@ -379,18 +379,8 @@ public static class UnifiedWaterfallBuilder
             .ToList();
         if (byName.TryGetValue(exchange, out var t) && ExchangeNotional(t, byName) is { } notional)
             names.AddRange(notional.Split(','));
-        var groups = names.Select(n => classGroups.GetValueOrDefault(n, MainGroup)).Distinct()
-            .OrderBy(g => g, StringComparer.Ordinal).ToList();
-        if (groups.Contains(SharedGroup))
-            throw new InvalidOperationException(
-                $"Exchange class '{exchange}' is exchanged for a class two groups share. An exchange class " +
-                "is settled within one collateral group: exchange it for classes one group pays.");
-        if (groups.Count > 1)
-            throw new InvalidOperationException(
-                $"Exchange class '{exchange}' is exchanged for classes of groups {string.Join(" and ", groups)}. " +
-                "An exchange class is settled within one collateral group: its components must all be " +
-                "named by the same group's steps.");
-        return groups.Single();
+        var groups = names.Select(n => classGroups.GetValueOrDefault(n, MainGroup)).Distinct().ToList();
+        return groups.Count == 1 ? groups.Single() : SharedGroup;
     }
 
     /// <summary>Every class a step names: its structures, its accrual class, its penalty shares.</summary>
