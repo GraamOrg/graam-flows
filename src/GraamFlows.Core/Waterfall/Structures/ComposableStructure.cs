@@ -102,6 +102,7 @@ public class ComposableStructure : BaseStructure
         var lastCollateralDate = periodCashflows.Count > 0 ? periodCashflows.Max(pc => pc.CashflowDate) : DateTime.MinValue;
 
         ValidateLossStepCollateral(deal, periodCashflows);
+        ValidateStatedGroupCollateral(deal, periodCashflows);
 
         foreach (var period in periodCashflows.GroupBy(pc => pc.CashflowDate))
         {
@@ -832,13 +833,17 @@ public class ComposableStructure : BaseStructure
     ///     A PREPAYMENT_PENALTY step and the allocation it pays by (SET_PENALTY_STRUCT, or 'shares'
     ///     on the step) come together, and the step runs after INTEREST. Either half alone pays the
     ///     penalties to no class; and INTEREST sets each class's interest for the period, so a
-    ///     penalty paid ahead of it would be overwritten.
+    ///     penalty paid ahead of it would be overwritten. On a deal whose waterfall states its
+    ///     collateral groups (<see cref="IDeal.StatedGroups" />) the order is the deal's and a group
+    ///     whose collateral charges no penalty states no step: a penalty its collateral does collect
+    ///     with no allocation is refused in the period it is collected.
     /// </summary>
     private static void ValidatePrepaymentPenaltyStep(IDeal deal, DynamicGroup dynGroup, List<string> executionOrder)
     {
         var penaltyIndex = executionOrder.FindIndex(s =>
             string.Equals(s, "PREPAYMENT_PENALTY", StringComparison.OrdinalIgnoreCase));
-        if (penaltyIndex >= 0 && dynGroup.PrepaymentPenaltyAllocation == null)
+        var grouped = deal.StatedGroups is { Count: > 0 };
+        if (penaltyIndex >= 0 && dynGroup.PrepaymentPenaltyAllocation == null && !grouped)
             throw new DealModelingException(deal.DealName,
                 "The waterfall has a PREPAYMENT_PENALTY step but no class to pay the penalties to " +
                 "for this class group. State the step's 'shares' (or a SET_PENALTY_STRUCT rule).");
@@ -1087,6 +1092,33 @@ public class ComposableStructure : BaseStructure
     ///     forbearance balance is in the notes and not in that pool balance, so either would be
     ///     written down as a loss.
     /// </summary>
+    /// <summary>
+    ///     A unified waterfall that states its collateral groups (<see cref="IDeal.StatedGroups" />)
+    ///     runs on collateral carrying exactly those groups. A stated group with no collateral rows
+    ///     never opens, so its classes would be paid nothing; collateral in a group no step states
+    ///     has no classes, so it would never be distributed. Either is refused, naming the groups.
+    /// </summary>
+    private static void ValidateStatedGroupCollateral(IDeal deal, IEnumerable<PeriodCashflows> periodCashflows)
+    {
+        if (deal.StatedGroups == null || deal.StatedGroups.Count == 0)
+            return;
+        var stated = deal.StatedGroups.ToHashSet(StringComparer.Ordinal);
+        var carried = periodCashflows.Select(p => p.GroupNum).ToHashSet(StringComparer.Ordinal);
+        var missing = stated.Except(carried).OrderBy(g => g, StringComparer.Ordinal).ToList();
+        var extra = carried.Except(stated).OrderBy(g => g, StringComparer.Ordinal).ToList();
+        if (missing.Count == 0 && extra.Count == 0)
+            return;
+        var why = new List<string>();
+        if (missing.Count > 0)
+            why.Add($"group(s) {string.Join(", ", missing)} have steps and no collateral, so their classes " +
+                    "would be paid nothing");
+        if (extra.Count > 0)
+            why.Add($"group(s) {string.Join(", ", extra)} have collateral and no steps, so it would never be " +
+                    "distributed");
+        throw new DealModelingException(deal.DealName,
+            "The waterfall's collateral groups and the collateral's do not match: " + string.Join("; ", why) + ".");
+    }
+
     private static void ValidateLossStepCollateral(IDeal deal, IEnumerable<PeriodCashflows> periodCashflows)
     {
         if (!StatesALossField(deal))

@@ -712,6 +712,20 @@ public class UnifiedWaterfallDto
     public List<WaterfallStepDto> Steps { get; set; } = new();
 
     /// <summary>
+    ///     The deal's other collateral groups, each with its own steps: a deal whose classes are
+    ///     paid only from their own group's collateral (an agency REMIC's Security Groups: "payments
+    ///     on each Group will be based solely on payments on the Trust Asset Group with the same
+    ///     numerical designation"). <see cref="Steps" /> are group "1"'s. A class is in the group
+    ///     whose steps name it, and is paid only from that group's collateral rows (their
+    ///     <c>groupNum</c>); a class named by two groups' steps is refused. Each group states the
+    ///     steps a waterfall requires (INTEREST, PRINCIPAL scheduled, WRITEDOWN), and may state
+    ///     ACCRUAL and PREPAYMENT_PENALTY; any other step type is refused in a group. The
+    ///     collateral must carry exactly the groups stated. Absent, every class is group "1"'s, as
+    ///     before.
+    /// </summary>
+    public List<GroupWaterfallDto>? Groups { get; set; }
+
+    /// <summary>
     /// Explicit execution order for ComposableStructure.
     /// If not provided, the engine runs its default order; it does not read one from Steps,
     /// except that RESERVE_DEPOSIT is in it only when Steps declares one.
@@ -929,6 +943,15 @@ public class ComputedVariableRuleDto
 {
     public RuleConditionDto? When { get; set; }
     public string Formula { get; set; } = "";
+}
+
+/// <summary>One collateral group's steps (<see cref="UnifiedWaterfallDto.Groups" />).</summary>
+public class GroupWaterfallDto
+{
+    /// <summary>The group's number, as its collateral rows carry it ("2", "3", ...).</summary>
+    public string GroupNum { get; set; } = "";
+
+    public List<WaterfallStepDto> Steps { get; set; } = new();
 }
 
 /// <summary>
