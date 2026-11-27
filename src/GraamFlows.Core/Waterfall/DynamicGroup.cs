@@ -213,7 +213,9 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
     {
         foreach (var dealStructure in Deal.DealStructures.Where(ds => ds.GroupNum == GroupNum || ds.GroupNum == "0"))
         {
-            if (dealStructure.GroupNum == "0")
+            // A shared exchange class (an MX class of two groups' classes) is a view of them and
+            // pays no group's collateral: the groups' own rates stand.
+            if (dealStructure.GroupNum == "0" && dealStructure.PayFromEnum != PayFromEnum.Exchange)
                 HasCrossedGroups = true;
 
             var classTranche = Deal.Tranches.SingleByName(

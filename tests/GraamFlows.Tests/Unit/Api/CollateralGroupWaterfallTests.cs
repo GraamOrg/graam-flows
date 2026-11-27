@@ -295,10 +295,29 @@ public class CollateralGroupWaterfallTests
     }
 
     [Fact]
-    public void An_exchange_class_over_two_groups_is_refused()
+    public void An_exchange_class_over_two_groups_is_paid_its_components_cash_in_both()
     {
-        Refusal(Request(r => AddExchange(r, "B", "C")))
-            .Should().Contain("Exchange class 'MX' is exchanged for classes of groups 1 and 2");
+        // MX is received for B (group 1) and C (group 2): an agency MX class of two Security Groups.
+        var plain = Ok(Request()).TrancheCashflows;
+        var cf = Ok(Request(r => AddExchange(r, "B", "C"))).TrancheCashflows;
+        for (var i = 0; i < 120; i++)
+        {
+            var (mx, b, c) = (cf["MX"][i], cf["B"][i], cf["C"][i]);
+            mx.Balance.Should().BeApproximately(b.Balance + c.Balance, 1e-6, $"period {i + 1}");
+            (mx.ScheduledPrincipal + mx.UnscheduledPrincipal).Should().BeApproximately(
+                b.ScheduledPrincipal + b.UnscheduledPrincipal + c.ScheduledPrincipal + c.UnscheduledPrincipal, 1e-6,
+                $"period {i + 1}");
+            mx.Interest.Should().BeApproximately(b.Interest + c.Interest, 1e-6, $"period {i + 1}");
+        }
+
+        // A view: every class is paid as without it, and D keeps its own group's net WAC (the
+        // shared exchange class does not blend the groups' rates).
+        foreach (var name in new[] { "A", "B", "C", "D" })
+            for (var i = 0; i < plain[name].Count; i++)
+            {
+                cf[name][i].Balance.Should().BeApproximately(plain[name][i].Balance, 1e-9, $"{name} period {i + 1}");
+                cf[name][i].Interest.Should().BeApproximately(plain[name][i].Interest, 1e-9, $"{name} period {i + 1}");
+            }
     }
 
     [Fact]

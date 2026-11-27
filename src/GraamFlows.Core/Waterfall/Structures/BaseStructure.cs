@@ -145,72 +145,88 @@ public abstract class BaseStructure : IWaterfall
         IRateProvider rateProvider = null)
     {
         var payFromAllocatorSet = new HashSet<DynamicClass>();
+        var groups = dynGroups.ToList();
+        var cfs = periodCfs.ToList();
 
-        foreach (var dynGroup in dynGroups)
+        bool Paying(DynamicGroup group)
         {
-            var periodCf = periodCfs.SingleOrDefault(p => p.GroupNum == dynGroup.GroupNum);
-            if (periodCf == null)
+            var periodCf = cfs.SingleOrDefault(p => p.GroupNum == group.GroupNum);
+            return periodCf != null && periodCf.BeginBalance >= .01;
+        }
+
+        // ONE ordered walk over the deal (#73). An exchange class is settled from the TRANCHES it
+        // names, after every tranche it depends on already carries this period's cashflow. A class of
+        // one group is settled while that group pays; a shared one (an MX class of two groups'
+        // classes) while any group holding one of its components does, once.
+        var exchClasses = groups.SelectMany(g => g.DynamicClasses)
+            .Where(dc => dc.DealStructure?.PayFromEnum == PayFromEnum.Exchange)
+            .Distinct()
+            .ToList();
+
+        foreach (var exchClass in OrderExchangeClassesByDependency(groups, exchClasses))
+        {
+            var components = ExchangeComponentsOf(groups, exchClass);
+            var shared = exchClass.DealStructure.GroupNum == "0";
+            var paying = shared
+                ? components != null && groups.Any(g => Paying(g) && components.Any(c => g.DynamicClasses
+                    .Any(dc => dc.DynamicTranches.Contains(c.Tranche))))
+                : Paying(exchClass.DynamicGroup);
+            if (!paying)
                 continue;
 
-            if (periodCf.BeginBalance < .01)
-                continue;
-
-            // ONE ordered walk (#73). An exchange class is settled from the TRANCHES it names,
-            // after every tranche it depends on already carries this period's cashflow.
-            var exchClasses = dynGroup.DynamicClasses
-                .Where(dc => dc.DealStructure?.PayFromEnum == PayFromEnum.Exchange)
-                .ToList();
-
-            foreach (var exchClass in OrderExchangeClassesByDependency(dynGroup, exchClasses))
+            if (components == null || components.Count == 0)
             {
-                var components = ExchangeComponentsOf(dynGroup, exchClass);
-                if (components == null || components.Count == 0)
-                {
-                    // Nothing resolvable to settle from — hand it to the allocator rather than
-                    // paying it a fraction of itself.
-                    payFromAllocatorSet.Add(exchClass);
-                    continue;
-                }
-
-                double usp = 0, sp = 0, wd = 0;
-                var notional = NotionalReferenceOf(dynGroup, exchClass);
-                if (notional != null)
-                {
-                    // Its notional follows the classes the document states, at its share of their
-                    // original balance, as a notional class's does (PayNotionalClasses): not the
-                    // notionals exchanged for it.
-                    var original = notional.Sum(c => c.Tranche.OriginalBalance);
-                    var share = original > 0.01 ? exchClass.Tranche.OriginalBalance / original : 0;
-                    foreach (var c in notional)
-                    {
-                        var ccf = c.GetCashflow(cashflowDate);
-                        if (ccf == null)
-                            continue;
-                        usp += ccf.UnscheduledPrincipal * share;
-                        sp += ccf.ScheduledPrincipal * share;
-                        wd += ccf.Writedown * share;
-                    }
-                }
-                else
-                    foreach (var (tran, prop) in components)
-                    {
-                        var ccf = tran.GetCashflow(cashflowDate);
-                        if (ccf == null)
-                            continue;
-                        usp += ccf.UnscheduledPrincipal * prop;
-                        sp += ccf.ScheduledPrincipal * prop;
-                        wd += ccf.Writedown * prop;
-                    }
-
-                if (sp + usp > exchClass.Balance)
-                    exchClass.Pay(cashflowDate, exchClass.Balance, 0);
-                else
-                    exchClass.Pay(cashflowDate, usp, sp);
-
-                exchClass.Writedown(cashflowDate, Math.Min(wd, exchClass.Balance));
-
-                PayExchangeInterest(dynGroup, exchClass, components, cashflowDate, rateProvider);
+                // Nothing resolvable to settle from — hand it to the allocator rather than
+                // paying it a fraction of itself.
+                payFromAllocatorSet.Add(exchClass);
+                continue;
             }
+
+            double usp = 0, sp = 0, wd = 0;
+            var notional = NotionalReferenceOf(groups, exchClass);
+            if (notional != null)
+            {
+                // Its notional follows the classes the document states, at its share of their
+                // original balance, as a notional class's does (PayNotionalClasses): not the
+                // notionals exchanged for it.
+                var original = notional.Sum(c => c.Tranche.OriginalBalance);
+                var share = original > 0.01 ? exchClass.Tranche.OriginalBalance / original : 0;
+                foreach (var c in notional)
+                {
+                    var ccf = c.GetCashflow(cashflowDate);
+                    if (ccf == null)
+                        continue;
+                    usp += ccf.UnscheduledPrincipal * share;
+                    sp += ccf.ScheduledPrincipal * share;
+                    wd += ccf.Writedown * share;
+                }
+            }
+            else
+                foreach (var (tran, prop) in components)
+                {
+                    var ccf = tran.GetCashflow(cashflowDate);
+                    if (ccf == null)
+                        continue;
+                    usp += ccf.UnscheduledPrincipal * prop;
+                    sp += ccf.ScheduledPrincipal * prop;
+                    wd += ccf.Writedown * prop;
+                }
+
+            if (sp + usp > exchClass.Balance)
+                exchClass.Pay(cashflowDate, exchClass.Balance, 0);
+            else
+                exchClass.Pay(cashflowDate, usp, sp);
+
+            exchClass.Writedown(cashflowDate, Math.Min(wd, exchClass.Balance));
+
+            PayExchangeInterest(exchClass.DynamicGroup, exchClass, components, cashflowDate, rateProvider);
+        }
+
+        foreach (var dynGroup in groups)
+        {
+            var periodCf = cfs.SingleOrDefault(p => p.GroupNum == dynGroup.GroupNum);
+            if (periodCf == null || periodCf.BeginBalance < .01)
+                continue;
 
             // pay exchange off group
             var exchOffGroup = dynGroup.DynamicClasses.Where(dc => dc.DealStructure?.ExchangableTranche == null &&
@@ -288,9 +304,11 @@ public abstract class BaseStructure : IWaterfall
     ///     absent-share default has always meant.
     /// </remarks>
     private static List<(DynamicTranche Tranche, double Proportion)> ExchangeComponentsOf(
-        DynamicGroup dynGroup, DynamicClass exchClass)
+        IReadOnlyList<DynamicGroup> dynGroups, DynamicClass exchClass)
     {
-        var all = dynGroup.DynamicClasses.SelectMany(dc => dc.DynamicTranches).ToList();
+        // Every group's classes: a shared exchange class's components are in more than one.
+        var all = dynGroups.SelectMany(g => g.DynamicClasses).SelectMany(dc => dc.DynamicTranches).Distinct().ToList();
+        var dynGroup = exchClass.DynamicGroup;
 
         DynamicTranche ByName(string name) => all.FirstOrDefault(t =>
             string.Equals(t.Tranche.TrancheName, name, StringComparison.OrdinalIgnoreCase));
@@ -336,15 +354,16 @@ public abstract class BaseStructure : IWaterfall
     ///     null. A name the deal does not carry is refused, never skipped: skipping it would cut
     ///     the notional by less than the document says.
     /// </summary>
-    private static List<DynamicClass>? NotionalReferenceOf(DynamicGroup dynGroup, DynamicClass exchClass)
+    private static List<DynamicClass>? NotionalReferenceOf(IReadOnlyList<DynamicGroup> dynGroups, DynamicClass exchClass)
     {
+        var dynGroup = exchClass.DynamicGroup;
         var stated = exchClass.DealStructure?.NotionalReference;
         if (string.IsNullOrWhiteSpace(stated))
             return null;
         var classes = new List<DynamicClass>();
         foreach (var name in stated.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
-            var dc = dynGroup.ClassByName(name);
+            var dc = dynGroups.Select(g => g.ClassByName(name)).FirstOrDefault(c => c != null);
             if (dc == null)
                 throw new DealModelingException(dynGroup.Deal.DealName,
                     $"Exchange class '{exchClass.Tranche.TrancheName}' states a notional that follows " +
@@ -371,7 +390,7 @@ public abstract class BaseStructure : IWaterfall
     ///     component.
     /// </remarks>
     private static List<DynamicClass> OrderExchangeClassesByDependency(
-        DynamicGroup dynGroup, List<DynamicClass> exchClasses)
+        IReadOnlyList<DynamicGroup> dynGroups, List<DynamicClass> exchClasses)
     {
         var byTrancheName = new Dictionary<string, DynamicClass>(StringComparer.OrdinalIgnoreCase);
         foreach (var dc in exchClasses)
@@ -387,7 +406,7 @@ public abstract class BaseStructure : IWaterfall
                 return;
             state[dc] = 1;
 
-            var components = ExchangeComponentsOf(dynGroup, dc);
+            var components = ExchangeComponentsOf(dynGroups, dc);
             if (components != null)
                 foreach (var (tran, _) in components)
                     if (byTrancheName.TryGetValue(tran.Tranche.TrancheName, out var dep) && dep != dc)

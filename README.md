@@ -459,7 +459,7 @@ A deal whose classes are each paid only from their own group's collateral (an ag
 }
 ```
 
-A class is in the group whose steps name it, and is paid only from the collateral rows carrying that `groupNum`; a net-WAC class bears its own group's rate. Each group states `INTEREST`, `PRINCIPAL` (scheduled) and `WRITEDOWN`, and may state `ACCRUAL` and `PREPAYMENT_PENALTY`; the `executionOrder` is one for every group. An exchange (MX) class is in its components' group.
+A class is in the group whose steps name it, and is paid only from the collateral rows carrying that `groupNum`; a net-WAC class bears its own group's rate. Each group states `INTEREST`, `PRINCIPAL` (scheduled) and `WRITEDOWN`, and may state `ACCRUAL` and `PREPAYMENT_PENALTY`; the `executionOrder` is one for every group. An exchange (MX) class is in its components' group; one exchanged for classes of more than one group, or for a shared class, is shared itself and is settled once a period, after every group has paid, from its components wherever they are. Its groups' own net WAC stands.
 
 Two fields on a group cover a group that is not paid solely from its own collateral (a CMBS asset group, whose loan's principal pays its own class first and then the pooled cascade):
 
@@ -468,7 +468,7 @@ Two fields on a group cover a group that is not paid solely from its own collate
 
 A loan-specific group (a note held outside the pool, paying only its own classes, an interest-only class with the classes it is notional to, a vertical interest pro rata beside them) needs neither: it is a group's steps over its own classes.
 
-Refused: a class two groups' steps name unless the groups past the first state `sharesClasses`, an exchange class whose components are in two groups or are shared, a pooled group whose `INTEREST` step pays a class group 1's does not, an `interest` other than `own` or `pooled`, a group numbered other than 2, 3, ..., a group stated twice, any other step type in a group, explicit `dealStructures` beside the groups, an engine other than ComposableStructure, and collateral whose groups are not exactly the waterfall's (a group with steps and no collateral, or collateral no group's steps pay).
+Refused: a class two groups' steps name unless the groups past the first state `sharesClasses`, a pooled group whose `INTEREST` step pays a class group 1's does not, an `interest` other than `own` or `pooled`, a group numbered other than 2, 3, ..., a group stated twice, any other step type in a group, explicit `dealStructures` beside the groups, an engine other than ComposableStructure, and collateral whose groups are not exactly the waterfall's (a group with steps and no collateral, or collateral no group's steps pay).
 
 ### Prepayment penalties
 

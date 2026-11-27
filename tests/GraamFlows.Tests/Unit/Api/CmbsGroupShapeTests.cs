@@ -311,7 +311,7 @@ public class CmbsGroupShapeTests
     }
 
     [Fact]
-    public void An_exchange_class_over_a_shared_class_is_refused()
+    public void An_exchange_class_over_a_shared_class_is_a_view_of_it()
     {
         var request = AssetGroup(explicitly: false);
         request.Deal.Tranches.Add(new TrancheDto
@@ -322,6 +322,12 @@ public class CmbsGroupShapeTests
         });
         request.Deal.ExchangeShares = new List<ExchangeShareDto>
             { new() { ExchangeTranche = "MX", Shares = new() { new() { TrancheName = "A2", ShareAmount = A2 } } } };
-        Refusal(request).Should().Contain("Exchange class 'MX' is exchanged for a class two groups share");
+        var cf = Run(request);
+        for (var i = 0; i < cf["A2"].Count; i++)
+        {
+            cf["MX"][i].Balance.Should().BeApproximately(cf["A2"][i].Balance, 1e-6, $"period {i + 1}");
+            (cf["MX"][i].ScheduledPrincipal + cf["MX"][i].UnscheduledPrincipal).Should().BeApproximately(
+                cf["A2"][i].ScheduledPrincipal + cf["A2"][i].UnscheduledPrincipal, 1e-6, $"period {i + 1}");
+        }
     }
 }
