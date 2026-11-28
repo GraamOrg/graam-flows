@@ -79,15 +79,25 @@ public abstract class BaseStructure : IWaterfall
                 if (double.IsNaN(proportion) || double.IsInfinity(proportion))
                     proportion = 0;
 
-                var usp = propClasses.Sum(pc => GetExchangeShare(pc.DynamicGroup, notionalClass, pc,
-                    pc.GetCashflow(cashflowDate).UnscheduledPrincipal));
-                var sp = propClasses.Sum(pc => GetExchangeShare(pc.DynamicGroup, notionalClass, pc,
-                    pc.GetCashflow(cashflowDate).ScheduledPrincipal));
-                var wd = propClasses.Sum(pc =>
-                    GetExchangeShare(pc.DynamicGroup, notionalClass, pc, pc.GetCashflow(cashflowDate).Writedown));
+                // A notional at a different share of each class it follows (notionalWeights):
+                // each class's principal and writedown at its own share; otherwise one share for
+                // all of them, the notional's original over theirs.
+                var weights = notionalClass.DealStructure.NotionalWeights;
+                double Weight(DynamicClass pc) => weights == null ? 1.0 : weights[pc.Tranche.TrancheName];
 
-                notionalClass.Pay(cashflowDate, usp * proportion, sp * proportion);
-                notionalClass.Writedown(cashflowDate, wd * proportion);
+                var usp = propClasses.Sum(pc => GetExchangeShare(pc.DynamicGroup, notionalClass, pc,
+                    pc.GetCashflow(cashflowDate).UnscheduledPrincipal) * Weight(pc));
+                var sp = propClasses.Sum(pc => GetExchangeShare(pc.DynamicGroup, notionalClass, pc,
+                    pc.GetCashflow(cashflowDate).ScheduledPrincipal) * Weight(pc));
+                var wd = propClasses.Sum(pc =>
+                    GetExchangeShare(pc.DynamicGroup, notionalClass, pc, pc.GetCashflow(cashflowDate).Writedown) *
+                    Weight(pc));
+
+                // With no weights, x * 1.0 is x exactly, so the sum and the one proportion are what
+                // they always were.
+                var classShare = weights == null ? proportion : 1.0;
+                notionalClass.Pay(cashflowDate, usp * classShare, sp * classShare);
+                notionalClass.Writedown(cashflowDate, wd * classShare);
 
                 // pay notionals from exchange shares
                 var exchShares = notionalClass.DynamicGroup.Deal.ExchShares
@@ -214,16 +224,19 @@ public abstract class BaseStructure : IWaterfall
                 // Its notional follows the classes the document states, at its share of their
                 // original balance, as a notional class's does (PayNotionalClasses): not the
                 // notionals exchanged for it.
+                // Or at the share of each it states (notionalWeights), as PayNotionalClasses does.
                 var original = notional.Sum(c => c.Tranche.OriginalBalance);
                 var share = original > 0.01 ? exchClass.Tranche.OriginalBalance / original : 0;
+                var weights = exchClass.DealStructure?.NotionalWeights;
                 foreach (var c in notional)
                 {
                     var ccf = c.GetCashflow(cashflowDate);
                     if (ccf == null)
                         continue;
-                    usp += ccf.UnscheduledPrincipal * share;
-                    sp += ccf.ScheduledPrincipal * share;
-                    wd += ccf.Writedown * share;
+                    var w = weights == null ? share : weights[c.Tranche.TrancheName];
+                    usp += ccf.UnscheduledPrincipal * w;
+                    sp += ccf.ScheduledPrincipal * w;
+                    wd += ccf.Writedown * w;
                 }
             }
             else

@@ -328,7 +328,8 @@ public class WaterfallController : ControllerBase
                     GroupNum = dsDto.GroupNum,
                     ExchangableTranche = dsDto.ExchangableTranche,
                     ClassTags = dsDto.ClassTags,
-                    NotionalReference = dsDto.NotionalReference
+                    NotionalReference = dsDto.NotionalReference,
+                    NotionalWeights = dsDto.NotionalWeights
                 };
                 deal.DealStructures.Add(ds);
             }
@@ -436,7 +437,8 @@ public class WaterfallController : ControllerBase
                         PayFrom = dsDto.PayFrom,
                         GroupNum = dsDto.GroupNum,
                         ExchangableTranche = dsDto.ExchangableTranche,
-                        NotionalReference = dsDto.NotionalReference
+                        NotionalReference = dsDto.NotionalReference,
+                        NotionalWeights = dsDto.NotionalWeights
                     };
                     deal.DealStructures.Add(ds);
                 }

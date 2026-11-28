@@ -487,6 +487,16 @@ public class TrancheDto
     public string? NotionalReference { get; set; }
 
     /// <summary>
+    ///     A notional that follows its classes at different shares of each: the share of each class
+    ///     named in <see cref="NotionalReference" />, a fraction (0.611520076876 for 61.152%). The
+    ///     notional is paid down by the sum, over those classes, of its share times the class's
+    ///     principal (and written down the same way). Absent: the notional follows them at one
+    ///     share, its original over theirs. Every class named must have one; collateral references
+    ///     ("GROUP_1", "SUBGROUP_1B") take none.
+    /// </summary>
+    public Dictionary<string, double>? NotionalWeights { get; set; }
+
+    /// <summary>
     ///     How the class is paid, in the engine's own terms: "Sequential" (on its own balance),
     ///     "Notional" (on a notional that follows the classes or collateral groups named in
     ///     <see cref="NotionalReference" />, comma-separated, e.g. "A1,A2" or "GROUP_1"),
@@ -579,6 +589,9 @@ public class DealStructureDto
     public string GroupNum { get; set; } = "0";
     public string? ExchangableTranche { get; set; }
     public string? ClassTags { get; set; }
+
+    /// <summary>The share of each class a notional follows (<see cref="TrancheDto.NotionalWeights" />).</summary>
+    public Dictionary<string, double>? NotionalWeights { get; set; }
 
     /// <summary>
     ///     An interest-only EXCHANGE class's notional, when the document states it apart from its
