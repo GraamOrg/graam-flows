@@ -162,6 +162,8 @@ public static class WaterfallBuilder
                 return BuildFixedDsl(structure);
             case "SPLIT":
                 return BuildSplitDsl(structure);
+            case "SUBGROUP_SPLIT":
+                return BuildSubgroupSplitDsl(structure);
             case "FORCE_PAYDOWN":
                 return BuildForcePaydownDsl(structure);
             case "PAC":
@@ -217,6 +219,26 @@ public static class WaterfallBuilder
                 $"A SPLIT states {shares.Count} shares for {legs.Count} legs; state one share per child.");
         var text = string.Join(",", shares.Select(s => s.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
         return $"SPLIT('{text}', {string.Join(", ", legs.Select(BuildStructureDsl))})";
+    }
+
+    /// <summary>
+    ///     SUBGROUP_SPLIT: principal by each subgroup's principal,
+    ///     ``SUBGROUP_SPLIT('12A=75;12B=75|12A=25;12B=25', leg1, leg2)``. A split with no legs, or not
+    ///     one set of shares per leg, is refused here; shares of a subgroup that do not total 100
+    ///     are refused by the engine.
+    /// </summary>
+    private static string BuildSubgroupSplitDsl(PayableStructureDto structure)
+    {
+        var legs = structure.Children ?? new List<PayableStructureDto>();
+        var shares = structure.SubgroupShares ?? new List<Dictionary<string, double>>();
+        if (legs.Count == 0 || legs.Count != shares.Count)
+            throw new InvalidOperationException(
+                $"A SUBGROUP_SPLIT states {shares.Count} sets of shares for {legs.Count} legs; state one per child.");
+        if (shares.SelectMany(s => s.Keys).Any(k => string.IsNullOrWhiteSpace(k) || k.IndexOfAny(new[] { '=', ';', '|', '\'' }) >= 0))
+            throw new InvalidOperationException("A SUBGROUP_SPLIT names a subgroup by its designation, as '12A'.");
+        var text = string.Join("|", shares.Select(s => string.Join(";",
+            s.Select(kv => $"{kv.Key}={kv.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}"))));
+        return $"SUBGROUP_SPLIT('{text}', {string.Join(", ", legs.Select(BuildStructureDsl))})";
     }
 
     private static string BuildSingleDsl(PayableStructureDto structure)

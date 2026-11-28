@@ -391,6 +391,14 @@ public class PeriodCashflowDto
     public int Period { get; set; }
     public DateTime CashflowDate { get; set; }
     public string GroupNum { get; set; } = "0";
+
+    /// <summary>
+    ///     The subgroup of <see cref="GroupNum" /> this row's collateral is, when the group's
+    ///     principal is allocated by subgroup (<c>SUBGROUP_SPLIT</c>). Rows of one group and date
+    ///     are then merged into the group's row, and each subgroup's principal is kept.
+    /// </summary>
+    public string? Subgroup { get; set; }
+
     public double BeginBalance { get; set; }
     public double Balance { get; set; }
     public double ScheduledPrincipal { get; set; }

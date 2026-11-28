@@ -56,6 +56,12 @@ public class PeriodCashflows
     }
 
     public DateTime CashflowDate { get; set; }
+
+    /// <summary>
+    ///     Each subgroup's principal this period, when the collateral was stated by subgroup
+    ///     (<see cref="SubgroupPrincipal" />); null otherwise.
+    /// </summary>
+    public Dictionary<string, SubgroupPrincipal>? Subgroups { get; set; }
     public double ScheduledPrincipal { get; set; }
     public double Balance { get; set; }
     public double UnscheduledPrincipal { get; set; }
@@ -242,11 +248,13 @@ public class PeriodCashflows
         clone.PendingLiquidationBalance = PendingLiquidationBalance;
         clone.AdditionalPurchaseFace = AdditionalPurchaseFace;
         clone.PurchaseDiscount = PurchaseDiscount;
+        clone.Subgroups = SubgroupPrincipal.CloneMap(Subgroups);
         return clone;
     }
 
     public void Add(PeriodCashflows periodCf)
     {
+        Subgroups = SubgroupPrincipal.Merge(Subgroups, periodCf.Subgroups);
         ScheduledPrincipal += periodCf.ScheduledPrincipal;
         UnscheduledPrincipal += periodCf.UnscheduledPrincipal;
         Interest += periodCf.Interest;

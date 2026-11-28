@@ -147,6 +147,12 @@ public class DynamicGroup : IDealVariableProvider, IPayablesHost
         throw new Exception($"Variable {varName} is not numeric!");
     }
 
+    /// <summary>
+    ///     The period cashflow the group's principal is being paid from, set before each principal
+    ///     step pays: what a <c>SUBGROUP_SPLIT</c> reads each subgroup's principal from.
+    /// </summary>
+    public PeriodCashflows? CurrentPeriodCashflows { get; set; }
+
     public IPayable? ScheduledPayable { get; set; }
     public IPayable? PrepayPayable { get; set; }
     public IPayable? RecoveryPayable { get; set; }

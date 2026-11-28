@@ -118,6 +118,7 @@ public class CollateralCashflows
                 existingCf.PendingLiquidationChange += periodCf.PendingLiquidationChange;
                 existingCf.AdditionalPurchaseFace += periodCf.AdditionalPurchaseFace;
                 existingCf.PurchaseDiscount += periodCf.PurchaseDiscount;
+                existingCf.Subgroups = SubgroupPrincipal.Merge(existingCf.Subgroups, periodCf.Subgroups);
                 existingCf.WAM = periodCf.WAM;
                 existingCf.WALA = periodCf.WALA;
                 existingCf.WAC = existingCf.Interest * 1200 / existingCf.BeginBalance;
