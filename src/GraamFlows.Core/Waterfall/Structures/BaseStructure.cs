@@ -53,6 +53,9 @@ public abstract class BaseStructure : IWaterfall
                 unschedPrin * (1 - waterfallFactor), schedPrin * (1 - waterfallFactor));
     }
 
+    /// <summary>A notional reference to one subgroup's collateral: "SUBGROUP_1B".</summary>
+    public const string SubgroupNotionalPrefix = "SUBGROUP_";
+
     protected void PayNotionalClasses(DateTime cashflowDate, IEnumerable<DynamicGroup> dynGroups,
         IEnumerable<PeriodCashflows> periodCfs)
     {
@@ -117,6 +120,28 @@ public abstract class BaseStructure : IWaterfall
                             exchCf.Sum(cf => cf.ScheduledPrincipal) * prop);
                         notionalClass.Writedown(cashflowDate, exchCf.Sum(cf => cf.Writedown) * prop);
                     }
+
+                // pay notionals off of a subgroup's collateral ("SUBGROUP_1B"): the notional falls
+                // as the subgroup's balance does, from the share of it the notional began the
+                // period at, as a group's notional does from the group's.
+                foreach (var key in notionals.Where(n => n.StartsWith(SubgroupNotionalPrefix, StringComparison.Ordinal))
+                             .Select(n => n[SubgroupNotionalPrefix.Length..]))
+                {
+                    var periodCf = periodCfs.SingleOrDefault(pcf => pcf.GroupNum == dynGroup.GroupNum);
+                    if (periodCf == null)
+                        continue;
+                    var stated = periodCf.StatedSubgroups;
+                    if (stated == null || !stated.Contains(key))
+                        throw new DealModelingException(dynGroup.Deal.DealName,
+                            $"Notional class '{notionalClass.Tranche.TrancheName}' follows subgroup {key}, which " +
+                            "the collateral does not state.");
+                    // Stated in the run but not this period: paid off, so the notional pays nothing.
+                    if (periodCf.Subgroups == null || !periodCf.Subgroups.TryGetValue(key, out var sub))
+                        continue;
+                    var share = sub.BeginBalance > 0.01 ? notionalClass.BeginBalance(cashflowDate) / sub.BeginBalance : 0;
+                    notionalClass.Pay(cashflowDate, (sub.Unscheduled + sub.Recovery) * share, sub.Scheduled * share);
+                    notionalClass.Writedown(cashflowDate, sub.Loss * share);
+                }
 
                 // pay notionals off of groups
                 var groupNotionals = notionals.Where(n => n.ToUpper().StartsWith("GROUP"))

@@ -268,6 +268,17 @@ public static class UnifiedWaterfallBuilder
             throw new InvalidOperationException(
                 $"'{t.TrancheName}' states payFrom 'Notional' but names nothing its notional follows. " +
                 "State the classes (\"A1,A2\") or the collateral group (\"GROUP_1\") in notionalReference.");
+        // A subgroup's collateral ("SUBGROUP_1B", the collateral stated by subgroup): alone, as a
+        // group's is; that the collateral states it is checked when the run reads its rows.
+        if (refs.FirstOrDefault(r => r.StartsWith("SUBGROUP_", StringComparison.Ordinal) && r.Length > 9) is { } sub)
+        {
+            if (refs.Count > 1)
+                throw new InvalidOperationException(
+                    $"'{t.TrancheName}' states a notional on '{t.NotionalReference}', which mixes a " +
+                    $"subgroup's collateral with other references. State \"{sub}\" alone.");
+            return (stated, sub);
+        }
+
         if (refs.FirstOrDefault(poolReferences.Contains) is { } pool)
         {
             if (refs.Count > 1)

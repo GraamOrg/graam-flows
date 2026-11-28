@@ -774,7 +774,9 @@ public class WaterfallController : ControllerBase
                     {
                         Scheduled = dto.ScheduledPrincipal,
                         Unscheduled = dto.UnscheduledPrincipal,
-                        Recovery = dto.RecoveryPrincipal
+                        Recovery = dto.RecoveryPrincipal,
+                        BeginBalance = dto.BeginBalance,
+                        Loss = dto.CollateralLoss
                     }
                 };
             periodCashflows.Add(cf);

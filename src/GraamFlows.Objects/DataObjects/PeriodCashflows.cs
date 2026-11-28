@@ -262,7 +262,8 @@ public class PeriodCashflows
 
     public void Add(PeriodCashflows periodCf)
     {
-        Subgroups = SubgroupPrincipal.Merge(Subgroups, periodCf.Subgroups);
+        // A later period folded into this one: its principal adds, the begin balance stays this one's.
+        Subgroups = SubgroupPrincipal.Merge(Subgroups, periodCf.Subgroups, sameDate: false);
         ScheduledPrincipal += periodCf.ScheduledPrincipal;
         UnscheduledPrincipal += periodCf.UnscheduledPrincipal;
         Interest += periodCf.Interest;
