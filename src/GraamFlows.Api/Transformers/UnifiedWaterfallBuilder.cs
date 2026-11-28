@@ -75,7 +75,10 @@ public static class UnifiedWaterfallBuilder
             // exchange-share pay-block doesn't also pay it — that double-counts.)
             if (payFrom == "Notional" && string.IsNullOrEmpty(exchangableTranche))
                 exchangableTranche = statedNotional ?? t.NotionalReference;
-            var weights = NotionalWeightsOf(t, payFrom, exchangableTranche);
+            var exchangeNotional = payFrom == "Exchange" && exchangeComponents.ContainsKey(t.TrancheName)
+                ? ExchangeNotional(t, byName)
+                : null;
+            var weights = NotionalWeightsOf(t, payFrom, payFrom == "Exchange" ? exchangeNotional : exchangableTranche);
             return new DealStructureDto
             {
                 ClassGroupName = t.TrancheName,
@@ -87,9 +90,7 @@ public static class UnifiedWaterfallBuilder
                 GroupNum = groupNum,
                 ExchangableTranche = exchangableTranche,
                 NotionalWeights = weights,
-                NotionalReference = payFrom == "Exchange" && exchangeComponents.ContainsKey(t.TrancheName)
-                    ? ExchangeNotional(t, byName)
-                    : null
+                NotionalReference = exchangeNotional
             };
         }).ToList();
     }
@@ -111,8 +112,10 @@ public static class UnifiedWaterfallBuilder
     /// </summary>
     /// <summary>
     ///     The share of each class a notional class follows (<see cref="TrancheDto.NotionalWeights" />),
-    ///     checked against the classes it follows, or null when it states none. Refused: weights on
-    ///     a class not paid on a notional, on a collateral reference ("GROUP_1", "SUBGROUP_1B"), a
+    ///     checked against the classes it follows, or null when it states none: a class paid on a
+    ///     notional, or an interest-only exchange class whose notional the document states apart
+    ///     from its components (<see cref="ExchangeNotional" />). Refused: weights on any other
+    ///     class, on a collateral reference ("GROUP_1", "SUBGROUP_1B"), a
     ///     class it follows with no weight (never taken as 1), a weight on a class it does not
     ///     follow, and a weight that is not a positive number.
     /// </summary>
@@ -120,9 +123,10 @@ public static class UnifiedWaterfallBuilder
     {
         if (t.NotionalWeights == null || t.NotionalWeights.Count == 0)
             return null;
-        if (payFrom != "Notional")
+        if (payFrom != "Notional" && !(payFrom == "Exchange" && followed != null))
             throw new InvalidOperationException(
-                $"'{t.TrancheName}' states notionalWeights but is paid '{payFrom}', not on a notional.");
+                $"'{t.TrancheName}' states notionalWeights but is paid '{payFrom}', not on a notional " +
+                "it states.");
         var refs = (followed ?? "").Split(',').Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
         if (refs.FirstOrDefault(r => r.StartsWith("GROUP_", StringComparison.Ordinal) ||
                                      r.StartsWith("SUBGROUP_", StringComparison.Ordinal)) is { } pool)

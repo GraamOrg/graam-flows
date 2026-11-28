@@ -224,16 +224,19 @@ public abstract class BaseStructure : IWaterfall
                 // Its notional follows the classes the document states, at its share of their
                 // original balance, as a notional class's does (PayNotionalClasses): not the
                 // notionals exchanged for it.
+                // Or at the share of each it states (notionalWeights), as PayNotionalClasses does.
                 var original = notional.Sum(c => c.Tranche.OriginalBalance);
                 var share = original > 0.01 ? exchClass.Tranche.OriginalBalance / original : 0;
+                var weights = exchClass.DealStructure?.NotionalWeights;
                 foreach (var c in notional)
                 {
                     var ccf = c.GetCashflow(cashflowDate);
                     if (ccf == null)
                         continue;
-                    usp += ccf.UnscheduledPrincipal * share;
-                    sp += ccf.ScheduledPrincipal * share;
-                    wd += ccf.Writedown * share;
+                    var w = weights == null ? share : weights[c.Tranche.TrancheName];
+                    usp += ccf.UnscheduledPrincipal * w;
+                    sp += ccf.ScheduledPrincipal * w;
+                    wd += ccf.Writedown * w;
                 }
             }
             else

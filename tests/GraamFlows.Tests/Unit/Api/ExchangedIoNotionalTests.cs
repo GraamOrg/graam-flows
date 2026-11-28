@@ -136,6 +136,24 @@ public class ExchangedIoNotionalTests
     }
 
     [Fact]
+    public void Its_stated_notional_can_follow_each_class_at_its_own_share()
+    {
+        // "100% of A and 50% of B": one notional the one proportion cannot carry (notionalWeights).
+        var mx = Mx("A,B");
+        mx.OriginalBalance = ABalance + 0.5 * BBalance;
+        mx.NotionalWeights = new Dictionary<string, double> { ["A"] = 1.0, ["B"] = 0.5 };
+        var cf = Ok(Request(mx));
+        for (var i = 0; i < cf["A"].Count; i++)
+            cf["IB"][i].Balance.Should().BeApproximately(cf["A"][i].Balance + 0.5 * cf["B"][i].Balance, 1.0,
+                $"period {i + 1}");
+        // Unweighted, the same reference is one share of A + B: not the same notional.
+        var plain = Mx("A,B");
+        plain.OriginalBalance = ABalance + 0.5 * BBalance;
+        var one = Ok(Request(plain))["IB"];
+        one[1].Balance.Should().NotBeApproximately(cf["IB"][1].Balance, 1000.0);
+    }
+
+    [Fact]
     public void Without_a_stated_notional_it_is_on_the_pool_as_before()
     {
         var cf = Ok(Request(Mx(null)));
