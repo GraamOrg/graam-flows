@@ -31,6 +31,32 @@ public class SplitStructure : BasePayable
     private readonly IList<IPayable> _payables;
     private readonly IList<double> _shares;
 
+    /// <summary>A split whose shares <see cref="Shares" /> states for each amount it pays.</summary>
+    protected SplitStructure(IList<IPayable> payables)
+    {
+        _payables = payables;
+        _shares = payables.Select(_ => 0.0).ToList();
+    }
+
+    /// <summary>What each payment is split by, in its kind.</summary>
+    protected enum SplitAmount
+    {
+        Scheduled,
+        Unscheduled,
+        Recovery,
+        Writedown,
+        Interest
+    }
+
+    /// <summary>
+    ///     Each leg's share of an amount of <paramref name="kind" />, in any unit (they are weights):
+    ///     the fixed shares the split states.
+    /// </summary>
+    protected virtual IList<double> Shares(SplitAmount kind, DateTime cfDate)
+    {
+        return _shares;
+    }
+
     public SplitStructure(IList<double> shares, IList<IPayable> payables)
     {
         if (shares.Count != payables.Count)
@@ -50,7 +76,8 @@ public class SplitStructure : BasePayable
     public override PrincipalReceipt PaySp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
         var receipt = PrincipalReceipt.None;
-        PayLegs(cfDate, prin, (payable, amt) => receipt += payable.PaySp(this, cfDate, amt, payRuleExec), payRuleExec,
+        PayLegs(cfDate, prin, Shares(SplitAmount.Scheduled, cfDate),
+            (payable, amt) => receipt += payable.PaySp(this, cfDate, amt, payRuleExec), payRuleExec,
             (p, d) => p.CurrentBalance(d));
         return receipt;
     }
@@ -58,7 +85,8 @@ public class SplitStructure : BasePayable
     public override PrincipalReceipt PayUsp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
         var receipt = PrincipalReceipt.None;
-        PayLegs(cfDate, prin, (payable, amt) => receipt += payable.PayUsp(this, cfDate, amt, payRuleExec), payRuleExec,
+        PayLegs(cfDate, prin, Shares(SplitAmount.Unscheduled, cfDate),
+            (payable, amt) => receipt += payable.PayUsp(this, cfDate, amt, payRuleExec), payRuleExec,
             (p, d) => p.CurrentBalance(d));
         return receipt;
     }
@@ -66,14 +94,16 @@ public class SplitStructure : BasePayable
     public override PrincipalReceipt PayRp(IPayable parent, DateTime cfDate, double prin, Action payRuleExec)
     {
         var receipt = PrincipalReceipt.None;
-        PayLegs(cfDate, prin, (payable, amt) => receipt += payable.PayRp(this, cfDate, amt, payRuleExec), payRuleExec,
+        PayLegs(cfDate, prin, Shares(SplitAmount.Recovery, cfDate),
+            (payable, amt) => receipt += payable.PayRp(this, cfDate, amt, payRuleExec), payRuleExec,
             (p, d) => p.CurrentBalance(d));
         return receipt;
     }
 
     public override void PayWritedown(IPayable parent, DateTime cfDate, double amount, Action payRuleExec)
     {
-        PayLegs(cfDate, amount, (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec,
+        PayLegs(cfDate, amount, Shares(SplitAmount.Writedown, cfDate),
+            (payable, amt) => payable.PayWritedown(this, cfDate, amt, payRuleExec), payRuleExec,
             (p, d) => p.WritedownCapacity(d));
     }
 
@@ -82,8 +112,8 @@ public class SplitStructure : BasePayable
     ///     could not take is offered again to the legs with room, by their shares, until nothing is
     ///     left or no leg has room.
     /// </summary>
-    private void PayLegs(DateTime cfDate, double amount, Action<IPayable, double> pay, Action payRuleExec,
-        Func<IPayable, DateTime, double> capFn)
+    private void PayLegs(DateTime cfDate, double amount, IList<double> shares, Action<IPayable, double> pay,
+        Action payRuleExec, Func<IPayable, DateTime, double> capFn)
     {
         payRuleExec.Invoke();
         var room = _payables.Select(p => Math.Max(capFn(p, cfDate), 0.0)).ToArray();
@@ -91,14 +121,15 @@ public class SplitStructure : BasePayable
         var remaining = amount;
         for (var pass = 0; pass < _payables.Count && remaining > 0.001; pass++)
         {
-            var open = Enumerable.Range(0, _payables.Count).Where(i => room[i] - paid[i] > 0.001).ToList();
+            var open = Enumerable.Range(0, _payables.Count)
+                .Where(i => room[i] - paid[i] > 0.001 && shares[i] > 0).ToList();
             if (open.Count == 0)
                 break;
-            var weight = open.Sum(i => _shares[i]);
+            var weight = open.Sum(i => shares[i]);
             var handed = 0.0;
             foreach (var i in open)
             {
-                var take = Math.Min(remaining * _shares[i] / weight, room[i] - paid[i]);
+                var take = Math.Min(remaining * shares[i] / weight, room[i] - paid[i]);
                 paid[i] += take;
                 handed += take;
             }
@@ -122,7 +153,7 @@ public class SplitStructure : BasePayable
     {
         var tranches = allTranches as IList<DynamicTranche> ?? allTranches?.ToList();
         var interestPaid = 0.0;
-        PayLegs(cfDate, availableFunds,
+        PayLegs(cfDate, availableFunds, Shares(SplitAmount.Interest, cfDate),
             (payable, amt) => interestPaid += payable.PayInterest(this, cfDate, amt, rateProvider, tranches!),
             () => { },
             (p, d) => p.IsLockedOut(d) ? 0.0 : p.InterestDue(d, rateProvider, tranches!));

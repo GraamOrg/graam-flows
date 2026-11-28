@@ -2777,6 +2777,7 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.ScheduledPayable == null || availableSchedPrin < 0.01)
             return availableSchedPrin;
 
+        dynGroup.CurrentPeriodCashflows = adjPeriodCf;
         var paid = Spend(dynGroup.ScheduledPayable.PaySp(null, adjPeriodCf.CashflowDate, availableSchedPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
 
@@ -2797,6 +2798,7 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.PrepayPayable == null || availablePrepayPrin < 0.01)
             return availablePrepayPrin;
 
+        dynGroup.CurrentPeriodCashflows = adjPeriodCf;
         var paid = Spend(dynGroup.PrepayPayable.PayUsp(null, adjPeriodCf.CashflowDate, availablePrepayPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
 
@@ -2817,6 +2819,7 @@ public class ComposableStructure : BaseStructure
         if (dynGroup.RecoveryPayable == null || availableRecovPrin < 0.01)
             return availableRecovPrin;
 
+        dynGroup.CurrentPeriodCashflows = adjPeriodCf;
         var paid = Spend(dynGroup.RecoveryPayable.PayRp(null, adjPeriodCf.CashflowDate, availableRecovPrin,
             () => ExecutePayRules(deal, dynGroup, payRuleExecutor, triggerValues, adjPeriodCf)));
 

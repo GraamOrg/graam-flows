@@ -767,7 +767,27 @@ public class WaterfallController : ControllerBase
                 ModificationLoss = dto.ModificationLoss,
                 PrepaymentPenalty = dto.PrepaymentPenalty
             };
+            if (!string.IsNullOrEmpty(dto.Subgroup))
+                cf.Subgroups = new Dictionary<string, SubgroupPrincipal>
+                {
+                    [dto.Subgroup] = new()
+                    {
+                        Scheduled = dto.ScheduledPrincipal,
+                        Unscheduled = dto.UnscheduledPrincipal,
+                        Recovery = dto.RecoveryPrincipal
+                    }
+                };
             periodCashflows.Add(cf);
+        }
+
+        // Collateral stated by subgroup: each group's subgroup rows for a date are one period of
+        // that group, with each subgroup's principal kept beside the total.
+        if (dtos.Any(d => !string.IsNullOrEmpty(d.Subgroup)))
+        {
+            var merged = new CollateralCashflows(false);
+            foreach (var cf in periodCashflows)
+                merged.AddPeriodCashflow(cf);
+            return merged;
         }
 
         return new CollateralCashflows(periodCashflows);

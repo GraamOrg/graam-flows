@@ -481,6 +481,44 @@ namespace GraamFlows.RulesEngine
         ///     Principal split by fixed shares, one per leg, in percent ("30.0074920518,69.9925079482"):
         ///     <see cref="SplitStructure" />.
         /// </summary>
+        /// <summary>
+        ///     Principal split by each subgroup's principal this period, a leg per set of shares
+        ///     ("12A=75.0000019701;12B=74.999997756|12A=24.9999980299;12B=25.000002244"):
+        ///     <see cref="SubgroupSplitStructure" />.
+        /// </summary>
+        private SubgroupSplitStructure SUBGROUP_SPLIT(string shares, params IPayable[] payables)
+        {
+            if (payables.Any(p => p == null))
+                throw new DealModelingException(DynamicGroup.Deal.DealName,
+                    "A SUBGROUP_SPLIT leg names a class this deal does not carry; check its tranche names.");
+            var weights = new List<IReadOnlyDictionary<string, double>>();
+            foreach (var leg in shares.Split('|'))
+            {
+                var shareOf = new Dictionary<string, double>();
+                foreach (var part in leg.Split(';', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pair = part.Split('=');
+                    if (pair.Length != 2 || !double.TryParse(pair[1].Trim(),
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var pct))
+                        throw new DealModelingException(DynamicGroup.Deal.DealName,
+                            $"A SUBGROUP_SPLIT share reads 'subgroup=percent', not '{part}'.");
+                    shareOf[pair[0].Trim()] = pct;
+                }
+
+                weights.Add(shareOf);
+            }
+
+            try
+            {
+                return new SubgroupSplitStructure(DynamicGroup, weights, payables);
+            }
+            catch (ArgumentException e)
+            {
+                throw new DealModelingException(DynamicGroup.Deal.DealName, e.Message);
+            }
+        }
+
         private SplitStructure SPLIT(string shares, params IPayable[] payables)
         {
             var parsed = shares.Split(',')

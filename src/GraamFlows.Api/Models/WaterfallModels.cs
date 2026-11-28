@@ -706,6 +706,12 @@ public class PayableStructureDto
     ///     <see cref="Children" /> (totalling 100). Principal split by fixed shares, not by balance.
     /// </summary>
     public List<double>? Shares { get; set; }
+
+    /// <summary>
+    ///     A SUBGROUP_SPLIT's shares: per child, its share in percent of each subgroup's principal
+    ///     (<c>{"12A": 75.0, "12B": 75.0}</c>).
+    /// </summary>
+    public List<Dictionary<string, double>>? SubgroupShares { get; set; }
 }
 
 // ============== Unified Waterfall Models ==============
