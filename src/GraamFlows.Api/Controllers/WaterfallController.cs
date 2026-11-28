@@ -281,6 +281,7 @@ public class WaterfallController : ControllerBase
                 FixedCoupon = trancheDto.FixedCoupon ?? 0,
                 FloaterSpread = trancheDto.FloaterSpread ?? 0,
                 FloaterIndex = trancheDto.FloaterIndex,
+                ResetSlope = trancheDto.ResetSlope ?? 0,
                 Cap = trancheDto.Cap,
                 Floor = trancheDto.Floor,
                 PayFrequency = trancheDto.PayFrequency,

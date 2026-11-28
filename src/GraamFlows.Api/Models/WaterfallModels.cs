@@ -447,6 +447,14 @@ public class TrancheDto
     public double? FixedCoupon { get; set; }
     public double? FloaterSpread { get; set; }
     public string? FloaterIndex { get; set; } // Libor1M, Sofr30Avg, etc.
+    /// <summary>
+    /// A Floating coupon's multiplier on its index: the coupon is
+    /// <c>FloaterSpread + index × ResetSlope</c>, then held within <see cref="Floor"/> and
+    /// <see cref="Cap"/>. An inverse floater states a negative one: "12.10% − (30-day Average
+    /// SOFR × 2)" is a <see cref="FloaterSpread"/> of 1210 (basis points) and a slope of −2.
+    /// Null or 0 is 1, a plain floater.
+    /// </summary>
+    public double? ResetSlope { get; set; }
     public double Cap { get; set; } = 100.0;
     public double Floor { get; set; } = 0.0;
     /// <summary>
