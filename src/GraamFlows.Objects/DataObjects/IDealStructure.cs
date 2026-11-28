@@ -17,6 +17,12 @@ public interface IDealStructure
     /// </summary>
     string? NotionalReference { get; }
 
+    /// <summary>
+    ///     A notional class that follows its classes at different shares of each: the share of each
+    ///     class its ExchangableTranche names. Null: one share, its original over theirs.
+    /// </summary>
+    IReadOnlyDictionary<string, double>? NotionalWeights { get; }
+
     PayFromEnum PayFromEnum { get; }
 }
 

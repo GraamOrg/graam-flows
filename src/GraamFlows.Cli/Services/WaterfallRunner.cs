@@ -236,7 +236,8 @@ public class WaterfallRunner
                     PayFrom = dsDto.PayFrom,
                     GroupNum = dsDto.GroupNum,
                     ExchangableTranche = dsDto.ExchangableTranche,
-                    ClassTags = dsDto.ClassTags
+                    ClassTags = dsDto.ClassTags,
+                    NotionalWeights = dsDto.NotionalWeights
                 };
                 deal.DealStructures.Add(ds);
             }
@@ -316,7 +317,8 @@ public class WaterfallRunner
                         SubordinationOrder = dsDto.SubordinationOrder,
                         PayFrom = dsDto.PayFrom,
                         GroupNum = dsDto.GroupNum,
-                        ExchangableTranche = dsDto.ExchangableTranche
+                        ExchangableTranche = dsDto.ExchangableTranche,
+                        NotionalWeights = dsDto.NotionalWeights
                     };
                     deal.DealStructures.Add(ds);
                 }
