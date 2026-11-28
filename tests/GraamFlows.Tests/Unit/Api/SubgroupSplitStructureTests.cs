@@ -203,13 +203,87 @@ public class SubgroupSplitStructureTests
     }
 
     [Fact]
-    public void A_subgroup_the_collateral_does_not_state_is_refused()
+    public void A_subgroup_no_row_states_has_no_collateral_and_is_refused()
     {
         Refusal(Request(SubgroupSplit(new List<Dictionary<string, double>>
         {
             new() { ["X"] = 60, ["Z"] = 20 },
             new() { ["X"] = 40, ["Z"] = 80 }
         }))).Should().Contain("subgroup Z, which the collateral does not state");
+    }
+
+    [Fact]
+    public void A_paid_off_subgroup_pays_its_legs_nothing_from_then_on()
+    {
+        // Y pays off in full in period 12 and states no row after it; X pays off in period 150.
+        var request = Request();
+        var rows = request.CollateralCashflows;
+        foreach (var (sub, last) in new[] { ("Y", 12), ("X", 150) })
+        {
+            var row = rows.Single(r => r.Subgroup == sub && r.Period == last);
+            row.UnscheduledPrincipal = row.BeginBalance - row.ScheduledPrincipal;
+            row.Balance = 0;
+            rows.RemoveAll(r => r.Subgroup == sub && r.Period > last);
+        }
+
+        var cf = Ok(request).TrancheCashflows;
+        var collateral = rows.GroupBy(r => r.Period).OrderBy(g => g.Key).ToList();
+        for (var i = 0; i < collateral.Count; i++)
+        {
+            var x = collateral[i].Single(r => r.Subgroup == "X");
+            var yp = collateral[i].Where(r => r.Subgroup == "Y").Sum(r => r.ScheduledPrincipal + r.UnscheduledPrincipal);
+            var xp = x.ScheduledPrincipal + x.UnscheduledPrincipal;
+            (Principal(cf["A"][i]) + Principal(cf["B"][i])).Should()
+                .BeApproximately(xp + yp, 0.01, $"period {i + 1}: every dollar is paid");
+            // While A holds more than its share, it is paid its share: from period 13 on, of X alone.
+            if (cf["A"][i].BeginBalance > 0.6 * xp + 0.2 * yp + 0.01)
+                Principal(cf["A"][i]).Should().BeApproximately(0.6 * xp + 0.2 * yp, 0.01, $"period {i + 1}");
+        }
+
+        (cf["A"].Sum(Principal) + cf["B"].Sum(Principal)).Should().BeApproximately(A + B, 0.01);
+    }
+
+    [Fact]
+    public void Each_source_is_conserved_every_period_and_over_the_run()
+    {
+        var cf = Ok(Request()).TrancheCashflows;
+        var paydown = Paydown();
+        var collected = 0.0;
+        var paid = 0.0;
+        for (var i = 0; i < paydown.Count; i++)
+        {
+            var (xp, yp, xs, ys) = paydown[i];
+            (cf["A"][i].ScheduledPrincipal + cf["B"][i].ScheduledPrincipal).Should()
+                .BeApproximately(xs + ys, 0.01, $"period {i + 1}: scheduled principal");
+            (cf["A"][i].UnscheduledPrincipal + cf["B"][i].UnscheduledPrincipal).Should()
+                .BeApproximately(xp - xs + (yp - ys), 0.01, $"period {i + 1}: unscheduled principal");
+            collected += xp + yp;
+            paid += Principal(cf["A"][i]) + Principal(cf["B"][i]);
+        }
+
+        paid.Should().BeApproximately(collected, 0.01);
+        collected.Should().BeApproximately(X + Y, 0.01);
+    }
+
+    [Fact]
+    public void A_group_with_no_subgroup_step_is_paid_as_before()
+    {
+        // The same collateral, stated by subgroup or as the group's rows, pays a waterfall with
+        // no SUBGROUP_SPLIT the same in every field of every period (to the rounding of summing
+        // the subgroups' rows in the engine rather than before it).
+        var prorata = new PayableStructureDto
+            { Type = "PRORATA", Children = new List<PayableStructureDto> { Single("A"), Single("B") } };
+        var bySubgroup = Ok(Request(prorata)).TrancheCashflows;
+        var asGroup = Ok(Request(prorata, bySubgroup: false)).TrancheCashflows;
+        foreach (var name in new[] { "A", "B" })
+        {
+            bySubgroup[name].Count.Should().Be(asGroup[name].Count);
+            for (var i = 0; i < asGroup[name].Count; i++)
+                foreach (var field in typeof(TrancheCashflowDto).GetProperties()
+                             .Where(p => p.PropertyType == typeof(double)))
+                    ((double)field.GetValue(bySubgroup[name][i])!).Should().BeApproximately(
+                        (double)field.GetValue(asGroup[name][i])!, 1e-6, $"{name} period {i + 1} {field.Name}");
+        }
     }
 
     [Fact]
