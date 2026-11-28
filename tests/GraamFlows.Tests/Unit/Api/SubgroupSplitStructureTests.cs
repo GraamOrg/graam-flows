@@ -203,13 +203,18 @@ public class SubgroupSplitStructureTests
     }
 
     [Fact]
-    public void A_subgroup_the_collateral_does_not_state_is_refused()
+    public void A_subgroup_with_no_row_in_a_period_paid_no_principal_in_it()
     {
-        Refusal(Request(SubgroupSplit(new List<Dictionary<string, double>>
+        // Subgroup Z has no collateral row at all: each leg is paid its share of X alone.
+        var cf = Ok(Request(SubgroupSplit(new List<Dictionary<string, double>>
         {
             new() { ["X"] = 60, ["Z"] = 20 },
             new() { ["X"] = 40, ["Z"] = 80 }
-        }))).Should().Contain("subgroup Z, which the collateral does not state");
+        }))).TrancheCashflows;
+        var (xp, yp, _, _) = Paydown()[0];
+        (Principal(cf["A"][0]) + Principal(cf["B"][0])).Should().BeApproximately(xp + yp, 0.01);
+        // Y is not named, so what it pays goes by the same proportion as X.
+        Principal(cf["A"][0]).Should().BeApproximately(0.6 * xp / (0.6 * xp + 0.4 * xp) * (xp + yp), 0.01);
     }
 
     [Fact]

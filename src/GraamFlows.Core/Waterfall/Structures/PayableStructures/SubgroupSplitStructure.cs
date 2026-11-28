@@ -18,7 +18,8 @@ namespace GraamFlows.Waterfall.Structures.PayableStructures;
 ///     </para>
 ///     <para>
 ///         The shares of each subgroup total 100. A leg that cannot take its share passes it to the
-///         legs still holding a balance, as <see cref="SplitStructure" /> does.
+///         legs still holding a balance, as <see cref="SplitStructure" /> does. A subgroup with no
+///         row in a period (its collateral paid off) paid no principal in it.
 ///     </para>
 /// </summary>
 public class SubgroupSplitStructure : SplitStructure
@@ -55,11 +56,6 @@ public class SubgroupSplitStructure : SplitStructure
         if (subgroups == null || subgroups.Count == 0)
             throw new InvalidOperationException(
                 "A SUBGROUP_SPLIT pays each subgroup's principal, and the collateral was not stated by subgroup.");
-        var unknown = _weights.SelectMany(w => w.Keys).Distinct().Where(s => !subgroups.ContainsKey(s)).ToList();
-        if (unknown.Count > 0)
-            throw new InvalidOperationException(
-                $"A SUBGROUP_SPLIT names subgroup {string.Join(", ", unknown)}, which the collateral does not state.");
-
         double Amount(SubgroupPrincipal p)
         {
             return kind switch
@@ -72,7 +68,9 @@ public class SubgroupSplitStructure : SplitStructure
         }
 
         var shares = _weights
-            .Select(w => w.Sum(kv => kv.Value / 100.0 * Amount(subgroups[kv.Key])))
+            // A subgroup with no row this period (its collateral paid off) paid no principal.
+            .Select(w => w.Sum(kv =>
+                kv.Value / 100.0 * (subgroups.TryGetValue(kv.Key, out var p) ? Amount(p) : 0.0)))
             .ToList();
         // No subgroup paid principal of this kind this period: the amount (if any) is split by
         // the legs' stated shares, so nothing handed to the split is left unpaid.
