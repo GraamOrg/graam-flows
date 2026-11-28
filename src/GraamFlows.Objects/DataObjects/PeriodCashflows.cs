@@ -62,6 +62,13 @@ public class PeriodCashflows
     ///     (<see cref="SubgroupPrincipal" />); null otherwise.
     /// </summary>
     public Dictionary<string, SubgroupPrincipal>? Subgroups { get; set; }
+
+    /// <summary>
+    ///     Every subgroup the group's collateral states in any period of the run (shared by its
+    ///     periods): a subgroup in it with no row this period was paid off; one not in it has no
+    ///     collateral.
+    /// </summary>
+    public IReadOnlySet<string>? StatedSubgroups { get; set; }
     public double ScheduledPrincipal { get; set; }
     public double Balance { get; set; }
     public double UnscheduledPrincipal { get; set; }
@@ -249,6 +256,7 @@ public class PeriodCashflows
         clone.AdditionalPurchaseFace = AdditionalPurchaseFace;
         clone.PurchaseDiscount = PurchaseDiscount;
         clone.Subgroups = SubgroupPrincipal.CloneMap(Subgroups);
+        clone.StatedSubgroups = StatedSubgroups;
         return clone;
     }
 

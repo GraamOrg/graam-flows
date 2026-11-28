@@ -787,6 +787,11 @@ public class WaterfallController : ControllerBase
             var merged = new CollateralCashflows(false);
             foreach (var cf in periodCashflows)
                 merged.AddPeriodCashflow(cf);
+            var stated = dtos.Where(d => !string.IsNullOrEmpty(d.Subgroup))
+                .GroupBy(d => d.GroupNum)
+                .ToDictionary(g => g.Key, g => (IReadOnlySet<string>)g.Select(d => d.Subgroup!).ToHashSet());
+            foreach (var cf in merged.PeriodCashflows)
+                cf.StatedSubgroups = stated.TryGetValue(cf.GroupNum, out var subs) ? subs : null;
             return merged;
         }
 
