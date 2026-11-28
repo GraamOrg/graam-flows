@@ -79,15 +79,25 @@ public abstract class BaseStructure : IWaterfall
                 if (double.IsNaN(proportion) || double.IsInfinity(proportion))
                     proportion = 0;
 
-                var usp = propClasses.Sum(pc => GetExchangeShare(pc.DynamicGroup, notionalClass, pc,
-                    pc.GetCashflow(cashflowDate).UnscheduledPrincipal));
-                var sp = propClasses.Sum(pc => GetExchangeShare(pc.DynamicGroup, notionalClass, pc,
-                    pc.GetCashflow(cashflowDate).ScheduledPrincipal));
-                var wd = propClasses.Sum(pc =>
-                    GetExchangeShare(pc.DynamicGroup, notionalClass, pc, pc.GetCashflow(cashflowDate).Writedown));
+                // A notional at a different share of each class it follows (notionalWeights):
+                // each class's principal and writedown at its own share; otherwise one share for
+                // all of them, the notional's original over theirs.
+                var weights = notionalClass.DealStructure.NotionalWeights;
+                double Weight(DynamicClass pc) => weights == null ? 1.0 : weights[pc.Tranche.TrancheName];
 
-                notionalClass.Pay(cashflowDate, usp * proportion, sp * proportion);
-                notionalClass.Writedown(cashflowDate, wd * proportion);
+                var usp = propClasses.Sum(pc => GetExchangeShare(pc.DynamicGroup, notionalClass, pc,
+                    pc.GetCashflow(cashflowDate).UnscheduledPrincipal) * Weight(pc));
+                var sp = propClasses.Sum(pc => GetExchangeShare(pc.DynamicGroup, notionalClass, pc,
+                    pc.GetCashflow(cashflowDate).ScheduledPrincipal) * Weight(pc));
+                var wd = propClasses.Sum(pc =>
+                    GetExchangeShare(pc.DynamicGroup, notionalClass, pc, pc.GetCashflow(cashflowDate).Writedown) *
+                    Weight(pc));
+
+                // With no weights, x * 1.0 is x exactly, so the sum and the one proportion are what
+                // they always were.
+                var classShare = weights == null ? proportion : 1.0;
+                notionalClass.Pay(cashflowDate, usp * classShare, sp * classShare);
+                notionalClass.Writedown(cashflowDate, wd * classShare);
 
                 // pay notionals from exchange shares
                 var exchShares = notionalClass.DynamicGroup.Deal.ExchShares

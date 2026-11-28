@@ -75,6 +75,7 @@ public static class UnifiedWaterfallBuilder
             // exchange-share pay-block doesn't also pay it — that double-counts.)
             if (payFrom == "Notional" && string.IsNullOrEmpty(exchangableTranche))
                 exchangableTranche = statedNotional ?? t.NotionalReference;
+            var weights = NotionalWeightsOf(t, payFrom, exchangableTranche);
             return new DealStructureDto
             {
                 ClassGroupName = t.TrancheName,
@@ -85,6 +86,7 @@ public static class UnifiedWaterfallBuilder
                 PayFrom = payFrom,
                 GroupNum = groupNum,
                 ExchangableTranche = exchangableTranche,
+                NotionalWeights = weights,
                 NotionalReference = payFrom == "Exchange" && exchangeComponents.ContainsKey(t.TrancheName)
                     ? ExchangeNotional(t, byName)
                     : null
@@ -107,6 +109,44 @@ public static class UnifiedWaterfallBuilder
     ///         400s before this was deployed.
     ///     </para>
     /// </summary>
+    /// <summary>
+    ///     The share of each class a notional class follows (<see cref="TrancheDto.NotionalWeights" />),
+    ///     checked against the classes it follows, or null when it states none. Refused: weights on
+    ///     a class not paid on a notional, on a collateral reference ("GROUP_1", "SUBGROUP_1B"), a
+    ///     class it follows with no weight (never taken as 1), a weight on a class it does not
+    ///     follow, and a weight that is not a positive number.
+    /// </summary>
+    private static Dictionary<string, double>? NotionalWeightsOf(TrancheDto t, string payFrom, string? followed)
+    {
+        if (t.NotionalWeights == null || t.NotionalWeights.Count == 0)
+            return null;
+        if (payFrom != "Notional")
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states notionalWeights but is paid '{payFrom}', not on a notional.");
+        var refs = (followed ?? "").Split(',').Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
+        if (refs.FirstOrDefault(r => r.StartsWith("GROUP_", StringComparison.Ordinal) ||
+                                     r.StartsWith("SUBGROUP_", StringComparison.Ordinal)) is { } pool)
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states notionalWeights on '{pool}', a collateral reference: a notional " +
+                "on collateral follows it from the share it began the period at, and takes no weight.");
+        var missing = refs.Where(r => !t.NotionalWeights.ContainsKey(r)).ToList();
+        if (missing.Count > 0)
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states notionalWeights with none for {string.Join(", ", missing)}, which " +
+                "its notional follows. State every class's share; none is taken as 1.");
+        var extra = t.NotionalWeights.Keys.Where(k => !refs.Contains(k)).ToList();
+        if (extra.Count > 0)
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states notionalWeights for {string.Join(", ", extra)}, which its " +
+                $"notionalReference ('{followed}') does not name.");
+        if (t.NotionalWeights.FirstOrDefault(kv => !(kv.Value > 0) || double.IsInfinity(kv.Value)) is
+            { Key: not null } bad)
+            throw new InvalidOperationException(
+                $"'{t.TrancheName}' states a notional weight of {bad.Value} for {bad.Key}: a share is a " +
+                "positive number.");
+        return new Dictionary<string, double>(t.NotionalWeights);
+    }
+
     private static string? ExchangeNotional(TrancheDto t, IReadOnlyDictionary<string, TrancheDto> byName)
     {
         var refs = (t.NotionalReference ?? "").Split(',')

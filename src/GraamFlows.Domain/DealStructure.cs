@@ -20,6 +20,8 @@ public class DealStructure : IDealStructure
 
     public string? NotionalReference { get; set; }
 
+    public IReadOnlyDictionary<string, double>? NotionalWeights { get; set; }
+
     public PayFromEnum PayFromEnum
     {
         get
