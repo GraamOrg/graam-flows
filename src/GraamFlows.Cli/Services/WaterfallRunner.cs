@@ -189,6 +189,7 @@ public class WaterfallRunner
                 CouponType = trancheDto.CouponType,
                 FixedCoupon = trancheDto.FixedCoupon ?? 0,
                 FloaterSpread = trancheDto.FloaterSpread ?? 0,
+                ResetSlope = trancheDto.ResetSlope ?? 0,
                 FloaterIndex = trancheDto.FloaterIndex,
                 Cap = trancheDto.Cap,
                 Floor = trancheDto.Floor,

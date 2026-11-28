@@ -92,6 +92,11 @@ namespace GraamFlows.RulesEngine
         public double swap_20y => _rateProvider.GetRate(MarketDataInstEnum.Swap20Y, _cfDate);
         public double swap_25y => _rateProvider.GetRate(MarketDataInstEnum.Swap25Y, _cfDate);
         public double swap_30y => _rateProvider.GetRate(MarketDataInstEnum.Swap30Y, _cfDate);
+        // The SOFR averages, for a coupon formula conditioned on the index ("If 30-day Average SOFR
+        // <= 4.40%: SOFR + 6.40%; if above: 0.00%"), which a Floating coupon cannot state.
+        public double sofr_30avg => _rateProvider.GetRate(MarketDataInstEnum.Sofr30Avg, _cfDate);
+        public double sofr_90avg => _rateProvider.GetRate(MarketDataInstEnum.Sofr90Avg, _cfDate);
+        public double sofr_180avg => _rateProvider.GetRate(MarketDataInstEnum.Sofr180Avg, _cfDate);
 
         public void Reset(RulesResults rulesResults, List<TriggerValue> triggerResults, DynamicGroup dynGroup, PeriodCashflows periodCf, IEnumerable<DynamicClass> payRuleClass)
         {
